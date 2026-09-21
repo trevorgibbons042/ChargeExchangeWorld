@@ -1,0 +1,4 @@
+/Users/trevorg04/G4ChargeExchange/build/CMakeFiles/sim.dir
+/Users/trevorg04/G4ChargeExchange/build/CMakeFiles/g4outline.dir
+/Users/trevorg04/G4ChargeExchange/build/CMakeFiles/edit_cache.dir
+/Users/trevorg04/G4ChargeExchange/build/CMakeFiles/rebuild_cache.dir

@@ -1,0 +1,3 @@
+/Users/trevorg04/G4ChargeExchange/work/close-check/build/CMakeFiles/close_check.dir
+/Users/trevorg04/G4ChargeExchange/work/close-check/build/CMakeFiles/edit_cache.dir
+/Users/trevorg04/G4ChargeExchange/work/close-check/build/CMakeFiles/rebuild_cache.dir

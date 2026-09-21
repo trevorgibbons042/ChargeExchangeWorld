@@ -1,0 +1,11 @@
+/run/initialize
+/vis/open OGL
+/vis/drawVolume
+/vis/viewer/set/autorefresh true
+/vis/scene/add/trajectories smooth
+/vis/scene/endOfEventAction accumulate
+/vis/scene/add/scale 10 cm
+/vis/scene/add/eventID
+/tracking/verbose 1
+/vis/filtering/trajectories/create/particleFilter
+/vis/filtering/trajectories/particleFilter-0/invert true

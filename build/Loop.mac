@@ -1,0 +1,2 @@
+/run/initialize
+/control/loop PolarizationMacro.mac loopvar -1 18 1
