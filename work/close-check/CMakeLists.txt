@@ -1,0 +1,7 @@
+cmake_minimum_required(VERSION 3.16)
+project(CloseCheck LANGUAGES CXX)
+find_package(Geant4 REQUIRED)
+include(${Geant4_USE_FILE})
+add_executable(close_check check.cc ../../1cc/7run.cc)
+target_include_directories(close_check PRIVATE ../../2hh)
+target_link_libraries(close_check PRIVATE ${Geant4_LIBRARIES})

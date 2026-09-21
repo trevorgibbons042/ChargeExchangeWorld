@@ -1,0 +1,3 @@
+/run/initialize
+/Polarization/PPIndex 1
+/run/beamOn 100000
