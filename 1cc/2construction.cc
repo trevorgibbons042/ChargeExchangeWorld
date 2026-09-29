@@ -1,19 +1,28 @@
 #include "2construction.hh"
+#include "Randomize.hh"
+#include "G4SDManager.hh"
 
 MyDetectorConstruction::MyDetectorConstruction()
 {
     ////Messengar. allows us to make customized gui commands (like change number of rows on detector)    
-    //fMessenger = new G4GenericMessenger(this, "/detector/", "Detector Construction");
-    //fMessenger->DeclareProperty("nCols", nCols, "Number of columns");
-    //fMessenger->DeclareProperty("nRows", nRows, "Number of rows");
-    //nCols = 10; //default values
-    //nRows = 10;
+    fMessenger = new G4GenericMessenger(this, "/detector/", "Detector Construction");
+    fMessenger->DeclareProperty("nCols", nCols, "Number of columns");
+    fMessenger->DeclareProperty("nRows", nRows, "Number of rows");
+    fMessenger->DeclareProperty("nBlocks", nBlocks, "Number of Blocks");
+    fMessenger->DeclareProperty("randPosDetector", randPosDetector, "Is detector in random position?");
+
+    //default values
+    nBlocks = 20;
+    nCols = 9;
+    nRows = 9;
 
     DefineMaterial();
 }
 
 MyDetectorConstruction::~MyDetectorConstruction()
-{}
+{
+    delete fMessenger;
+}
 
 void MyDetectorConstruction::DefineMaterial(){
     //sets up material manager
@@ -28,7 +37,7 @@ void MyDetectorConstruction::DefineMaterial(){
     worldMat->SetMaterialPropertiesTable(mptWorld);
 
     //Charge Exchange material
-    CMat = nist->FindOrBuildMaterial("G4_C");
+    CMat = nist->FindOrBuildMaterial("G4_POLYETHYLENE");
 }
 
 G4VPhysicalVolume *MyDetectorConstruction::Construct() //defines volume and material
@@ -43,25 +52,59 @@ G4VPhysicalVolume *MyDetectorConstruction::Construct() //defines volume and mate
     //world volume calculations, all values are half of width
     G4double xWorld = 0.5*m;
     G4double yWorld = 0.5*m;
-    G4double zWorld = 0.5*m;
+    G4double zWorld = 26*m;
     solidWorld = new G4Box("solidWorld", xWorld, yWorld, zWorld);
     logicWorld = new G4LogicalVolume(solidWorld, worldMat, "logicWorld");
     physWorld = new G4PVPlacement(0, G4ThreeVector(0. ,0. ,0. ), logicWorld, "physWorld", 0, false, 0, true); 
 
     //material
-    G4Box *solidMat = new G4Box("solidMat", 0.3*m,0.2*m,0.1*m);
-    G4LogicalVolume *logicMat = new G4LogicalVolume(solidMat, CMat, "logicMat");
-    G4VPhysicalVolume *physMat = new G4PVPlacement(0, G4ThreeVector(0*m,0*m,0.25*m), logicMat, "physMat", logicWorld, false, 0, true);
+    G4double totalX = 1.0 * m;
+    G4double totalY = 1.0 * m;
+    G4double cellX = totalX / nCols;
+    G4double cellY = totalY / nRows;
 
-    ////for 9stepping.cc
-    //fScoringVolume = logicRadiator;
+    solidMat = new G4Box("solidMat", cellX / 2.0,cellY / 2.0,0.05 * m);
+    logicMat = new G4LogicalVolume(solidMat, CMat, "logicMat");
+
+    for (G4int i = 0; i < nBlocks; i++) {
+        G4double z = 25.0 * m * (i + 1) / nBlocks;
+        for (G4int row = 0; row < nRows; row++) {
+            for (G4int col = 0; col < nCols; col++) {
+                G4double x = -totalX / 2.0+ cellX / 2.0 + col * cellX;
+                G4double y = -totalY / 2.0 + cellY / 2.0 + row * cellY;
+                G4int copyNo =i*nRows*nCols + row*nCols + col;
+                physMat = new G4PVPlacement(0, G4ThreeVector(x, y, z),logicMat,"physMat",
+                logicWorld,false,copyNo, true);
+            }
+        }
+    }
+
+    G4double randX = 0;
+    G4double randY = 0;
+    G4double randZ = 0;
+
+    if (randPosDetector == 1){
+        randX = G4RandGauss::shoot(0, 0.5*mm);
+        randY = G4RandGauss::shoot(0, 0.5*mm);
+        randZ = G4RandGauss::shoot(0, 0.5*cm);
+    }
+
+    G4ThreeVector detectorPos = G4ThreeVector(randX,randY, randZ+25.2*m);
+
+    solidDetector = new G4Box("solidDetector", 0.49*m, 0.49*m, 0.1*m);
+    logicDetector = new G4LogicalVolume(solidDetector, CMat, "logicDetector");
+    physDetector = new G4PVPlacement(0, detectorPos, logicDetector,"physDetector",
+                    logicWorld,false,0, true);
 
     return physWorld;
 }
 
 //this for making the detector (need here b/c we gonna use it to find boundaries)
 void MyDetectorConstruction::ConstructSDandField(){
-    ////For 6detector.cc
-    //MySensitiveDetector *sensDet = new MySensitiveDetector("SensitiveDetector");
-    //logicDetector->SetSensitiveDetector(sensDet);
+    MySensitiveDetector* sensDet = new MySensitiveDetector("SensitiveDetector");
+
+    G4SDManager::GetSDMpointer()->AddNewDetector(sensDet);
+
+    logicMat->SetSensitiveDetector(sensDet);
+    logicDetector->SetSensitiveDetector(sensDet);
 }

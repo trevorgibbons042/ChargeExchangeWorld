@@ -17,13 +17,14 @@ MySteppingAction::MySteppingAction(MyEventAction *eventAction)
 MySteppingAction::~MySteppingAction(){
 };
 
-void MySteppingAction::UserSteppingAction(const G4Step *step){
+void MySteppingAction::UserSteppingAction(const G4Step *step){    
     G4AnalysisManager *man = G4AnalysisManager::Instance();
     ////Go the volume where the step is happening
     //G4LogicalVolume *volume = step->GetPreStepPoint()->GetTouchableHandle()->GetVolume()->GetLogicalVolume();
 
     ////Get the detector geometry
-    //const MyDetectorConstruction *detectorConstruction = static_cast<const MyDetectorConstruction*> (G4RunManager::GetRunManager()->GetUserDetectorConstruction());
+    //const MyDetectorConstruction *detectorConstruction = 
+    //static_cast<const MyDetectorConstruction*> (G4RunManager::GetRunManager()->GetUserDetectorConstruction());
     
     ////Set scoring volume (the volume that records energy data) equal to detector geometry
     //G4LogicalVolume *fScoringVolume = detectorConstruction->GetScoringVolume();
@@ -35,11 +36,11 @@ void MySteppingAction::UserSteppingAction(const G4Step *step){
 
     G4Track* track = step->GetTrack();
     G4int id = track->GetTrackID();
+    G4int ParentID = track->GetParentID();
     G4double charge = track->GetParticleDefinition()->GetPDGCharge();
     G4double pdg = track->GetParticleDefinition()->GetPDGEncoding();
     auto* vis = G4VVisManager::GetConcreteInstance();
     G4double Kenergy = track->GetKineticEnergy();
-    G4double ParentID = track->GetParentID();
     G4VisAttributes textVis;
 
     // Only the original primary particle
@@ -49,22 +50,6 @@ void MySteppingAction::UserSteppingAction(const G4Step *step){
     const G4HadronicProcess* process =
     dynamic_cast<const G4HadronicProcess*>
     (step->GetPostStepPoint()->GetProcessDefinedStep());
-
-    //World Boundary Values
-    if (post->GetStepStatus() == fWorldBoundary){
-        G4int evt = G4RunManager::GetRunManager()->GetCurrentEvent()->GetEventID();
-        G4ThreeVector posTrue = post->GetPosition();
-
-        man->FillNtupleIColumn(0, 0, evt); //for "Hits"
-        man->FillNtupleDColumn(0, 1, posTrue[0]); //for fX
-        man->FillNtupleDColumn(0, 2, posTrue[1]); //for fY
-        man->FillNtupleDColumn(0, 3, posTrue[2]); //for fZ
-        man->FillNtupleIColumn(0, 4, pdg);
-        man->FillNtupleIColumn(0, 5, Kenergy);
-        man->FillNtupleIColumn(0, 6, id);
-        man->FillNtupleIColumn(0, 7, ParentID);
-        man->AddNtupleRow(0);
-    }
 
     //Charge Exchange Process Values
     if(process != nullptr){
@@ -84,37 +69,18 @@ void MySteppingAction::UserSteppingAction(const G4Step *step){
         if (modelNP != nullptr){
             G4ThreeVector reactionPosition = step->GetPostStepPoint()->GetPosition();
             man->FillNtupleIColumn(1, 0, evt);
-            man->FillNtupleDColumn(1, 1, modelNP->GetLastphinew());
-            man->FillNtupleDColumn(1, 2, modelNP->GetLasttheta());
-            man->FillNtupleDColumn(1, 3, modelNP->GetLastmomentum());
-            man->FillNtupleDColumn(1, 4, reactionPosition.getX());
-            man->FillNtupleDColumn(1, 5, reactionPosition.getY());
-            man->FillNtupleDColumn(1, 6, reactionPosition.getZ());
-            man->FillNtupleDColumn(1, 7, 1);
-            man->FillNtupleDColumn(1, 8, id);
+            man->FillNtupleDColumn(1, 1, id);
+            man->FillNtupleDColumn(1, 2, 1);
+            man->FillNtupleDColumn(1, 3, reactionPosition.getX());
+            man->FillNtupleDColumn(1, 4, reactionPosition.getY());
+            man->FillNtupleDColumn(1, 5, reactionPosition.getZ());
+            man->FillNtupleDColumn(1, 6, modelNP->GetLastphinew());
+            man->FillNtupleDColumn(1, 7, modelNP->GetLasttheta());
+            man->FillNtupleDColumn(1, 8, modelNP->GetLastmomentum());
             man->AddNtupleRow(1);
         }
     }
 
-
-    /*
-    if (process->GetProcessName() == "neutronChargeExNP" && track->GetDefinition()->GetPDGEncoding() == 2112) {
-        G4cout << "Killing incoming primary after momentum change"
-               << " TrackID=" << track->GetTrackID()
-               << G4endl;
-        track->SetTrackStatus(fStopAndKill);
-    }
-    else if (process == nullptr) {return;}
-    */
-
-    /*
-    if (process->GetProcessName() == "hadElastic" && deltaP > 0) {
-        G4cout << "Killing incoming primary after elastic"
-            << " TrackID=" << track->GetTrackID()
-            << G4endl;
-        track->SetTrackStatus(fStopAndKill);
-    }
-    */
 
     //labeling
     /*

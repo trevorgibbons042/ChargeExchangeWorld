@@ -142,6 +142,30 @@ g4outline/fast:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/g4outline.dir/build.make CMakeFiles/g4outline.dir/build
 .PHONY : g4outline/fast
 
+1cc/10tracking.o: 1cc/10tracking.cc.o
+.PHONY : 1cc/10tracking.o
+
+# target to build an object file
+1cc/10tracking.cc.o:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/sim.dir/build.make CMakeFiles/sim.dir/1cc/10tracking.cc.o
+.PHONY : 1cc/10tracking.cc.o
+
+1cc/10tracking.i: 1cc/10tracking.cc.i
+.PHONY : 1cc/10tracking.i
+
+# target to preprocess a source file
+1cc/10tracking.cc.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/sim.dir/build.make CMakeFiles/sim.dir/1cc/10tracking.cc.i
+.PHONY : 1cc/10tracking.cc.i
+
+1cc/10tracking.s: 1cc/10tracking.cc.s
+.PHONY : 1cc/10tracking.s
+
+# target to generate assembly for a file
+1cc/10tracking.cc.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/sim.dir/build.make CMakeFiles/sim.dir/1cc/10tracking.cc.s
+.PHONY : 1cc/10tracking.cc.s
+
 1cc/2construction.o: 1cc/2construction.cc.o
 .PHONY : 1cc/2construction.o
 
@@ -368,6 +392,9 @@ help:
 	@echo "... rebuild_cache"
 	@echo "... g4outline"
 	@echo "... sim"
+	@echo "... 1cc/10tracking.o"
+	@echo "... 1cc/10tracking.i"
+	@echo "... 1cc/10tracking.s"
 	@echo "... 1cc/2construction.o"
 	@echo "... 1cc/2construction.i"
 	@echo "... 1cc/2construction.s"

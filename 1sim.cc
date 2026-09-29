@@ -10,15 +10,18 @@
 #include "3physics.hh"
 #include "4action.hh"
 #include "6detector.hh"
+#include "10tracking.hh"
 #include "G4HadronicParameters.hh"
+#include "G4RunManagerFactory.hh"
 
 int main(int argc, char** argv)
 { 
-    G4RunManager *runManager = new G4RunManager(); //initalizes for all
+    auto* runManager = G4RunManagerFactory::CreateRunManager();
+    if (auto* mtRunManager = dynamic_cast<G4MTRunManager*>(runManager)) {mtRunManager->SetNumberOfThreads(128);}
+
     runManager->SetUserInitialization(new MyDetectorConstruction()); //construction.cc stuff
     runManager->SetUserInitialization(new MyPhysicsList()); //physics.cc stuff
     runManager->SetUserInitialization(new MyActionInitialization()); //action.cc stuff
-    //no need to load generator as its with action
 
     runManager->Initialize(); //STARTS IT UP!, get rid of particles arent there
     
@@ -53,10 +56,11 @@ int main(int argc, char** argv)
         UImanager->ApplyCommand(command+fileName);
     }; //when you use ./sim [file].mac, runs file.mac
 
-    if (ui != nullptr) {
+    if (ui != nullptr){
     ui->SessionStart();
     delete ui;
     }
+
     delete runManager;
     return 0;
 }

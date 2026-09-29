@@ -1,5 +1,6 @@
 #include "5generator.hh"
-
+#include "G4SystemOfUnits.hh"
+#include "G4PhysicalConstants.hh"
 #include "Randomize.hh"
 
 MyPrimaryGenerator::MyPrimaryGenerator()
@@ -9,7 +10,11 @@ MyPrimaryGenerator::MyPrimaryGenerator()
     fMessenger->DeclareProperty("PPIndex", PPIndex, "Polarization Percentage Index Number");
     fMessenger->DeclareMethod("PrintPolarization", &MyPrimaryGenerator::PrintPolarization, "Printing Polarization from Polarization Index");
     fMessenger->DeclareMethod("PrintPPIndex", &MyPrimaryGenerator::PrintPPIndex, "Print PPIndex");
-    
+
+    fMessenger = new G4GenericMessenger(this, "/randGun/", "random Gun Properties");
+    fMessenger->DeclareProperty("randPAngle", randPAngle, "Is random angle on?");
+    fMessenger->DeclareProperty("randPos", randPos, "Is random position on?");
+
     //number of particles per event (can do 1 run with bunch of events tho)
     fParticleGun = new G4ParticleGun(1);
 
@@ -17,13 +22,6 @@ MyPrimaryGenerator::MyPrimaryGenerator()
     G4ParticleTable *particleTable = G4ParticleTable::GetParticleTable();
     G4String particleName = "neutron";
     G4ParticleDefinition *particle = particleTable->FindParticle("neutron");
-
-    //inital position and direction
-    G4ThreeVector pos(0. ,0. , 0. );
-    G4ThreeVector mom(0., 0. , 1. );
-
-    fParticleGun->SetParticlePosition(pos);
-    fParticleGun->SetParticleMomentumDirection(mom);
 
     //sets momentum
     fParticleGun->SetParticleMomentum(25*GeV);
@@ -39,8 +37,33 @@ MyPrimaryGenerator::~MyPrimaryGenerator()
 void MyPrimaryGenerator::GeneratePrimaries(G4Event *anEvent)
 {
     //put here if u want all runs to be the same, only ran with run starts
-    G4ThreeVector polarization;
-    G4double PPNumber;
+    G4ThreeVector polarization(0,0,0);
+
+    G4double theta = 0;
+    G4double phi = 0;
+    G4double randX = 0;
+    G4double randY = 0;
+    G4double randZ = 0;
+
+    if (randPAngle == 1){
+    theta = .005*G4UniformRand();
+    phi = twopi*G4UniformRand();
+    }
+
+    G4ThreeVector mom(std::sin(theta)*std::cos(phi),
+                std::sin(theta)*std::sin(phi),
+                cos(theta));
+
+    if (randPos == 1){
+    randX = G4RandGauss::shoot(0, 0.011/2)*mm;
+    randY = G4RandGauss::shoot(0, 0.006/2)*mm;
+    randZ = G4RandGauss::shoot(0, 3/2)*cm;
+    }
+
+    G4ThreeVector pos(randX, randY, randZ);
+
+    fParticleGun->SetParticlePosition(pos);
+    fParticleGun->SetParticleMomentumDirection(mom);
 
     if (PolarizationIndex > -1){
         polarization = polarizationTable.at(PolarizationIndex);

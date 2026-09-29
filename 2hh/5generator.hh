@@ -50,6 +50,8 @@ private:
 
     G4int PolarizationIndex = -1;
     G4int PPIndex = -1;
+    G4int randPos = -1;
+    G4int randPAngle = -1;
 };
 
 #endif
