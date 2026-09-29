@@ -1,4 +1,6 @@
 file(REMOVE_RECURSE
+  "CMakeFiles/sim.dir/1cc/10tracking.cc.o"
+  "CMakeFiles/sim.dir/1cc/10tracking.cc.o.d"
   "CMakeFiles/sim.dir/1cc/2construction.cc.o"
   "CMakeFiles/sim.dir/1cc/2construction.cc.o.d"
   "CMakeFiles/sim.dir/1cc/3physics.cc.o"

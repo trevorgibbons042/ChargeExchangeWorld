@@ -17,7 +17,7 @@ public:
     MySensitiveDetector(G4String);
     ~MySensitiveDetector();
 private:
-    virtual G4bool ProcessHits(G4Step *, G4TouchableHistory *);
+    virtual G4bool ProcessHits(G4Step *, G4TouchableHistory *) override;
 
     //adding in detector efficency
     G4PhysicsOrderedFreeVector *quEff;

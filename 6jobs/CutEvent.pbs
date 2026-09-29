@@ -1,0 +1,25 @@
+#!/bin/bash -l
+#PBS -A eic
+#PBS -N CutEvent
+
+#PBS -l select=1:ncpus=128
+#PBS -l walltime=12:00:00
+#PBS -j oe
+
+#PBS -m bea
+#PBS -M tgibbons@anl.gov
+
+cd /lcrc/project/eic/tgibbons/G4ChargeExchange/build/root/results/
+
+module load root
+export LD_LIBRARY_PATH=/lcrc/project/eic/tgibbons/xxhash-install/lib:$LD_LIBRARY_PATH
+
+echo Jobid: $PBS_JOBID
+echo Running on host `hostname`
+echo Running on nodes `cat $PBS_NODEFILE`
+
+root -l -b -q /lcrc/project/eic/tgibbons/G4ChargeExchange/build/root/results/CutEvents.cpp
+root -l -b -q /lcrc/project/eic/tgibbons/G4ChargeExchange/build/root/results/CutboundaryType.cpp
+root -l -b -q /lcrc/project/eic/tgibbons/G4ChargeExchange/build/root/results/ReconAngle.cpp
+root -l -b -q /lcrc/project/eic/tgibbons/G4ChargeExchange/build/root/results/Plot3D.cpp
+root -l -b -q /lcrc/project/eic/tgibbons/G4ChargeExchange/build/root/results/PlotAngle.cpp

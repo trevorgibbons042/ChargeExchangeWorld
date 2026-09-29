@@ -26,6 +26,7 @@ public:
     ~MyDetectorConstruction();
 
     virtual G4VPhysicalVolume *Construct();
+    G4ThreeVector GetDetectorPosition() const{return detectorPosition;}
 
     ////Needs to be accessed by 9stepping.cc
     //G4LogicalVolume *GetScoringVolume() const {return fScoringVolume;}
@@ -36,15 +37,19 @@ private:
     
     ////messengar stuff
     G4GenericMessenger *fMessenger;
-    G4int nCols, nRows;
+    G4int nCols, nRows, nBlocks;
 
     ////Defining World
     G4NistManager *nist;
     G4Material *worldMat, *CMat;
     G4MaterialPropertiesTable *mptWorld;
-    G4Box *solidWorld;
-    G4LogicalVolume *logicWorld;
-    G4VPhysicalVolume *physWorld;
+    
+    G4Box *solidWorld, *solidMat, *solidDetector;
+    G4LogicalVolume *logicWorld, *logicMat, *logicDetector;
+    G4VPhysicalVolume *physWorld, *physMat, *physDetector;
+    G4ThreeVector detectorPosition;
+
+    G4int randPosDetector = -1;
 
     ////Detector Defining
     //G4LogicalVolume *fScoringVolume, *logicDetector;

@@ -2,12 +2,12 @@ CMakeFiles/sim.dir/1cc/8event.cc.o: \
   /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/SDKSettings.json \
   /Users/trevorg04/G4ChargeExchange/1cc/8event.cc \
   /Users/trevorg04/G4ChargeExchange/2hh/8event.hh \
-  /Users/trevorg04/geant4-v11.4.0-install/include/Geant4/G4UserEventAction.hh \
-  /Users/trevorg04/geant4-v11.4.0-install/include/Geant4/G4Run.hh \
-  /Users/trevorg04/geant4-v11.4.0-install/include/Geant4/globals.hh \
-  /Users/trevorg04/geant4-v11.4.0-install/include/Geant4/G4ios.hh \
-  /Users/trevorg04/geant4-v11.4.0-install/include/Geant4/G4Types.hh \
-  /Users/trevorg04/geant4-v11.4.0-install/include/Geant4/G4GlobalConfig.hh \
+  /Users/trevorg04/geant4-11.4.1-install/include/Geant4/G4UserEventAction.hh \
+  /Users/trevorg04/geant4-11.4.1-install/include/Geant4/G4Run.hh \
+  /Users/trevorg04/geant4-11.4.1-install/include/Geant4/globals.hh \
+  /Users/trevorg04/geant4-11.4.1-install/include/Geant4/G4ios.hh \
+  /Users/trevorg04/geant4-11.4.1-install/include/Geant4/G4Types.hh \
+  /Users/trevorg04/geant4-11.4.1-install/include/Geant4/G4GlobalConfig.hh \
   /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/c++/v1/complex \
   /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/c++/v1/__config \
   /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/c++/v1/__config_site \
@@ -834,27 +834,27 @@ CMakeFiles/sim.dir/1cc/8event.cc.o: \
   /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/c++/v1/__fwd/stack.h \
   /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/c++/v1/print \
   /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/unistd.h \
-  /Users/trevorg04/geant4-v11.4.0-install/include/Geant4/tls.hh \
+  /Users/trevorg04/geant4-11.4.1-install/include/Geant4/tls.hh \
   /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/c++/v1/iostream \
-  /Users/trevorg04/geant4-v11.4.0-install/include/Geant4/G4String.hh \
-  /Users/trevorg04/geant4-v11.4.0-install/include/Geant4/G4String.icc \
-  /Users/trevorg04/geant4-v11.4.0-install/include/Geant4/templates.hh \
-  /Users/trevorg04/geant4-v11.4.0-install/include/Geant4/G4Exception.hh \
-  /Users/trevorg04/geant4-v11.4.0-install/include/Geant4/G4ExceptionSeverity.hh \
-  /Users/trevorg04/geant4-v11.4.0-install/include/Geant4/G4EnvironmentUtils.hh \
+  /Users/trevorg04/geant4-11.4.1-install/include/Geant4/G4String.hh \
+  /Users/trevorg04/geant4-11.4.1-install/include/Geant4/G4String.icc \
+  /Users/trevorg04/geant4-11.4.1-install/include/Geant4/templates.hh \
+  /Users/trevorg04/geant4-11.4.1-install/include/Geant4/G4Exception.hh \
+  /Users/trevorg04/geant4-11.4.1-install/include/Geant4/G4ExceptionSeverity.hh \
+  /Users/trevorg04/geant4-11.4.1-install/include/Geant4/G4EnvironmentUtils.hh \
   /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/c++/v1/iomanip \
   /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/c++/v1/map \
   /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/c++/v1/__tree \
   /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/c++/v1/__utility/lazy_synth_three_way_comparator.h \
   /Users/trevorg04/G4ChargeExchange/2hh/7run.hh \
-  /Users/trevorg04/geant4-v11.4.0-install/include/Geant4/G4UserRunAction.hh \
-  /Users/trevorg04/geant4-v11.4.0-install/include/Geant4/G4AnalysisManager.hh \
-  /Users/trevorg04/geant4-v11.4.0-install/include/Geant4/G4GenericAnalysisManager.hh \
-  /Users/trevorg04/geant4-v11.4.0-install/include/Geant4/G4ToolsAnalysisManager.hh \
-  /Users/trevorg04/geant4-v11.4.0-install/include/Geant4/G4VAnalysisManager.hh \
-  /Users/trevorg04/geant4-v11.4.0-install/include/Geant4/G4AnalysisManagerState.hh \
-  /Users/trevorg04/geant4-v11.4.0-install/include/Geant4/G4AnalysisVerbose.hh \
-  /Users/trevorg04/geant4-v11.4.0-install/include/Geant4/G4Threading.hh \
+  /Users/trevorg04/geant4-11.4.1-install/include/Geant4/G4UserRunAction.hh \
+  /Users/trevorg04/geant4-11.4.1-install/include/Geant4/G4AnalysisManager.hh \
+  /Users/trevorg04/geant4-11.4.1-install/include/Geant4/G4GenericAnalysisManager.hh \
+  /Users/trevorg04/geant4-11.4.1-install/include/Geant4/G4ToolsAnalysisManager.hh \
+  /Users/trevorg04/geant4-11.4.1-install/include/Geant4/G4VAnalysisManager.hh \
+  /Users/trevorg04/geant4-11.4.1-install/include/Geant4/G4AnalysisManagerState.hh \
+  /Users/trevorg04/geant4-11.4.1-install/include/Geant4/G4AnalysisVerbose.hh \
+  /Users/trevorg04/geant4-11.4.1-install/include/Geant4/G4Threading.hh \
   /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/c++/v1/chrono \
   /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/c++/v1/__chrono/file_clock.h \
   /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/c++/v1/forward_list \
@@ -869,7 +869,7 @@ CMakeFiles/sim.dir/1cc/8event.cc.o: \
   /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/c++/v1/__thread/thread.h \
   /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/c++/v1/thread \
   /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/c++/v1/__thread/this_thread.h \
-  /Users/trevorg04/geant4-v11.4.0-install/include/Geant4/G4AnalysisUtilities.hh \
+  /Users/trevorg04/geant4-11.4.1-install/include/Geant4/G4AnalysisUtilities.hh \
   /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/c++/v1/fstream \
   /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/c++/v1/__filesystem/path.h \
   /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/c++/v1/filesystem \
@@ -888,67 +888,70 @@ CMakeFiles/sim.dir/1cc/8event.cc.o: \
   /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/c++/v1/__filesystem/path_iterator.h \
   /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/c++/v1/__filesystem/recursive_directory_iterator.h \
   /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/c++/v1/__filesystem/u8path.h \
-  /Users/trevorg04/geant4-v11.4.0-install/include/Geant4/G4VTBaseHnManager.hh \
-  /Users/trevorg04/geant4-v11.4.0-install/include/Geant4/G4HnInformation.hh \
-  /Users/trevorg04/geant4-v11.4.0-install/include/Geant4/G4BinScheme.hh \
-  /Users/trevorg04/geant4-v11.4.0-install/include/Geant4/G4Fcn.hh \
-  /Users/trevorg04/geant4-v11.4.0-install/include/Geant4/G4VAnalysisManager.icc \
-  /Users/trevorg04/geant4-v11.4.0-install/include/Geant4/G4HnManager.hh \
-  /Users/trevorg04/geant4-v11.4.0-install/include/Geant4/G4BaseAnalysisManager.hh \
+  /Users/trevorg04/geant4-11.4.1-install/include/Geant4/G4VTBaseHnManager.hh \
+  /Users/trevorg04/geant4-11.4.1-install/include/Geant4/G4HnInformation.hh \
+  /Users/trevorg04/geant4-11.4.1-install/include/Geant4/G4BinScheme.hh \
+  /Users/trevorg04/geant4-11.4.1-install/include/Geant4/G4Fcn.hh \
+  /Users/trevorg04/geant4-11.4.1-install/include/Geant4/G4VAnalysisManager.icc \
+  /Users/trevorg04/geant4-11.4.1-install/include/Geant4/G4HnManager.hh \
+  /Users/trevorg04/geant4-11.4.1-install/include/Geant4/G4BaseAnalysisManager.hh \
   /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/c++/v1/set \
-  /Users/trevorg04/geant4-v11.4.0-install/include/Geant4/G4NtupleBookingManager.hh \
-  /Users/trevorg04/geant4-v11.4.0-install/include/Geant4/tools/ntuple_booking \
-  /Users/trevorg04/geant4-v11.4.0-install/include/Geant4/tools/cids \
-  /Users/trevorg04/geant4-v11.4.0-install/include/Geant4/tools/cid \
-  /Users/trevorg04/geant4-v11.4.0-install/include/Geant4/tools/typedefs \
-  /Users/trevorg04/geant4-v11.4.0-install/include/Geant4/tools/forit \
-  /Users/trevorg04/geant4-v11.4.0-install/include/Geant4/G4NtupleBookingManager.icc \
-  /Users/trevorg04/geant4-v11.4.0-install/include/Geant4/G4VNtupleManager.hh \
-  /Users/trevorg04/geant4-v11.4.0-install/include/Geant4/G4VFileManager.hh \
-  /Users/trevorg04/geant4-v11.4.0-install/include/Geant4/G4BaseFileManager.hh \
-  /Users/trevorg04/geant4-v11.4.0-install/include/Geant4/G4VTHnFileManager.hh \
-  /Users/trevorg04/geant4-v11.4.0-install/include/Geant4/G4TH1ToolsManager.hh \
-  /Users/trevorg04/geant4-v11.4.0-install/include/Geant4/G4THnToolsManager.hh \
-  /Users/trevorg04/geant4-v11.4.0-install/include/Geant4/G4THnManager.hh \
-  /Users/trevorg04/geant4-v11.4.0-install/include/Geant4/G4THnManager.icc \
-  /Users/trevorg04/geant4-v11.4.0-install/include/Geant4/G4AutoLock.hh \
-  /Users/trevorg04/geant4-v11.4.0-install/include/Geant4/G4THnMessenger.hh \
-  /Users/trevorg04/geant4-v11.4.0-install/include/Geant4/G4UImessenger.hh \
-  /Users/trevorg04/geant4-v11.4.0-install/include/Geant4/G4UIdirectory.hh \
-  /Users/trevorg04/geant4-v11.4.0-install/include/Geant4/G4UIcommand.hh \
-  /Users/trevorg04/geant4-v11.4.0-install/include/Geant4/G4ApplicationState.hh \
-  /Users/trevorg04/geant4-v11.4.0-install/include/Geant4/G4ThreeVector.hh \
-  /Users/trevorg04/geant4-v11.4.0-install/include/Geant4/CLHEP/Vector/ThreeVector.h \
-  /Users/trevorg04/geant4-v11.4.0-install/include/Geant4/CLHEP/Utility/defs.h \
-  /Users/trevorg04/geant4-v11.4.0-install/include/Geant4/CLHEP/Vector/ThreeVector.icc \
-  /Users/trevorg04/geant4-v11.4.0-install/include/Geant4/G4UIparameter.hh \
-  /Users/trevorg04/geant4-v11.4.0-install/include/Geant4/G4THnToolsManager.icc \
-  /Users/trevorg04/geant4-v11.4.0-install/include/Geant4/G4THnMessenger.icc \
-  /Users/trevorg04/geant4-v11.4.0-install/include/Geant4/G4Tokenizer.hh \
-  /Users/trevorg04/geant4-v11.4.0-install/include/Geant4/G4TH2ToolsManager.hh \
-  /Users/trevorg04/geant4-v11.4.0-install/include/Geant4/G4TH3ToolsManager.hh \
-  /Users/trevorg04/geant4-v11.4.0-install/include/Geant4/G4TP1ToolsManager.hh \
-  /Users/trevorg04/geant4-v11.4.0-install/include/Geant4/G4TP2ToolsManager.hh \
-  /Users/trevorg04/geant4-v11.4.0-install/include/Geant4/tools/histo/h1d \
-  /Users/trevorg04/geant4-v11.4.0-install/include/Geant4/tools/histo/h1 \
-  /Users/trevorg04/geant4-v11.4.0-install/include/Geant4/tools/histo/b1 \
-  /Users/trevorg04/geant4-v11.4.0-install/include/Geant4/tools/histo/base_histo \
-  /Users/trevorg04/geant4-v11.4.0-install/include/Geant4/tools/histo/histo_data \
-  /Users/trevorg04/geant4-v11.4.0-install/include/Geant4/tools/histo/axes \
-  /Users/trevorg04/geant4-v11.4.0-install/include/Geant4/tools/histo/axis \
-  /Users/trevorg04/geant4-v11.4.0-install/include/Geant4/tools/histo/../eqT \
-  /Users/trevorg04/geant4-v11.4.0-install/include/Geant4/tools/histo/h2d \
-  /Users/trevorg04/geant4-v11.4.0-install/include/Geant4/tools/histo/h2 \
-  /Users/trevorg04/geant4-v11.4.0-install/include/Geant4/tools/histo/b2 \
-  /Users/trevorg04/geant4-v11.4.0-install/include/Geant4/tools/histo/h3d \
-  /Users/trevorg04/geant4-v11.4.0-install/include/Geant4/tools/histo/h3 \
-  /Users/trevorg04/geant4-v11.4.0-install/include/Geant4/tools/histo/b3 \
-  /Users/trevorg04/geant4-v11.4.0-install/include/Geant4/tools/histo/p1d \
-  /Users/trevorg04/geant4-v11.4.0-install/include/Geant4/tools/histo/p1 \
-  /Users/trevorg04/geant4-v11.4.0-install/include/Geant4/tools/histo/profile_data \
-  /Users/trevorg04/geant4-v11.4.0-install/include/Geant4/tools/histo/p2d \
-  /Users/trevorg04/geant4-v11.4.0-install/include/Geant4/tools/histo/p2 \
-  /Users/trevorg04/geant4-v11.4.0-install/include/Geant4/G4ToolsAnalysisManager.icc \
-  /Users/trevorg04/geant4-v11.4.0-install/include/Geant4/G4GenericAnalysisManager.icc \
-  /Users/trevorg04/geant4-v11.4.0-install/include/Geant4/G4GenericFileManager.hh \
-  /Users/trevorg04/geant4-v11.4.0-install/include/Geant4/G4GenericFileManager.icc
+  /Users/trevorg04/geant4-11.4.1-install/include/Geant4/G4NtupleBookingManager.hh \
+  /Users/trevorg04/geant4-11.4.1-install/include/Geant4/tools/ntuple_booking \
+  /Users/trevorg04/geant4-11.4.1-install/include/Geant4/tools/cids \
+  /Users/trevorg04/geant4-11.4.1-install/include/Geant4/tools/cid \
+  /Users/trevorg04/geant4-11.4.1-install/include/Geant4/tools/typedefs \
+  /Users/trevorg04/geant4-11.4.1-install/include/Geant4/tools/forit \
+  /Users/trevorg04/geant4-11.4.1-install/include/Geant4/G4NtupleBookingManager.icc \
+  /Users/trevorg04/geant4-11.4.1-install/include/Geant4/G4VNtupleManager.hh \
+  /Users/trevorg04/geant4-11.4.1-install/include/Geant4/G4VFileManager.hh \
+  /Users/trevorg04/geant4-11.4.1-install/include/Geant4/G4BaseFileManager.hh \
+  /Users/trevorg04/geant4-11.4.1-install/include/Geant4/G4VTHnFileManager.hh \
+  /Users/trevorg04/geant4-11.4.1-install/include/Geant4/G4TH1ToolsManager.hh \
+  /Users/trevorg04/geant4-11.4.1-install/include/Geant4/G4THnToolsManager.hh \
+  /Users/trevorg04/geant4-11.4.1-install/include/Geant4/G4THnManager.hh \
+  /Users/trevorg04/geant4-11.4.1-install/include/Geant4/G4THnManager.icc \
+  /Users/trevorg04/geant4-11.4.1-install/include/Geant4/G4AutoLock.hh \
+  /Users/trevorg04/geant4-11.4.1-install/include/Geant4/G4THnMessenger.hh \
+  /Users/trevorg04/geant4-11.4.1-install/include/Geant4/G4UImessenger.hh \
+  /Users/trevorg04/geant4-11.4.1-install/include/Geant4/G4UIdirectory.hh \
+  /Users/trevorg04/geant4-11.4.1-install/include/Geant4/G4UIcommand.hh \
+  /Users/trevorg04/geant4-11.4.1-install/include/Geant4/G4ApplicationState.hh \
+  /Users/trevorg04/geant4-11.4.1-install/include/Geant4/G4ThreeVector.hh \
+  /Users/trevorg04/geant4-11.4.1-install/include/Geant4/CLHEP/Vector/ThreeVector.h \
+  /Users/trevorg04/geant4-11.4.1-install/include/Geant4/CLHEP/Utility/defs.h \
+  /Users/trevorg04/geant4-11.4.1-install/include/Geant4/CLHEP/Vector/ThreeVector.icc \
+  /Users/trevorg04/geant4-11.4.1-install/include/Geant4/G4UIparameter.hh \
+  /Users/trevorg04/geant4-11.4.1-install/include/Geant4/G4THnToolsManager.icc \
+  /Users/trevorg04/geant4-11.4.1-install/include/Geant4/G4THnMessenger.icc \
+  /Users/trevorg04/geant4-11.4.1-install/include/Geant4/G4Tokenizer.hh \
+  /Users/trevorg04/geant4-11.4.1-install/include/Geant4/G4TH2ToolsManager.hh \
+  /Users/trevorg04/geant4-11.4.1-install/include/Geant4/G4TH3ToolsManager.hh \
+  /Users/trevorg04/geant4-11.4.1-install/include/Geant4/G4TP1ToolsManager.hh \
+  /Users/trevorg04/geant4-11.4.1-install/include/Geant4/G4TP2ToolsManager.hh \
+  /Users/trevorg04/geant4-11.4.1-install/include/Geant4/tools/histo/h1d \
+  /Users/trevorg04/geant4-11.4.1-install/include/Geant4/tools/histo/h1 \
+  /Users/trevorg04/geant4-11.4.1-install/include/Geant4/tools/histo/b1 \
+  /Users/trevorg04/geant4-11.4.1-install/include/Geant4/tools/histo/base_histo \
+  /Users/trevorg04/geant4-11.4.1-install/include/Geant4/tools/histo/histo_data \
+  /Users/trevorg04/geant4-11.4.1-install/include/Geant4/tools/histo/axes \
+  /Users/trevorg04/geant4-11.4.1-install/include/Geant4/tools/histo/axis \
+  /Users/trevorg04/geant4-11.4.1-install/include/Geant4/tools/histo/../eqT \
+  /Users/trevorg04/geant4-11.4.1-install/include/Geant4/tools/histo/h2d \
+  /Users/trevorg04/geant4-11.4.1-install/include/Geant4/tools/histo/h2 \
+  /Users/trevorg04/geant4-11.4.1-install/include/Geant4/tools/histo/b2 \
+  /Users/trevorg04/geant4-11.4.1-install/include/Geant4/tools/histo/h3d \
+  /Users/trevorg04/geant4-11.4.1-install/include/Geant4/tools/histo/h3 \
+  /Users/trevorg04/geant4-11.4.1-install/include/Geant4/tools/histo/b3 \
+  /Users/trevorg04/geant4-11.4.1-install/include/Geant4/tools/histo/p1d \
+  /Users/trevorg04/geant4-11.4.1-install/include/Geant4/tools/histo/p1 \
+  /Users/trevorg04/geant4-11.4.1-install/include/Geant4/tools/histo/profile_data \
+  /Users/trevorg04/geant4-11.4.1-install/include/Geant4/tools/histo/p2d \
+  /Users/trevorg04/geant4-11.4.1-install/include/Geant4/tools/histo/p2 \
+  /Users/trevorg04/geant4-11.4.1-install/include/Geant4/G4ToolsAnalysisManager.icc \
+  /Users/trevorg04/geant4-11.4.1-install/include/Geant4/G4GenericAnalysisManager.icc \
+  /Users/trevorg04/geant4-11.4.1-install/include/Geant4/G4GenericFileManager.hh \
+  /Users/trevorg04/geant4-11.4.1-install/include/Geant4/G4GenericFileManager.icc \
+  /Users/trevorg04/geant4-11.4.1-install/include/Geant4/G4GenericMessenger.hh \
+  /Users/trevorg04/geant4-11.4.1-install/include/Geant4/G4AnyMethod.hh \
+  /Users/trevorg04/geant4-11.4.1-install/include/Geant4/G4AnyType.hh

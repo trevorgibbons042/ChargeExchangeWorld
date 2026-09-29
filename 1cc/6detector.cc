@@ -1,76 +1,120 @@
 #include "6detector.hh"
+#include "2construction.hh"
 
 MySensitiveDetector::MySensitiveDetector(G4String name) : G4VSensitiveDetector(name)
-{
-    ////Detector Efficency Input
-    ////1st colm: wavelength, 2nd colm: efficiency percentage (based on tests)
-    //quEff = new G4PhysicsOrderedFreeVector();
-    //std::ifstream datafile;
-    //datafile.open("4dat/1eff.dat");
-    //while(1){
-    //    G4double wlenPhoton, quef;
-    //    datafile >> wlenPhoton >> quef;
-    //    if(datafile.eof()){break;};
-    //    G4cout << wlenPhoton << " " << quef << G4endl;
-    //    quEff->InsertValues(wlenPhoton, quef/100);
-    //};
-    //datafile.close();
-
-};
+{};
 
 MySensitiveDetector::~MySensitiveDetector()
 {};
 
-G4bool MySensitiveDetector::ProcessHits(G4Step *aStep, G4TouchableHistory *ROhist)
-{
-    ////Gives info on track when entering volume and kills photons    
-    G4Track *track = aStep->GetTrack();
-
-    //track->SetTrackStatus(fStopAndKill);
-
-    ////Defining when photons enter and exit
-    G4StepPoint *preStepPoint = aStep->GetPreStepPoint();
-    G4StepPoint *postStepPoint = aStep->GetPostStepPoint();
-
-    ////1. finds wavelength of the photon 
-    //G4ThreeVector momPhoton = preStepPoint->GetMomentum();
-    //G4double magmomPhoton = momPhoton.mag();
-    //G4double wlenPhoton = (1.239841939*eV)/(magmomPhoton)*(1E+03);
-
-    ////2. Photon true position
-
-    ////3. Copy number (detector integer ID)
-    //const G4VTouchable *touchable = aStep->GetPreStepPoint()->GetTouchable(); //gets which are touching
-    //G4int copyNo = touchable->GetCopyNumber(); //puts that number into copyNo
-    //G4cout << "Copy number: " << copyNo << G4endl;
-
-    ////4. Position of Detector hit (from copy number)
-    //G4VPhysicalVolume *physVol = touchable->GetVolume(); //gets which are touching
-    //G4ThreeVector posDetector = physVol->GetTranslation(); //get which number detector it touched
-    //G4cout << "Detector position:" << posDetector << G4endl;
-
-    ////Root table pt2, NOTE - You need to create empty tables in 7run.cc
+G4bool MySensitiveDetector::ProcessHits(G4Step *aStep, G4TouchableHistory *ROhist){  
+    G4cout << "Testing Sensitive Detector" << G4endl;
     G4AnalysisManager *man = G4AnalysisManager::Instance();
-    G4int evt = G4RunManager::GetRunManager()->GetCurrentEvent()->GetEventID();
     
-    ////Position of Photons (in detector, with efficiency, check 7run.cc)
-    //if(G4UniformRand() < quEff->Value(wlenPhoton)){
-    //man->FillNtupleIColumn(0, 0, evt); //FillNtupleIColumn()
-    //man->FillNtupleDColumn(0, 1, posDetector[0]); //for fX
-    //man->FillNtupleDColumn(0, 2, posDetector[1]); //for fY
-    //man->FillNtupleDColumn(0, 3, posDetector[2]); //for fZ
-    //man->AddNtupleRow(0);
-    //};
+    G4int evt = G4RunManager::GetRunManager()->GetCurrentEvent()->GetEventID();
+    G4Track *track = aStep->GetTrack();
+    G4int trackID = track->GetTrackID();
+    G4int parentID = track->GetParentID();
+    G4int pdg = track->GetParticleDefinition()->GetPDGEncoding();
 
-    /*
-    ////Position of Photon (true position, check 7run.cc)
-    man->FillNtupleIColumn(0, 0, evt); //for "Hits"
-    man->FillNtupleDColumn(0, 1, posTrue[0]); //for fX
-    man->FillNtupleDColumn(0, 2, posTrue[1]); //for fY
-    man->FillNtupleDColumn(0, 3, posTrue[2]); //for fZ
-    //man->FillNtupleDColumn(0, 4, wlenPhoton); //for wavelength
-    man->AddNtupleRow(0);
-    */
+    G4StepPoint *pre = aStep->GetPreStepPoint();
+    G4StepPoint *post = aStep->GetPostStepPoint();
+
+    const G4VTouchable *touchable = aStep->GetPreStepPoint()->GetTouchable();
+    G4int copyNo = touchable->GetCopyNumber();
+    G4VPhysicalVolume *physVol = touchable->GetVolume();
+    G4String volumeName = physVol->GetName();
+
+    if (pre->GetStepStatus() == fGeomBoundary && 
+    volumeName == "physMat"){
+        G4ThreeVector Pos = pre->GetPosition();
+        G4ThreeVector Mom = pre->GetMomentum();
+        G4double KE       = pre->GetKineticEnergy();
+
+        man->FillNtupleIColumn(0, evt);
+        man->FillNtupleIColumn(1, trackID);
+        man->FillNtupleIColumn(2, parentID);
+        man->FillNtupleIColumn(3, copyNo);
+        man->FillNtupleIColumn(4, pdg);
+        man->FillNtupleIColumn(5, 0);
+        man->FillNtupleDColumn(6, Pos.x());
+        man->FillNtupleDColumn(7, Pos.y());
+        man->FillNtupleDColumn(8, Pos.z());
+        man->FillNtupleDColumn(9, Mom.x());
+        man->FillNtupleDColumn(10, Mom.y());
+        man->FillNtupleDColumn(11, Mom.z());
+        man->FillNtupleDColumn(12, KE);
+        man->AddNtupleRow(0);
+    }
+
+    if (post->GetStepStatus() == fGeomBoundary && 
+    volumeName == "physMat"){
+        G4ThreeVector Pos = post->GetPosition();
+        G4ThreeVector Mom = post->GetMomentum();
+        G4double KE       = post->GetKineticEnergy();
+    
+        man->FillNtupleIColumn(0, evt);
+        man->FillNtupleIColumn(1, trackID);
+        man->FillNtupleIColumn(2, parentID);
+        man->FillNtupleIColumn(3, copyNo);
+        man->FillNtupleIColumn(4, pdg);
+        man->FillNtupleIColumn(5, 1);
+        man->FillNtupleDColumn(6, Pos.x());
+        man->FillNtupleDColumn(7, Pos.y());
+        man->FillNtupleDColumn(8, Pos.z());
+        man->FillNtupleDColumn(9, Mom.x());
+        man->FillNtupleDColumn(10, Mom.y());
+        man->FillNtupleDColumn(11, Mom.z());
+        man->FillNtupleDColumn(12, KE);
+        man->AddNtupleRow(0);
+    }
+
+    if (pre->GetStepStatus() == fGeomBoundary && 
+    volumeName == "physDetector"){
+        G4ThreeVector Pos = pre->GetPosition();
+        G4ThreeVector Mom = pre->GetMomentum();
+        G4double KE       = pre->GetKineticEnergy();
+
+        man->FillNtupleIColumn(0, evt);
+        man->FillNtupleIColumn(1, trackID);
+        man->FillNtupleIColumn(2, parentID);
+        man->FillNtupleIColumn(3, copyNo);
+        man->FillNtupleIColumn(4, pdg);
+        man->FillNtupleIColumn(5, 2);
+        man->FillNtupleDColumn(6, Pos.x());
+        man->FillNtupleDColumn(7, Pos.y());
+        man->FillNtupleDColumn(8, Pos.z());
+        man->FillNtupleDColumn(9, Mom.x());
+        man->FillNtupleDColumn(10, Mom.y());
+        man->FillNtupleDColumn(11, Mom.z());
+        man->FillNtupleDColumn(12, KE);
+        man->AddNtupleRow(0);
+
+        auto detConstruction = static_cast<const MyDetectorConstruction*>(
+        G4RunManager::GetRunManager() ->GetUserDetectorConstruction());
+        G4ThreeVector detectorPos = detConstruction->GetDetectorPosition();
+
+        man->FillNtupleIColumn(2, 0, evt);
+        man->FillNtupleIColumn(2, 1, trackID);
+        man->FillNtupleIColumn(2, 2, parentID);
+        man->FillNtupleIColumn(2, 3, pdg);
+        man->FillNtupleDColumn(2, 4, std::atan2(Pos.y(), Pos.x()));
+        man->FillNtupleDColumn(2, 5, std::atan2(Pos.y()-detectorPos.y(), Pos.x()-detectorPos.x()));
+        man->FillNtupleDColumn(
+            2, 6, std::atan2(std::sqrt(Pos.x()*Pos.x() + Pos.y()*Pos.y()), Pos.z())
+        );
+        man->FillNtupleDColumn(
+            2, 7, std::atan2(
+                std::sqrt(
+            (Pos.x()-detectorPos.x())*(Pos.x()-detectorPos.x())
+            + (Pos.y()-detectorPos.y())*(Pos.y()-detectorPos.y())), 
+            (Pos.z()-detectorPos.z())
+            )
+        );
+        man->AddNtupleRow(2);
+
+        track->SetTrackStatus(fStopAndKill);
+    }
 
 return true;
 }

@@ -1,60 +1,62 @@
 #include "7run.hh"
+#include <filesystem>
+#include <sstream>
 
 MyRunAction::MyRunAction()
 {
+    fMessenger = new G4GenericMessenger(this, "/output/", "Output file settings");
+    fMessenger->DeclareProperty("folder", outputFolder, "Folder for ROOT output files");
+    
     //CREATING EMPTY TABLES
     G4AnalysisManager *man = G4AnalysisManager::Instance();
-
-    ////Position of Photons (in detector, with efficiency, for 6detector.cc)
-    /*
-    man->CreateNtuple("Hits", "Hits"); //name (internal ntuple name), title (descriptive title)
+    
+    //6detector.cc
+    man->CreateNtuple("ParticleInfo", "Position when Entering/Leaving Volume");
     man->CreateNtupleIColumn("fEvent");
-    man->CreateNtupleDColumn("fX");
-    man->CreateNtupleDColumn("fY");
-    man->CreateNtupleDColumn("fZ");
-    //man->CreateNtupleDColumn("fWlenPhoton");
-    man->FinishNtuple(0); //all this only creates the sections, no info yet
-    */
-    ////Position of Photon (true position, for 6detector.cc)
-    //man->CreateNtuple("Photons", "Photons");
-    //man->CreateNtupleIColumn("fEvent");
-    //man->CreateNtupleDColumn("fX");
-    //man->CreateNtupleDColumn("fY");
-    //man->CreateNtupleDColumn("fZ");
-    //man->CreateNtupleDColumn("fWlenPhoton");
-    //man->FinishNtuple(1);
-
-    ////Energy Deposition (for 8event.cc)
-    //man->CreateNtuple("Scoring", "Event");
-    //man->CreateNtupleDColumn("fEdep");
-    //man->FinishNtuple(2);
-
-    man->CreateNtuple("Hits", "Hits");
-    man->CreateNtupleIColumn("fEvent");
-    man->CreateNtupleDColumn("fX");
-    man->CreateNtupleDColumn("fY");
-    man->CreateNtupleDColumn("fZ");
-    man->CreateNtupleIColumn("pdg");
-    man->CreateNtupleIColumn("fKEnergy");
     man->CreateNtupleIColumn("TrackID");
     man->CreateNtupleIColumn("ParentID");
+    man->CreateNtupleIColumn("copyNo");
+    man->CreateNtupleIColumn("pdg");
+    man->CreateNtupleIColumn("boundaryType");
+    man->CreateNtupleDColumn("fX");
+    man->CreateNtupleDColumn("fY");
+    man->CreateNtupleDColumn("fZ");
+    man->CreateNtupleDColumn("momX");
+    man->CreateNtupleDColumn("momY");
+    man->CreateNtupleDColumn("momZ");
+    man->CreateNtupleDColumn("fKEnergy");
     man->FinishNtuple(0);
 
+    //9stepping.cc
     man->CreateNtuple("ChargeExchange_values", "ChargeExchange values");
     man->CreateNtupleIColumn("fEvent");
+    man->CreateNtupleDColumn("TrackID");
+    man->CreateNtupleDColumn("didChargeExchange");
+    man->CreateNtupleDColumn("fX");
+    man->CreateNtupleDColumn("fY");
+    man->CreateNtupleDColumn("fZ");
     man->CreateNtupleDColumn("LastPhi");
     man->CreateNtupleDColumn("LastTheta");
     man->CreateNtupleDColumn("LastMomentum");
-    man->CreateNtupleDColumn("fX");
-    man->CreateNtupleDColumn("fY");
-    man->CreateNtupleDColumn("fZ");
-    man->CreateNtupleDColumn("didChargeExchange");
-    man->CreateNtupleDColumn("TrackID");
     man->FinishNtuple(1);
+
+    //9stepping.cc
+    man->CreateNtuple("CalcVals", "Calculated Values");
+    man->CreateNtupleIColumn("fEvent");
+    man->CreateNtupleIColumn("TrackID");
+    man->CreateNtupleIColumn("ParentID");
+    man->CreateNtupleIColumn("pdg");
+    man->CreateNtupleDColumn("phiCalcXY0detector0Pos");
+    man->CreateNtupleDColumn("phiCalcXY0detectorRealPos");
+    man->CreateNtupleDColumn("thetaCalcXY0detector0Pos");
+    man->CreateNtupleDColumn("thetaCalcXY0detectorRealPos");
+    //man->CreateNtupleDColumn("phiCalcWithMomDirec");
+    //man->CreateNtupleDColumn("phiCalcWithMomDirecdetectorRealPos");
+    man->FinishNtuple(2);
 };
 
 MyRunAction::~MyRunAction()
-{};
+{delete fMessenger;};
 
 void MyRunAction::BeginOfRunAction(const G4Run* run)
 {
@@ -65,7 +67,11 @@ void MyRunAction::BeginOfRunAction(const G4Run* run)
     std::stringstream strRunID;
     strRunID << runID;
 
-    std::string fileName = "output"+ strRunID.str() + ".root"; //puts root into custom folder
+    std::string folder = "root/" + outputFolder;
+
+    std::filesystem::create_directories(folder);
+    std::string fileName = "root/" + outputFolder + "/output" + strRunID.str() + ".root";
+    
     G4cout << "Opening: " << fileName << G4endl;
     man->OpenFile(fileName);
     G4cout << "Past open: " << G4endl;
@@ -84,3 +90,4 @@ void MyRunAction::EndOfRunAction(const G4Run*)
 
     G4cout << "End of Event" << G4endl<< G4endl<< G4endl<< G4endl<< G4endl<< G4endl;
 };
+
