@@ -10,6 +10,7 @@ MyDetectorConstruction::MyDetectorConstruction()
     fMessenger->DeclareProperty("nRows", nRows, "Number of rows");
     fMessenger->DeclareProperty("nBlocks", nBlocks, "Number of Blocks");
     fMessenger->DeclareProperty("randPosDetector", randPosDetector, "Is detector in random position?");
+    fMessenger->DeclareProperty("randPosScaling", randPosScaling, "randPos Scaling Factor");
 
     //default values
     nBlocks = 20;
@@ -55,7 +56,7 @@ G4VPhysicalVolume *MyDetectorConstruction::Construct() //defines volume and mate
     G4double zWorld = 26*m;
     solidWorld = new G4Box("solidWorld", xWorld, yWorld, zWorld);
     logicWorld = new G4LogicalVolume(solidWorld, worldMat, "logicWorld");
-    physWorld = new G4PVPlacement(0, G4ThreeVector(0. ,0. ,0. ), logicWorld, "physWorld", 0, false, 0, true); 
+    physWorld = new G4PVPlacement(0, G4ThreeVector(0. ,0. ,0. ), logicWorld, "physWorld", 0, false, 0, false); 
 
     //material
     G4double totalX = 1.0 * m;
@@ -74,7 +75,7 @@ G4VPhysicalVolume *MyDetectorConstruction::Construct() //defines volume and mate
                 G4double y = -totalY / 2.0 + cellY / 2.0 + row * cellY;
                 G4int copyNo =i*nRows*nCols + row*nCols + col;
                 physMat = new G4PVPlacement(0, G4ThreeVector(x, y, z),logicMat,"physMat",
-                logicWorld,false,copyNo, true);
+                logicWorld,false,copyNo, false);
             }
         }
     }
@@ -84,9 +85,9 @@ G4VPhysicalVolume *MyDetectorConstruction::Construct() //defines volume and mate
     G4double randZ = 0;
 
     if (randPosDetector == 1){
-        randX = G4RandGauss::shoot(0, 0.5*mm);
-        randY = G4RandGauss::shoot(0, 0.5*mm);
-        randZ = G4RandGauss::shoot(0, 0.5*cm);
+        randX = randPosScaling*G4RandGauss::shoot(0, 0.5*mm);
+        randY = randPosScaling*G4RandGauss::shoot(0, 0.5*mm);
+        randZ = randPosScaling*G4RandGauss::shoot(0, 0.5*cm);
     }
 
     G4ThreeVector detectorPos = G4ThreeVector(randX,randY, randZ+25.2*m);
@@ -94,7 +95,7 @@ G4VPhysicalVolume *MyDetectorConstruction::Construct() //defines volume and mate
     solidDetector = new G4Box("solidDetector", 0.49*m, 0.49*m, 0.1*m);
     logicDetector = new G4LogicalVolume(solidDetector, CMat, "logicDetector");
     physDetector = new G4PVPlacement(0, detectorPos, logicDetector,"physDetector",
-                    logicWorld,false,0, true);
+                    logicWorld,false,0, false);
 
     return physWorld;
 }

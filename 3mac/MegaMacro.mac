@@ -1,0 +1,34 @@
+/run/initialize
+
+#Detector
+#/detector/nCols
+#/detector/nRows
+#/detector/nBlocks
+#/detector/randPosDetector
+
+#Paritcle Position
+#/randGun/randPAngle
+#/randGun/randPos
+
+#Polarization
+/Polarization/PPIndex 7
+/Polarization/PrintPPIndex
+
+#Folder
+/output/folder default
+/run/beamOn 1000000000
+ 
+/randGun/randPos 1
+/output/folder randPos
+/run/beamOn 1000000000
+
+/randGun/randPos 1
+/randGun/randPAngle 1
+/output/folder randPosPAngle
+/run/beamOn 1000000000
+
+/detector/randPosDetector
+/randGun/randPos 1
+/randGun/randPAngle 1
+/output/folder randPosPAngleDetector
+/run/beamOn 1000000000

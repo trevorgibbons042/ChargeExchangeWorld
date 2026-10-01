@@ -24,9 +24,11 @@ void Plot3D(){
 
     TTree *events = (TTree*)File->Get("ParticleInfo");
     TTree *ChargeExchange = (TTree*)File->Get("ChargeExchange_values");
+    TTree *CalcVals = (TTree*)File->Get("CalcVals");
 
     TTree *events2 = (TTree*)File2->Get("ParticleInfo");
     TTree *ChargeExchange2 = (TTree*)File2->Get("ChargeExchange_values");
+    TTree *CalcVals2 = (TTree*)File2->Get("CalcVals");
 
     
     if (Graph == 1){
@@ -121,16 +123,38 @@ void Plot3D(){
         
         canvas->Clear();
         ChargeExchange->Draw("LastPhi", "", "");
-        ChargeExchange->GetHistogram()->SetTitle("LastPhi");
+        ChargeExchange->GetHistogram()->SetTitle("LastPhi of all Charge Exchange");
         canvas->Update();
         canvas->SaveAs((folder + "/10.png").c_str());
         
         canvas->Clear();
-        events2->Draw("fX>>hX(100,-10,10)", "boundaryType == 2 && fY > -1 && fY < 1 && pdg == 2212", "");
-        events2->GetHistogram()->SetTitle("Postion of X at end of World, Charge Exchange Events, Only Protons, Same ParentID;");
-        events2->GetHistogram()->Fit("gaus");
-        gStyle->SetOptFit(1111);
+        ChargeExchange->Draw("LastTheta", "", "");
+        ChargeExchange->GetHistogram()->SetTitle("LastTheta of all Charge Exchange");
+        canvas->Update();
+        canvas->SaveAs((folder + "/10_2.png").c_str());
+        
+        canvas->Clear();
+        events2->Draw("phiCalcXY0detector0Pos", "pdg == 2212", "");
+        events2->GetHistogram()->SetTitle("Phi calculated from x,y=0 at end of world, Charge Exchange Events, Only Protons, Same ParentID;");
         canvas->Update();
         canvas->SaveAs((folder + "/11.png").c_str());
+
+        canvas->Clear();
+        events2->Draw("phiCalcXY0detectorRealPos", "pdg == 2212", "");
+        events2->GetHistogram()->SetTitle("Phi calculated from detector position at end of world, Charge Exchange Events, Only Protons, Same ParentID;");
+        canvas->Update();
+        canvas->SaveAs((folder + "/11_2.png").c_str());
+
+        canvas->Clear();
+        events2->Draw("thetaCalcXY0detector0Pos", "pdg == 2212", "");
+        events2->GetHistogram()->SetTitle("Theta calculated from x,y=0 at end of world, Charge Exchange Events, Only Protons, Same ParentID;");
+        canvas->Update();
+        canvas->SaveAs((folder + "/12.png").c_str());
+
+        canvas->Clear();
+        events2->Draw("thetaCalcXY0detectorRealPos", "pdg == 2212", "");
+        events2->GetHistogram()->SetTitle("Theta calculated from detector position at end of world, Charge Exchange Events, Only Protons, Same ParentID;");
+        canvas->Update();
+        canvas->SaveAs((folder + "/12_2.png").c_str());
     }
 }

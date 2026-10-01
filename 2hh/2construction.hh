@@ -50,6 +50,7 @@ private:
     G4ThreeVector detectorPosition;
 
     G4int randPosDetector = -1;
+    G4double randPosScaling = 1;
 
     ////Detector Defining
     //G4LogicalVolume *fScoringVolume, *logicDetector;

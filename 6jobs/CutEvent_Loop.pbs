@@ -1,0 +1,31 @@
+#!/bin/bash -l
+#PBS -A eic
+#PBS -N CutEvent_Loop
+
+#PBS -l select=1:ncpus=128
+#PBS -l walltime=12:00:00
+#PBS -j oe
+
+#PBS -m bea
+#PBS -M tgibbons@anl.gov
+
+module load root
+export LD_LIBRARY_PATH=/lcrc/project/eic/tgibbons/xxhash-install/lib:$LD_LIBRARY_PATH
+
+echo Jobid: $PBS_JOBID
+echo Running on host `hostname`
+echo Running on nodes `cat $PBS_NODEFILE`
+
+cd /lcrc/project/eic/tgibbons/G4ChargeExchange/build/root/Loop/
+
+cp /lcrc/project/eic/tgibbons/G4ChargeExchange/5rootMacros/CutEvents.cpp /lcrc/project/eic/tgibbons/G4ChargeExchange/build/root/Loop/CutEvents.cpp
+cp /lcrc/project/eic/tgibbons/G4ChargeExchange/5rootMacros/CutboundaryType.cpp /lcrc/project/eic/tgibbons/G4ChargeExchange/build/root/Loops/CutboundaryType.cpp
+cp /lcrc/project/eic/tgibbons/G4ChargeExchange/5rootMacros/ReconAngle.cpp /lcrc/project/eic/tgibbons/G4ChargeExchange/build/root/Loop/ReconAngle.cpp
+cp /lcrc/project/eic/tgibbons/G4ChargeExchange/5rootMacros/Plot3D.cpp /lcrc/project/eic/tgibbons/G4ChargeExchange/build/root/Loop/Plot3D.cpp
+cp /lcrc/project/eic/tgibbons/G4ChargeExchange/5rootMacros/PlotAngle.cpp /lcrc/project/eic/tgibbons/G4ChargeExchange/build/root/Loop/PlotAngle.cpp
+
+root -l -b -q /lcrc/project/eic/tgibbons/G4ChargeExchange/build/root/Loop/CutEvents_LoopRand.cpp
+root -l -b -q /lcrc/project/eic/tgibbons/G4ChargeExchange/build/root/Loop/CutboundaryType.cpp
+root -l -b -q /lcrc/project/eic/tgibbons/G4ChargeExchange/build/root/Loop/ReconAngle.cpp
+root -l -b -q /lcrc/project/eic/tgibbons/G4ChargeExchange/build/root/Loop/Plot3D.cpp
+root -l -b -q /lcrc/project/eic/tgibbons/G4ChargeExchange/build/root/Loop/PlotAngle.cpp

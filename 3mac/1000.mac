@@ -5,6 +5,7 @@
 #/detector/nRows
 #/detector/nBlocks
 #/detector/randPosDetector
+#/detector/randPosScaling
 
 #Paritcle Position
 #/randGun/randPAngle

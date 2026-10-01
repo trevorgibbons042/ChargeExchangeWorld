@@ -1,0 +1,9 @@
+/run/initialize
+
+/Polarization/PPIndex 7
+/Polarization/PrintPPIndex
+
+/detector/randPosScaling {loopvar}
+/output/folder Loop/LoopRand_{loopvar}
+
+/control/loop Rand.mac i 1 100 1
