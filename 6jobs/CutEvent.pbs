@@ -9,8 +9,6 @@
 #PBS -m bea
 #PBS -M tgibbons@anl.gov
 
-cd /lcrc/project/eic/tgibbons/G4ChargeExchange/build/root/results/
-
 module load root
 export LD_LIBRARY_PATH=/lcrc/project/eic/tgibbons/xxhash-install/lib:$LD_LIBRARY_PATH
 
@@ -18,8 +16,54 @@ echo Jobid: $PBS_JOBID
 echo Running on host `hostname`
 echo Running on nodes `cat $PBS_NODEFILE`
 
-root -l -b -q /lcrc/project/eic/tgibbons/G4ChargeExchange/build/root/results/CutEvents.cpp
-root -l -b -q /lcrc/project/eic/tgibbons/G4ChargeExchange/build/root/results/CutboundaryType.cpp
-root -l -b -q /lcrc/project/eic/tgibbons/G4ChargeExchange/build/root/results/ReconAngle.cpp
-root -l -b -q /lcrc/project/eic/tgibbons/G4ChargeExchange/build/root/results/Plot3D.cpp
-root -l -b -q /lcrc/project/eic/tgibbons/G4ChargeExchange/build/root/results/PlotAngle.cpp
+cd /lcrc/project/eic/tgibbons/G4ChargeExchange/build/root/default/
+cp /lcrc/project/eic/tgibbons/G4ChargeExchange/5rootMacros/CutEvents.cpp /lcrc/project/eic/tgibbons/G4ChargeExchange/build/root/default/CutEvents.cpp
+cp /lcrc/project/eic/tgibbons/G4ChargeExchange/5rootMacros/CutboundaryType.cpp /lcrc/project/eic/tgibbons/G4ChargeExchange/build/root/default/CutboundaryType.cpp
+cp /lcrc/project/eic/tgibbons/G4ChargeExchange/5rootMacros/ReconAngle.cpp /lcrc/project/eic/tgibbons/G4ChargeExchange/build/root/default/ReconAngle.cpp
+cp /lcrc/project/eic/tgibbons/G4ChargeExchange/5rootMacros/Plot3D.cpp /lcrc/project/eic/tgibbons/G4ChargeExchange/build/root/default/Plot3D.cpp
+cp /lcrc/project/eic/tgibbons/G4ChargeExchange/5rootMacros/PlotAngle.cpp /lcrc/project/eic/tgibbons/G4ChargeExchange/build/root/default/PlotAngle.cpp
+
+root -l -b -q /lcrc/project/eic/tgibbons/G4ChargeExchange/build/root/default/CutEvents.cpp
+root -l -b -q /lcrc/project/eic/tgibbons/G4ChargeExchange/build/root/default/CutboundaryType.cpp
+root -l -b -q /lcrc/project/eic/tgibbons/G4ChargeExchange/build/root/default/ReconAngle.cpp
+root -l -b -q /lcrc/project/eic/tgibbons/G4ChargeExchange/build/root/default/Plot3D.cpp
+root -l -b -q /lcrc/project/eic/tgibbons/G4ChargeExchange/build/root/default/PlotAngle.cpp
+
+cd /lcrc/project/eic/tgibbons/G4ChargeExchange/build/root/randPos/
+cp /lcrc/project/eic/tgibbons/G4ChargeExchange/5rootMacros/CutEvents.cpp /lcrc/project/eic/tgibbons/G4ChargeExchange/build/root/randPos/CutEvents.cpp
+cp /lcrc/project/eic/tgibbons/G4ChargeExchange/5rootMacros/CutboundaryType.cpp /lcrc/project/eic/tgibbons/G4ChargeExchange/build/root/randPos/CutboundaryType.cpp
+cp /lcrc/project/eic/tgibbons/G4ChargeExchange/5rootMacros/ReconAngle.cpp /lcrc/project/eic/tgibbons/G4ChargeExchange/build/root/randPos/ReconAngle.cpp
+cp /lcrc/project/eic/tgibbons/G4ChargeExchange/5rootMacros/Plot3D.cpp /lcrc/project/eic/tgibbons/G4ChargeExchange/build/root/randPos/Plot3D.cpp
+cp /lcrc/project/eic/tgibbons/G4ChargeExchange/5rootMacros/PlotAngle.cpp /lcrc/project/eic/tgibbons/G4ChargeExchange/build/root/randPos/PlotAngle.cpp
+
+root -l -b -q /lcrc/project/eic/tgibbons/G4ChargeExchange/build/root/randPos/CutEvents.cpp
+root -l -b -q /lcrc/project/eic/tgibbons/G4ChargeExchange/build/root/randPos/CutboundaryType.cpp
+root -l -b -q /lcrc/project/eic/tgibbons/G4ChargeExchange/build/root/randPos/ReconAngle.cpp
+root -l -b -q /lcrc/project/eic/tgibbons/G4ChargeExchange/build/root/randPos/Plot3D.cpp
+root -l -b -q /lcrc/project/eic/tgibbons/G4ChargeExchange/build/root/randPos/PlotAngle.cpp
+
+cd /lcrc/project/eic/tgibbons/G4ChargeExchange/build/root/randPosPAngle/
+cp /lcrc/project/eic/tgibbons/G4ChargeExchange/5rootMacros/CutEvents.cpp /lcrc/project/eic/tgibbons/G4ChargeExchange/build/root/randPosPAngle/CutEvents.cpp
+cp /lcrc/project/eic/tgibbons/G4ChargeExchange/5rootMacros/CutboundaryType.cpp /lcrc/project/eic/tgibbons/G4ChargeExchange/build/root/randPosPAngles/CutboundaryType.cpp
+cp /lcrc/project/eic/tgibbons/G4ChargeExchange/5rootMacros/ReconAngle.cpp /lcrc/project/eic/tgibbons/G4ChargeExchange/build/root/randPosPAngle/ReconAngle.cpp
+cp /lcrc/project/eic/tgibbons/G4ChargeExchange/5rootMacros/Plot3D.cpp /lcrc/project/eic/tgibbons/G4ChargeExchange/build/root/randPosPAngle/Plot3D.cpp
+cp /lcrc/project/eic/tgibbons/G4ChargeExchange/5rootMacros/PlotAngle.cpp /lcrc/project/eic/tgibbons/G4ChargeExchange/build/root/randPosPAngle/PlotAngle.cpp
+
+root -l -b -q /lcrc/project/eic/tgibbons/G4ChargeExchange/build/root/randPosPAngle/CutEvents.cpp
+root -l -b -q /lcrc/project/eic/tgibbons/G4ChargeExchange/build/root/randPosPAngle/CutboundaryType.cpp
+root -l -b -q /lcrc/project/eic/tgibbons/G4ChargeExchange/build/root/randPosPAngle/ReconAngle.cpp
+root -l -b -q /lcrc/project/eic/tgibbons/G4ChargeExchange/build/root/randPosPAngle/Plot3D.cpp
+root -l -b -q /lcrc/project/eic/tgibbons/G4ChargeExchange/build/root/randPosPAngle/PlotAngle.cpp
+
+cd /lcrc/project/eic/tgibbons/G4ChargeExchange/build/root/randPosPAngleDetector/
+cp /lcrc/project/eic/tgibbons/G4ChargeExchange/5rootMacros/CutEvents.cpp /lcrc/project/eic/tgibbons/G4ChargeExchange/build/root/randPosPAngleDetector/CutEvents.cpp
+cp /lcrc/project/eic/tgibbons/G4ChargeExchange/5rootMacros/CutboundaryType.cpp /lcrc/project/eic/tgibbons/G4ChargeExchange/build/root/randPosPAngleDetector/CutboundaryType.cpp
+cp /lcrc/project/eic/tgibbons/G4ChargeExchange/5rootMacros/ReconAngle.cpp /lcrc/project/eic/tgibbons/G4ChargeExchange/build/root/randPosPAngleDetector/ReconAngle.cpp
+cp /lcrc/project/eic/tgibbons/G4ChargeExchange/5rootMacros/Plot3D.cpp /lcrc/project/eic/tgibbons/G4ChargeExchange/build/root/randPosPAngleDetector/Plot3D.cpp
+cp /lcrc/project/eic/tgibbons/G4ChargeExchange/5rootMacros/PlotAngle.cpp /lcrc/project/eic/tgibbons/G4ChargeExchange/build/root/randPosPAngleDetector/PlotAngle.cpp
+
+root -l -b -q /lcrc/project/eic/tgibbons/G4ChargeExchange/build/root/randPosPAngleDetector/CutEvents.cpp
+root -l -b -q /lcrc/project/eic/tgibbons/G4ChargeExchange/build/root/randPosPAngleDetector/CutboundaryType.cpp
+root -l -b -q /lcrc/project/eic/tgibbons/G4ChargeExchange/build/root/randPosPAngleDetector/ReconAngle.cpp
+root -l -b -q /lcrc/project/eic/tgibbons/G4ChargeExchange/build/root/randPosPAngleDetector/Plot3D.cpp
+root -l -b -q /lcrc/project/eic/tgibbons/G4ChargeExchange/build/root/randPosPAngleDetector/PlotAngle.cpp

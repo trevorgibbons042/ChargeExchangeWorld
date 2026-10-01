@@ -13,13 +13,17 @@ void CutEvents(){
     TChain *ChargeExchange = new TChain("ChargeExchange_values");
     TChain *CalcVals = new TChain("CalcVals");
     
-    for (int i = 0; i < 128; i++){
-        TString filename = Form("output0_t%d.root",i);
-        events->Add(filename);
-        ChargeExchange->Add(filename);
-        CalcVals->Add(filename);
+    for (double loopvar = 0; loopvar < 2.1; loopvar = loopvar + .1){
+        for (int i = 0; i < 101; i++){
+            for (int j = 0; j < 128; j++){
+                TString filename = Form("LoopRand_%.1f/output%d_t%d.root",loopvar, i, j);
+                events->Add(filename);
+                ChargeExchange->Add(filename);
+                CalcVals->Add(filename);
+            }
+        }
+        
     }
-    
     Long64_t Sync = ChargeExchange->Draw("fEvent:TrackID", "didChargeExchange>0", "goff");
 
     TString cut_EventSync = "0";

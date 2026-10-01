@@ -8,7 +8,6 @@ MySensitiveDetector::~MySensitiveDetector()
 {};
 
 G4bool MySensitiveDetector::ProcessHits(G4Step *aStep, G4TouchableHistory *ROhist){  
-    G4cout << "Testing Sensitive Detector" << G4endl;
     G4AnalysisManager *man = G4AnalysisManager::Instance();
     
     G4int evt = G4RunManager::GetRunManager()->GetCurrentEvent()->GetEventID();

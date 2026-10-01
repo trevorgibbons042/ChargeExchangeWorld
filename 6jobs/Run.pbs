@@ -18,4 +18,4 @@ echo Jobid: $PBS_JOBID
 echo Running on host `hostname`
 echo Running on nodes `cat $PBS_NODEFILE`
 
-./sim 1000.mac
+./sim MegaMacro.mac
