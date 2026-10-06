@@ -1,6 +1,6 @@
 #!/bin/bash -l
 #PBS -A eic
-#PBS -N CutEvent
+#PBS -N Run
 
 #PBS -l select=1:ncpus=128
 #PBS -l walltime=12:00:00

@@ -14,6 +14,7 @@ MyPrimaryGenerator::MyPrimaryGenerator()
     fMessenger = new G4GenericMessenger(this, "/randGun/", "random Gun Properties");
     fMessenger->DeclareProperty("randPAngle", randPAngle, "Is random angle on?");
     fMessenger->DeclareProperty("randPos", randPos, "Is random position on?");
+    fMessenger->DeclareProperty("EnergyBool", EnergyBool, "Is random energy on?");
 
     //number of particles per event (can do 1 run with bunch of events tho)
     fParticleGun = new G4ParticleGun(1);
@@ -22,9 +23,6 @@ MyPrimaryGenerator::MyPrimaryGenerator()
     G4ParticleTable *particleTable = G4ParticleTable::GetParticleTable();
     G4String particleName = "neutron";
     G4ParticleDefinition *particle = particleTable->FindParticle("neutron");
-
-    //sets momentum
-    fParticleGun->SetParticleMomentum(25*GeV);
     fParticleGun->SetParticleDefinition(particle);
 };
 
@@ -50,6 +48,7 @@ void MyPrimaryGenerator::GeneratePrimaries(G4Event *anEvent)
     phi = twopi*G4UniformRand();
     }
 
+
     G4ThreeVector mom(std::sin(theta)*std::cos(phi),
                 std::sin(theta)*std::sin(phi),
                 cos(theta));
@@ -61,6 +60,13 @@ void MyPrimaryGenerator::GeneratePrimaries(G4Event *anEvent)
     }
 
     G4ThreeVector pos(randX, randY, randZ);
+
+    G4double Energy = 25*GeV;
+
+    if (EnergyBool == true){
+        Energy = 25*GeV*G4RandGauss::shoot(0,EnergySD);
+    }
+    fParticleGun->SetParticleMomentum(25*GeV);
 
     fParticleGun->SetParticlePosition(pos);
     fParticleGun->SetParticleMomentumDirection(mom);

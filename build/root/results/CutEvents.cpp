@@ -13,17 +13,15 @@ void CutEvents(){
     TChain *ChargeExchange = new TChain("ChargeExchange_values");
     TChain *CalcVals = new TChain("CalcVals");
     
-    for (double loopvar = 0; loopvar < 2.1; loopvar = loopvar + .1){
-        for (int i = 0; i < 101; i++){
-            for (int j = 0; j < 128; j++){
-                TString filename = Form("LoopRand_%.1f/output%d_t%d.root",loopvar, i, j);
-                events->Add(filename);
-                ChargeExchange->Add(filename);
-                CalcVals->Add(filename);
-            }
+    for (int j = 0; j < 1; j++){
+        for (int i = 0; i < 128; i++){
+            TString filename = Form("output%d_t%d.root",j, i);
+            events->Add(filename);
+            ChargeExchange->Add(filename);
+            CalcVals->Add(filename);
         }
-        
     }
+    
     Long64_t Sync = ChargeExchange->Draw("fEvent:TrackID", "didChargeExchange>0", "goff");
 
     TString cut_EventSync = "0";
@@ -40,6 +38,15 @@ void CutEvents(){
             ChargeExchange->GetV1()[i]
         );
     
+    TString cut_FakeID = "0";
+
+    for (Long64_t i = 0; i < Sync; i++)
+        cut_FakeID += Form(
+            " || (ParentID!=%.0f && fEvent==%.0f)",
+            ChargeExchange->GetV2()[i],
+            ChargeExchange->GetV1()[i]
+        );
+    
     ROOT::RDataFrame df(*events);
     ROOT::RDataFrame dfCE(*ChargeExchange);
     ROOT::RDataFrame dfCV(*CalcVals);
@@ -49,15 +56,21 @@ void CutEvents(){
 
     auto selectedEvent = df.Filter(cut_EventSync.Data());
     auto selectedParent = df.Filter(cut_ParentID.Data());
+    auto selectedFake = df.Filter(cut_FakeID.Data());
 
     auto selectedEventCV = dfCV.Filter(cut_EventSync.Data());
     auto selectedParentCV = dfCV.Filter(cut_ParentID.Data());
+    auto selectedFakeCV = dfCV.Filter(cut_FakeID.Data());
     
     selectedEvent.Snapshot(events->GetName(),"cut_CE.root");
-    dfCE.Snapshot("ChargeExchange_values","cut_CE.root","",update);
-    selectedEventCV.Snapshot(CalcVals->GetName(),"cut_CE.root", update);
+    dfCE.Snapshot("ChargeExchange_values","cut_CE.root", "",update);
+    selectedEventCV.Snapshot(CalcVals->GetName(),"cut_CE.root", "", update);
     
     selectedParent.Snapshot(events->GetName(),"cut_ParentID.root");
     dfCE.Snapshot("ChargeExchange_values","cut_ParentID.root","",update);
-    selectedParentCV.Snapshot(CalcVals->GetName(),"cut_ParentID.root", update);
+    selectedParentCV.Snapshot(CalcVals->GetName(),"cut_ParentID.root","", update);
+    
+    selectedFake.Snapshot(events->GetName(),"cut_FakeID.root");
+    dfCE.Snapshot("ChargeExchange_values","cut_FakeID.root","",update);
+    selectedFakeCV.Snapshot(CalcVals->GetName(),"cut_FakeID.root","", update);
 }

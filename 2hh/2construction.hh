@@ -38,22 +38,23 @@ private:
     ////messengar stuff
     G4GenericMessenger *fMessenger;
     G4int nCols, nRows, nBlocks;
-
+    G4int nCols_detector, nRows_detector;
+    
     ////Defining World
     G4NistManager *nist;
-    G4Material *worldMat, *CMat;
+    G4Material *worldMat, *CMat, *DMat;
     G4MaterialPropertiesTable *mptWorld;
     
-    G4Box *solidWorld, *solidMat, *solidDetector;
-    G4LogicalVolume *logicWorld, *logicMat, *logicDetector;
-    G4VPhysicalVolume *physWorld, *physMat, *physDetector;
+    G4Box *solidWorld, *solidMat, *solidDetector, *solidTrack;
+    G4LogicalVolume *logicWorld, *logicMat, *logicDetector, *logicTrack;
+    G4VPhysicalVolume *physWorld, *physMat, *physDetector, *physTrack;
     G4ThreeVector detectorPosition;
 
     G4int randPosDetector = -1;
     G4double randPosScaling = 1;
 
     ////Detector Defining
-    //G4LogicalVolume *fScoringVolume, *logicDetector;
+    G4LogicalVolume *fScoringVolume;
 
     void DefineMaterial();
 };

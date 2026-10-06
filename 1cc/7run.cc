@@ -21,10 +21,10 @@ MyRunAction::MyRunAction()
     man->CreateNtupleDColumn("fX");
     man->CreateNtupleDColumn("fY");
     man->CreateNtupleDColumn("fZ");
-    man->CreateNtupleDColumn("momX");
-    man->CreateNtupleDColumn("momY");
-    man->CreateNtupleDColumn("momZ");
     man->CreateNtupleDColumn("fKEnergy");
+    man->CreateNtupleDColumn("fDx");
+    man->CreateNtupleDColumn("fDy");
+    man->CreateNtupleDColumn("fDz");
     man->FinishNtuple(0);
 
     //9stepping.cc
@@ -47,9 +47,9 @@ MyRunAction::MyRunAction()
     man->CreateNtupleIColumn("ParentID");
     man->CreateNtupleIColumn("pdg");
     man->CreateNtupleDColumn("phiCalcXY0detector0Pos");
-    man->CreateNtupleDColumn("phiCalcXY0detectorRealPos");
+    //man->CreateNtupleDColumn("phiCalcXY0detectorRealPos");
     man->CreateNtupleDColumn("thetaCalcXY0detector0Pos");
-    man->CreateNtupleDColumn("thetaCalcXY0detectorRealPos");
+    //man->CreateNtupleDColumn("thetaCalcXY0detectorRealPos");
     //man->CreateNtupleDColumn("phiCalcWithMomDirec");
     //man->CreateNtupleDColumn("phiCalcWithMomDirecdetectorRealPos");
     man->FinishNtuple(2);

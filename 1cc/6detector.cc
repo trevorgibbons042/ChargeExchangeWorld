@@ -21,11 +21,13 @@ G4bool MySensitiveDetector::ProcessHits(G4Step *aStep, G4TouchableHistory *ROhis
 
     const G4VTouchable *touchable = aStep->GetPreStepPoint()->GetTouchable();
     G4int copyNo = touchable->GetCopyNumber();
+    G4ThreeVector detectorCenter = touchable->GetTranslation();
+
     G4VPhysicalVolume *physVol = touchable->GetVolume();
     G4String volumeName = physVol->GetName();
 
     if (pre->GetStepStatus() == fGeomBoundary && 
-    volumeName == "physMat"){
+    volumeName == "physDetector"){
         G4ThreeVector Pos = pre->GetPosition();
         G4ThreeVector Mom = pre->GetMomentum();
         G4double KE       = pre->GetKineticEnergy();
@@ -39,15 +41,15 @@ G4bool MySensitiveDetector::ProcessHits(G4Step *aStep, G4TouchableHistory *ROhis
         man->FillNtupleDColumn(6, Pos.x());
         man->FillNtupleDColumn(7, Pos.y());
         man->FillNtupleDColumn(8, Pos.z());
-        man->FillNtupleDColumn(9, Mom.x());
-        man->FillNtupleDColumn(10, Mom.y());
-        man->FillNtupleDColumn(11, Mom.z());
-        man->FillNtupleDColumn(12, KE);
+        man->FillNtupleDColumn(9, KE);
+        man->FillNtupleDColumn(10, detectorCenter.x());
+        man->FillNtupleDColumn(11, detectorCenter.y());
+        man->FillNtupleDColumn(12, detectorCenter.z());
         man->AddNtupleRow(0);
     }
 
     if (post->GetStepStatus() == fGeomBoundary && 
-    volumeName == "physMat"){
+    volumeName == "physDetector"){
         G4ThreeVector Pos = post->GetPosition();
         G4ThreeVector Mom = post->GetMomentum();
         G4double KE       = post->GetKineticEnergy();
@@ -61,10 +63,10 @@ G4bool MySensitiveDetector::ProcessHits(G4Step *aStep, G4TouchableHistory *ROhis
         man->FillNtupleDColumn(6, Pos.x());
         man->FillNtupleDColumn(7, Pos.y());
         man->FillNtupleDColumn(8, Pos.z());
-        man->FillNtupleDColumn(9, Mom.x());
-        man->FillNtupleDColumn(10, Mom.y());
-        man->FillNtupleDColumn(11, Mom.z());
-        man->FillNtupleDColumn(12, KE);
+        man->FillNtupleDColumn(9, KE);
+        man->FillNtupleDColumn(10, detectorCenter.x());
+        man->FillNtupleDColumn(11, detectorCenter.y());
+        man->FillNtupleDColumn(12, detectorCenter.z());
         man->AddNtupleRow(0);
     }
 
@@ -83,33 +85,27 @@ G4bool MySensitiveDetector::ProcessHits(G4Step *aStep, G4TouchableHistory *ROhis
         man->FillNtupleDColumn(6, Pos.x());
         man->FillNtupleDColumn(7, Pos.y());
         man->FillNtupleDColumn(8, Pos.z());
-        man->FillNtupleDColumn(9, Mom.x());
-        man->FillNtupleDColumn(10, Mom.y());
-        man->FillNtupleDColumn(11, Mom.z());
-        man->FillNtupleDColumn(12, KE);
+        man->FillNtupleDColumn(9, KE);
+        man->FillNtupleDColumn(10, detectorCenter.x());
+        man->FillNtupleDColumn(11, detectorCenter.y());
+        man->FillNtupleDColumn(12, detectorCenter.z());
         man->AddNtupleRow(0);
 
-        auto detConstruction = static_cast<const MyDetectorConstruction*>(
-        G4RunManager::GetRunManager() ->GetUserDetectorConstruction());
-        G4ThreeVector detectorPos = detConstruction->GetDetectorPosition();
+        //auto detConstruction = static_cast<const MyDetectorConstruction*>(
+        //G4RunManager::GetRunManager() ->GetUserDetectorConstruction());
+        //G4ThreeVector detectorPos = detConstruction->GetDetectorPosition();
+        
+        G4double phi = std::atan2(Pos.y(), Pos.x());
+        if (phi < 0) {phi += 2.0 * CLHEP::pi;}
+
+        G4double theta = std::atan2(std::sqrt(Pos.x()*Pos.x() + Pos.y()*Pos.y()), Pos.z());
 
         man->FillNtupleIColumn(2, 0, evt);
         man->FillNtupleIColumn(2, 1, trackID);
         man->FillNtupleIColumn(2, 2, parentID);
         man->FillNtupleIColumn(2, 3, pdg);
-        man->FillNtupleDColumn(2, 4, std::atan2(Pos.y(), Pos.x()));
-        man->FillNtupleDColumn(2, 5, std::atan2(Pos.y()-detectorPos.y(), Pos.x()-detectorPos.x()));
-        man->FillNtupleDColumn(
-            2, 6, std::atan2(std::sqrt(Pos.x()*Pos.x() + Pos.y()*Pos.y()), Pos.z())
-        );
-        man->FillNtupleDColumn(
-            2, 7, std::atan2(
-                std::sqrt(
-            (Pos.x()-detectorPos.x())*(Pos.x()-detectorPos.x())
-            + (Pos.y()-detectorPos.y())*(Pos.y()-detectorPos.y())), 
-            (Pos.z()-detectorPos.z())
-            )
-        );
+        man->FillNtupleDColumn(2, 4, phi);
+        man->FillNtupleDColumn(2, 5, theta);
         man->AddNtupleRow(2);
 
         track->SetTrackStatus(fStopAndKill);
