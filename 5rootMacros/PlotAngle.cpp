@@ -28,19 +28,51 @@ void PlotAngle(){
         gPad->SetRightMargin(0.30);
         
         canvas->Clear();
-        events->Draw("Angle", "", "colz");
+        events->Draw("outTheta", "", "colz");
         events->GetHistogram()->SetTitle("Reconsturced Angle (theta) Distribution");
-        events->GetHistogram()->SetMinimum(0);
-        events->GetHistogram()->SetMaximum(100);
         canvas->Update();
         canvas->SaveAs((folder + "/1.png").c_str());
         
         canvas->Clear();
-        events->Draw("Angle", "PDG==2212", "colz");
-        events->GetHistogram()->SetTitle("Reconsturced Angle (theta) Distribution");
-        events->GetHistogram()->SetMinimum(0);
-        events->GetHistogram()->SetMaximum(100);
+        events->Draw("outDTheta", "", "colz");
+        events->GetHistogram()->SetTitle("Reconsturced Angle (theta) Distribution (DETECTOR BLOCK)");
+        canvas->Update();
+        canvas->SaveAs((folder + "/1_2.png").c_str());
+        
+        canvas->Clear();
+        events->Draw("outTheta", "PDG==2212", "colz");
+        events->GetHistogram()->SetTitle("Reconsturced Angle (theta) Distribution, PDG == 2212");
         canvas->Update();
         canvas->SaveAs((folder + "/2.png").c_str());
+        
+        canvas->Clear();
+        events->Draw("outDTheta", "PDG==2212", "colz");
+        events->GetHistogram()->SetTitle("Reconsturced Angle (theta) Distribution (DETECTOR BLOCK), PDG == 2212");
+        canvas->Update();
+        canvas->SaveAs((folder + "/2_2.png").c_str());
+        
+        canvas->Clear();
+        events->Draw("outPhi", "", "colz");
+        events->GetHistogram()->SetTitle("Reconsturced Angle (phi) Distribution");
+        canvas->Update();
+        canvas->SaveAs((folder + "/3.png").c_str());
+        
+        canvas->Clear();
+        events->Draw("outDPhi", "", "colz");
+        events->GetHistogram()->SetTitle("Reconsturced Angle (phi) Distribution (DETECTOR BLOCK)");
+        canvas->Update();
+        canvas->SaveAs((folder + "/3_2.png").c_str());
+        
+        canvas->Clear();
+        events->Draw("outPhi", "PDG==2212", "colz");
+        events->GetHistogram()->SetTitle("Reconsturced Angle (phi) Distribution, PDG == 2212");
+        canvas->Update();
+        canvas->SaveAs((folder + "/4.png").c_str());
+        
+        canvas->Clear();
+        events->Draw("outDPhi", "PDG==2212", "colz");
+        events->GetHistogram()->SetTitle("Reconsturced Angle (phi) (DETECTOR BLOCK) Distribution, PDG == 2212");
+        canvas->Update();
+        canvas->SaveAs((folder + "/4_2.png").c_str());
     }
 }

@@ -52,6 +52,8 @@ private:
     G4int PPIndex = -1;
     G4int randPos = -1;
     G4int randPAngle = -1;
+    G4double EnergySD = 0;
+    G4int EnergyBool = 0;
 };
 
 #endif

@@ -37,7 +37,6 @@ void MySteppingAction::UserSteppingAction(const G4Step *step){
     G4Track* track = step->GetTrack();
     G4int id = track->GetTrackID();
     G4int ParentID = track->GetParentID();
-    G4double charge = track->GetParticleDefinition()->GetPDGCharge();
     G4double pdg = track->GetParticleDefinition()->GetPDGEncoding();
     auto* vis = G4VVisManager::GetConcreteInstance();
     G4double Kenergy = track->GetKineticEnergy();
@@ -96,6 +95,8 @@ void MySteppingAction::UserSteppingAction(const G4Step *step){
         G4Text text(label, labelPosition);
         text.SetScreenSize(14);
 
+        G4double charge = track->GetParticleDefinition()->GetPDGCharge();
+        
         if (charge > 0.0) {
             G4VisAttributes att(G4Colour(0.0, 0.0, 1.0));
             text.SetVisAttributes(att);}

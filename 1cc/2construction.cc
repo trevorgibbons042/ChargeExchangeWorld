@@ -6,16 +6,21 @@ MyDetectorConstruction::MyDetectorConstruction()
 {
     ////Messengar. allows us to make customized gui commands (like change number of rows on detector)    
     fMessenger = new G4GenericMessenger(this, "/detector/", "Detector Construction");
-    fMessenger->DeclareProperty("nCols", nCols, "Number of columns");
-    fMessenger->DeclareProperty("nRows", nRows, "Number of rows");
     fMessenger->DeclareProperty("nBlocks", nBlocks, "Number of Blocks");
+    fMessenger->DeclareProperty("nCols_blocks", nCols, "Number of columns for tracking");
+    fMessenger->DeclareProperty("nRows_blocks", nRows, "Number of rows for tracking");
+    fMessenger->DeclareProperty("nCols_detector", nCols_detector, "Number of columns for detector");
+    fMessenger->DeclareProperty("nCols_detector", nRows_detector, "Number of rows for detector");
     fMessenger->DeclareProperty("randPosDetector", randPosDetector, "Is detector in random position?");
     fMessenger->DeclareProperty("randPosScaling", randPosScaling, "randPos Scaling Factor");
 
     //default values
     nBlocks = 20;
-    nCols = 9;
-    nRows = 9;
+    nCols = 100;
+    nRows = 100;
+    nCols_detector= 100;
+    nRows_detector = 100;
+
 
     DefineMaterial();
 }
@@ -29,16 +34,9 @@ void MyDetectorConstruction::DefineMaterial(){
     //sets up material manager
     nist = G4NistManager::Instance();
 
-    //world mat and properties (refractive index)
-    worldMat = nist->FindOrBuildMaterial("G4_Galactic"); //get air from manager, need a world first before detector
-    G4double energyWorld[2] = {1.239841939*eV/0.9, 1.239841939*eV/0.2}; //E/wavelength
-    G4double rindexWorld[2] = {1.1, 1.1}; //this is not true cuz of dispersion
-    G4MaterialPropertiesTable *mptWorld = new G4MaterialPropertiesTable();
-    mptWorld->AddProperty("RINDEX", energyWorld, rindexWorld, 2);
-    worldMat->SetMaterialPropertiesTable(mptWorld);
-
-    //Charge Exchange material
-    CMat = nist->FindOrBuildMaterial("G4_POLYETHYLENE");
+    worldMat = nist->FindOrBuildMaterial("G4_Galactic");
+    CMat = nist->FindOrBuildMaterial("G4_C");
+    DMat = nist->FindOrBuildMaterial("G4_Si");
 }
 
 G4VPhysicalVolume *MyDetectorConstruction::Construct() //defines volume and material
@@ -59,23 +57,43 @@ G4VPhysicalVolume *MyDetectorConstruction::Construct() //defines volume and mate
     physWorld = new G4PVPlacement(0, G4ThreeVector(0. ,0. ,0. ), logicWorld, "physWorld", 0, false, 0, false); 
 
     //material
+    G4double zCenter = 12.5 * m;
+    G4double dz = 0.5 * m;
+
+    solidMat = new G4Box("solidMat", 0.5 * m,0.5 * m, 0.1*m);
+    logicMat = new G4LogicalVolume(solidMat, CMat, "logicMat");
+
     G4double totalX = 1.0 * m;
     G4double totalY = 1.0 * m;
     G4double cellX = totalX / nCols;
     G4double cellY = totalY / nRows;
+    G4double detectorThickness = 0.02 * m;
 
-    solidMat = new G4Box("solidMat", cellX / 2.0,cellY / 2.0,0.05 * m);
-    logicMat = new G4LogicalVolume(solidMat, CMat, "logicMat");
+    solidTrack = new G4Box("solidTrack",cellX / 2.0,cellY / 2.0,detectorThickness / 2.0);
+    logicTrack = new G4LogicalVolume(solidTrack, DMat, "logicTrack");
 
     for (G4int i = 0; i < nBlocks; i++) {
-        G4double z = 25.0 * m * (i + 1) / nBlocks;
+        G4double z = zCenter + (i - (nBlocks - 1) / 2.0) * dz;
+
+        physMat = new G4PVPlacement(nullptr,G4ThreeVector(0, 0, z),
+        logicMat,"physMat",logicWorld,
+        false,i,false);
+    
+    G4double zCarbon = zCenter + (i - (nBlocks - 1) / 2.0) * dz;
+
+    if (i < nBlocks - 1) {
+        G4double zSegmented = zCarbon + dz / 2.0;
         for (G4int row = 0; row < nRows; row++) {
             for (G4int col = 0; col < nCols; col++) {
-                G4double x = -totalX / 2.0+ cellX / 2.0 + col * cellX;
-                G4double y = -totalY / 2.0 + cellY / 2.0 + row * cellY;
-                G4int copyNo =i*nRows*nCols + row*nCols + col;
-                physMat = new G4PVPlacement(0, G4ThreeVector(x, y, z),logicMat,"physMat",
-                logicWorld,false,copyNo, false);
+
+                G4double x =-totalX / 2.0+ cellX / 2.0 + col * cellX;
+                G4double y =-totalY / 2.0+ cellY / 2.0 + row * cellY;
+                G4int copyNo = i * nRows * nCols + row * nCols + col;
+
+                physTrack = new G4PVPlacement(nullptr, G4ThreeVector(x, y, zSegmented),
+                    logicTrack,"physTrack", logicWorld,
+                    false,copyNo,false);
+                }
             }
         }
     }
@@ -92,10 +110,27 @@ G4VPhysicalVolume *MyDetectorConstruction::Construct() //defines volume and mate
 
     G4ThreeVector detectorPos = G4ThreeVector(randX,randY, randZ+25.2*m);
 
-    solidDetector = new G4Box("solidDetector", 0.49*m, 0.49*m, 0.1*m);
-    logicDetector = new G4LogicalVolume(solidDetector, CMat, "logicDetector");
-    physDetector = new G4PVPlacement(0, detectorPos, logicDetector,"physDetector",
-                    logicWorld,false,0, false);
+    G4double detectorX = 0.98*m;
+    G4double detectorY = 0.98*m;
+    G4double detectorZ = 0.20*m;
+    G4double cellXd = detectorX / nCols_detector;
+    G4double cellYd = detectorY / nRows_detector;
+
+    solidDetector = new G4Box("solidDetector", cellXd / 2.0, cellYd / 2.0, detectorZ / 2.0);
+    logicDetector = new G4LogicalVolume(solidDetector, DMat, "logicDetector");
+    
+    for (G4int row = 0; row < nRows_detector; row++){
+        for (G4int col = 0; col < nCols_detector; col++){
+            G4double x = detectorPos.x()- detectorX / 2.0+ cellXd / 2.0+ col * cellXd;
+            G4double y = detectorPos.y()- detectorY / 2.0+ cellYd / 2.0+ row * cellYd;
+            G4double z = detectorPos.z();
+            G4ThreeVector cellPos = G4ThreeVector(x, y, z);
+            G4int copyNumber = row * nCols_detector + col;
+
+            physDetector = new G4PVPlacement(0, cellPos, logicDetector,"physDetector",
+                                            logicWorld,false,copyNumber, false);
+        }
+    }
 
     return physWorld;
 }

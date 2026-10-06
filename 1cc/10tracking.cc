@@ -32,9 +32,9 @@ void MyTrackingAction::PreUserTrackingAction(const G4Track* track)
     man->FillNtupleDColumn(6, Pos.x());
     man->FillNtupleDColumn(7, Pos.y());
     man->FillNtupleDColumn(8, Pos.z());
-    man->FillNtupleDColumn(9, Mom.x());
-    man->FillNtupleDColumn(10, Mom.y());
-    man->FillNtupleDColumn(11, Mom.z());
-    man->FillNtupleDColumn(12, KE);
+    //man->FillNtupleDColumn(9, Mom.x());
+    //man->FillNtupleDColumn(10, Mom.y());
+    //man->FillNtupleDColumn(11, Mom.z());
+    man->FillNtupleDColumn(9, KE);
     man->AddNtupleRow(0);
 };

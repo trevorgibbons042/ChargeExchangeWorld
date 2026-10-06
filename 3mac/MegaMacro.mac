@@ -16,19 +16,19 @@
 
 #Folder
 /output/folder default
-/run/beamOn 1000000000
+/run/beamOn 100000000
  
 /randGun/randPos 1
 /output/folder randPos
-/run/beamOn 1000000000
+/run/beamOn 100000000
 
 /randGun/randPos 1
 /randGun/randPAngle 1
 /output/folder randPosPAngle
-/run/beamOn 1000000000
+/run/beamOn 100000000
 
 /detector/randPosDetector
 /randGun/randPos 1
 /randGun/randPAngle 1
 /output/folder randPosPAngleDetector
-/run/beamOn 1000000000
+/run/beamOn 100000000

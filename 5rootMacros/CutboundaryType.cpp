@@ -19,9 +19,11 @@ void CutboundaryType(){
     ROOT::EnableImplicitMT();
 
     TFile* File = TFile::Open("cut_CE.root", "READ");
+    //TFile* File = TFile::Open("cut_ParentID.root", "READ");
     
     TTree *events = (TTree*)File->Get("ParticleInfo");
     TTree *ChargeExchange = (TTree*)File->Get("ChargeExchange_values");
+    TTree *CalcVals = (TTree*)File->Get("CalcVals");
     
     Long64_t Sync = events->Draw("fEvent:TrackID", "boundaryType == 2", "goff");
     
@@ -40,6 +42,12 @@ void CutboundaryType(){
     auto selectedEvent = df.Filter(cut_ID.Data());
     auto selectedEvent2 = df.Filter(cut_ID2.Data());
     
+    ROOT::RDataFrame dfCV(*CalcVals);
+    auto selectedEventCV = dfCV.Filter(cut_ID.Data());
+    auto selectedEventCV2 = df.Filter(cut_ID2.Data());
+    
     selectedEvent.Snapshot(events->GetName(),"cut_EOL.root");
+    selectedEventCV.Snapshot(CalcVals->GetName(),"cut_EOL.root", "", update);
     selectedEvent2.Snapshot(events->GetName(),"cut_EOL2.root");
+    selectedEventCV2.Snapshot(CalcVals->GetName(),"cut_EOL2.root","", update);
 }
