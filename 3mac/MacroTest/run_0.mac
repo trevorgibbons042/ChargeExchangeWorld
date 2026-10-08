@@ -1,0 +1,25 @@
+
+/run/initialize
+
+#Detector
+/detector/nCols 51
+/detector/nRows 51
+/detector/nCols_detector 51
+/detector/nRows_detector 51
+#/detector/nBlocks
+#/detector/randPosDetector
+#/detector/randPosScaling
+/run/reinitializeGeometry
+
+#Paritcle Position
+#/randGun/randPAngle
+#/randGun/randPos
+
+#Folder
+/output/folder MacroTest_output/51
+
+#Polarization
+/Polarization/PPIndex 7
+/Polarization/PrintPPIndex
+
+/run/beamOn 100000

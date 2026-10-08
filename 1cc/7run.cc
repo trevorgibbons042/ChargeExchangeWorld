@@ -30,7 +30,7 @@ MyRunAction::MyRunAction()
     //9stepping.cc
     man->CreateNtuple("ChargeExchange_values", "ChargeExchange values");
     man->CreateNtupleIColumn("fEvent");
-    man->CreateNtupleDColumn("TrackID");
+    man->CreateNtupleIColumn("TrackID");
     man->CreateNtupleDColumn("didChargeExchange");
     man->CreateNtupleDColumn("fX");
     man->CreateNtupleDColumn("fY");
@@ -38,6 +38,8 @@ MyRunAction::MyRunAction()
     man->CreateNtupleDColumn("LastPhi");
     man->CreateNtupleDColumn("LastTheta");
     man->CreateNtupleDColumn("LastMomentum");
+    man->CreateNtupleDColumn("LastT");
+    man->CreateNtupleDColumn("LastAP");
     man->FinishNtuple(1);
 
     //9stepping.cc

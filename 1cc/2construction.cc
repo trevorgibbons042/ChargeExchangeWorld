@@ -10,16 +10,16 @@ MyDetectorConstruction::MyDetectorConstruction()
     fMessenger->DeclareProperty("nCols_blocks", nCols, "Number of columns for tracking");
     fMessenger->DeclareProperty("nRows_blocks", nRows, "Number of rows for tracking");
     fMessenger->DeclareProperty("nCols_detector", nCols_detector, "Number of columns for detector");
-    fMessenger->DeclareProperty("nCols_detector", nRows_detector, "Number of rows for detector");
+    fMessenger->DeclareProperty("nRows_detector", nRows_detector, "Number of rows for detector");
     fMessenger->DeclareProperty("randPosDetector", randPosDetector, "Is detector in random position?");
     fMessenger->DeclareProperty("randPosScaling", randPosScaling, "randPos Scaling Factor");
 
     //default values
-    nBlocks = 20;
-    nCols = 100;
-    nRows = 100;
-    nCols_detector= 100;
-    nRows_detector = 100;
+    nBlocks = 10;
+    nCols = 50;
+    nRows = 50;
+    nCols_detector= 50;
+    nRows_detector = 50;
 
 
     DefineMaterial();
@@ -51,20 +51,20 @@ G4VPhysicalVolume *MyDetectorConstruction::Construct() //defines volume and mate
     //world volume calculations, all values are half of width
     G4double xWorld = 0.5*m;
     G4double yWorld = 0.5*m;
-    G4double zWorld = 26*m;
+    G4double zWorld = 9*m;
     solidWorld = new G4Box("solidWorld", xWorld, yWorld, zWorld);
     logicWorld = new G4LogicalVolume(solidWorld, worldMat, "logicWorld");
     physWorld = new G4PVPlacement(0, G4ThreeVector(0. ,0. ,0. ), logicWorld, "physWorld", 0, false, 0, false); 
 
     //material
-    G4double zCenter = 12.5 * m;
+    G4double zCenter = 4 * m;
     G4double dz = 0.5 * m;
 
     solidMat = new G4Box("solidMat", 0.5 * m,0.5 * m, 0.1*m);
     logicMat = new G4LogicalVolume(solidMat, CMat, "logicMat");
 
-    G4double totalX = 1.0 * m;
-    G4double totalY = 1.0 * m;
+    G4double totalX = 0.4 * m;
+    G4double totalY = 0.4 * m;
     G4double cellX = totalX / nCols;
     G4double cellY = totalY / nRows;
     G4double detectorThickness = 0.02 * m;
@@ -98,21 +98,18 @@ G4VPhysicalVolume *MyDetectorConstruction::Construct() //defines volume and mate
         }
     }
 
-    G4double randX = 0;
-    G4double randY = 0;
-    G4double randZ = 0;
 
-    if (randPosDetector == 1){
-        randX = randPosScaling*G4RandGauss::shoot(0, 0.5*mm);
-        randY = randPosScaling*G4RandGauss::shoot(0, 0.5*mm);
-        randZ = randPosScaling*G4RandGauss::shoot(0, 0.5*cm);
-    }
 
-    G4ThreeVector detectorPos = G4ThreeVector(randX,randY, randZ+25.2*m);
 
-    G4double detectorX = 0.98*m;
-    G4double detectorY = 0.98*m;
-    G4double detectorZ = 0.20*m;
+
+
+
+
+    G4ThreeVector detectorPos = G4ThreeVector(0,0, 8*m);
+
+    G4double detectorX = 0.3*m;
+    G4double detectorY = 0.3*m;
+    G4double detectorZ = 0.6*m;
     G4double cellXd = detectorX / nCols_detector;
     G4double cellYd = detectorY / nRows_detector;
 
@@ -143,4 +140,5 @@ void MyDetectorConstruction::ConstructSDandField(){
 
     logicMat->SetSensitiveDetector(sensDet);
     logicDetector->SetSensitiveDetector(sensDet);
+    logicTrack->SetSensitiveDetector(sensDet);
 }

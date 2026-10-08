@@ -65,17 +65,31 @@ void MySteppingAction::UserSteppingAction(const G4Step *step){
         dynamic_cast<const G4ChargeExchange*>
         (process->GetHadronicInteraction());
 
+        
         if (modelNP != nullptr){
             G4ThreeVector reactionPosition = step->GetPostStepPoint()->GetPosition();
+
+            const auto* secondaries = step->GetSecondaryInCurrentStep();
+            G4double thetaCE = NAN;
+
+            for (const auto* secondary : *secondaries) {
+                if (secondary->GetDefinition()->GetPDGEncoding() != 2212) {continue;}
+                thetaCE =(secondary->GetMomentum()).theta();
+            }
+            
+            
+
             man->FillNtupleIColumn(1, 0, evt);
-            man->FillNtupleDColumn(1, 1, id);
+            man->FillNtupleIColumn(1, 1, id);
             man->FillNtupleDColumn(1, 2, 1);
             man->FillNtupleDColumn(1, 3, reactionPosition.getX());
             man->FillNtupleDColumn(1, 4, reactionPosition.getY());
             man->FillNtupleDColumn(1, 5, reactionPosition.getZ());
             man->FillNtupleDColumn(1, 6, modelNP->GetLastphinew());
-            man->FillNtupleDColumn(1, 7, modelNP->GetLasttheta());
+            man->FillNtupleDColumn(1, 7, thetaCE);
             man->FillNtupleDColumn(1, 8, modelNP->GetLastmomentum());
+            man->FillNtupleDColumn(1, 9, modelNP->GetLastT());
+            man->FillNtupleDColumn(1, 10, modelNP->GetLastAP());
             man->AddNtupleRow(1);
         }
     }

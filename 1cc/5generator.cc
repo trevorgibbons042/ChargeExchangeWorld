@@ -15,6 +15,7 @@ MyPrimaryGenerator::MyPrimaryGenerator()
     fMessenger->DeclareProperty("randPAngle", randPAngle, "Is random angle on?");
     fMessenger->DeclareProperty("randPos", randPos, "Is random position on?");
     fMessenger->DeclareProperty("EnergyBool", EnergyBool, "Is random energy on?");
+    fMessenger->DeclareProperty("EnergySD", EnergySD, "Standard Deviation on Energy");
 
     //number of particles per event (can do 1 run with bunch of events tho)
     fParticleGun = new G4ParticleGun(1);

@@ -5,6 +5,7 @@
 #/detector/nRows
 #/detector/nBlocks
 #/detector/randPosDetector
+#/detector/randPosScaling
 
 #Paritcle Position
 #/randGun/randPAngle
@@ -17,4 +18,4 @@
 /Polarization/PPIndex 7
 /Polarization/PrintPPIndex
 
-/run/beamOn 100000
+/run/beamOn 1000
