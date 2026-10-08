@@ -251,7 +251,6 @@ sim: /Users/trevorg04/geant4-11.4.1-install/lib/libG4modeling.dylib
 sim: /Users/trevorg04/geant4-11.4.1-install/lib/libG4interfaces.dylib
 sim: /Users/trevorg04/geant4-11.4.1-install/lib/libG4mctruth.dylib
 sim: /Users/trevorg04/geant4-11.4.1-install/lib/libG4geomtext.dylib
-sim: /Users/trevorg04/geant4-11.4.1-install/lib/libG4gdml.dylib
 sim: /Users/trevorg04/geant4-11.4.1-install/lib/libG4analysis.dylib
 sim: /Users/trevorg04/geant4-11.4.1-install/lib/libG4error_propagation.dylib
 sim: /Users/trevorg04/geant4-11.4.1-install/lib/libG4readout.dylib
@@ -260,12 +259,10 @@ sim: /Users/trevorg04/geant4-11.4.1-install/lib/libG4run.dylib
 sim: /Users/trevorg04/geant4-11.4.1-install/lib/libG4event.dylib
 sim: /Users/trevorg04/geant4-11.4.1-install/lib/libG4tracking.dylib
 sim: /Users/trevorg04/geant4-11.4.1-install/lib/libG4parmodels.dylib
-sim: /Users/trevorg04/geant4-11.4.1-install/lib/libG4expat.dylib
 sim: /opt/homebrew/lib/QtWidgets.framework/Versions/A/QtWidgets
 sim: /opt/homebrew/lib/QtGui.framework/Versions/A/QtGui
 sim: /opt/homebrew/lib/QtCore.framework/Versions/A/QtCore
-sim: /opt/homebrew/lib/libxerces-c.dylib
-sim: /opt/homebrew/opt/freetype/lib/libfreetype.dylib
+sim: /Users/trevorg04/spack/opt/spack/darwin-m1/expat-2.8.0-pjwwokjg4lqwd32son37sh2hhxiumm2m/lib/libexpat.dylib
 sim: /Users/trevorg04/geant4-11.4.1-install/lib/libG4processes_hadronic.dylib
 sim: /Users/trevorg04/geant4-11.4.1-install/lib/libG4processes_core.dylib
 sim: /Users/trevorg04/geant4-11.4.1-install/lib/libG4digits_hits.dylib

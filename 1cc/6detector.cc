@@ -1,5 +1,6 @@
 #include "6detector.hh"
 #include "2construction.hh"
+#include <cmath>
 
 MySensitiveDetector::MySensitiveDetector(G4String name) : G4VSensitiveDetector(name)
 {};
@@ -26,8 +27,14 @@ G4bool MySensitiveDetector::ProcessHits(G4Step *aStep, G4TouchableHistory *ROhis
     G4VPhysicalVolume *physVol = touchable->GetVolume();
     G4String volumeName = physVol->GetName();
 
-    if (pre->GetStepStatus() == fGeomBoundary && 
-    volumeName == "physDetector"){
+    auto preVolume  = pre->GetPhysicalVolume();
+    auto postVolume = post->GetPhysicalVolume();
+    G4String preVolumeName  = "";
+    G4String postVolumeName = "";
+    if (preVolume) {preVolumeName = preVolume->GetName();}
+    if (postVolume) {postVolumeName = postVolume->GetName();}
+
+    if (post->GetStepStatus() == fGeomBoundary && postVolumeName == "physTrack" && preVolumeName != "physTrack"){
         G4ThreeVector Pos = pre->GetPosition();
         G4ThreeVector Mom = pre->GetMomentum();
         G4double KE       = pre->GetKineticEnergy();
@@ -48,8 +55,7 @@ G4bool MySensitiveDetector::ProcessHits(G4Step *aStep, G4TouchableHistory *ROhis
         man->AddNtupleRow(0);
     }
 
-    if (post->GetStepStatus() == fGeomBoundary && 
-    volumeName == "physDetector"){
+    if (post->GetStepStatus() == fGeomBoundary && preVolumeName == "physTrack" && postVolumeName != "physTrack"){
         G4ThreeVector Pos = post->GetPosition();
         G4ThreeVector Mom = post->GetMomentum();
         G4double KE       = post->GetKineticEnergy();
@@ -98,7 +104,7 @@ G4bool MySensitiveDetector::ProcessHits(G4Step *aStep, G4TouchableHistory *ROhis
         G4double phi = std::atan2(Pos.y(), Pos.x());
         if (phi < 0) {phi += 2.0 * CLHEP::pi;}
 
-        G4double theta = std::atan2(std::sqrt(Pos.x()*Pos.x() + Pos.y()*Pos.y()), Pos.z());
+        G4double theta = std::acos(Pos.z()/std::sqrt(Pos.x()*Pos.x() + Pos.y()*Pos.y() + Pos.z()*Pos.z()));
 
         man->FillNtupleIColumn(2, 0, evt);
         man->FillNtupleIColumn(2, 1, trackID);

@@ -1,0 +1,24 @@
+/run/initialize
+
+#Detector
+/detector/nCols 401
+/detector/nRows 401
+/detector/nCols_detector 401
+/detector/nRows_detector 401
+#/detector/nBlocks
+#/detector/randPosDetector
+#/detector/randPosScaling
+/run/reinitializeGeometry
+
+#Paritcle Position
+#/randGun/randPAngle
+#/randGun/randPos
+
+#Folder
+/output/folder nColsnRows2/401
+
+#Polarization
+/Polarization/PPIndex 7
+/Polarization/PrintPPIndex
+
+/run/beamOn 100000

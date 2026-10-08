@@ -1,0 +1,20 @@
+/run/initialize
+
+#Detector
+#/detector/nCols
+#/detector/nRows
+#/detector/nBlocks
+#/detector/randPosDetector
+
+#Paritcle Position
+#/randGun/randPAngle
+#/randGun/randPos
+
+#Folder
+/output/folder results_newphysics
+
+#Polarization
+/Polarization/PPIndex 7
+/Polarization/PrintPPIndex
+
+/run/beamOn 100000
