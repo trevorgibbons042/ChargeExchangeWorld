@@ -37,9 +37,9 @@ private:
     
     ////messengar stuff
     G4GenericMessenger *fMessenger;
-    G4int nCols, nRows, nBlocks;
+    G4int nCols, nRows, nBlocks, nBlocksTracking;
     G4int nCols_detector, nRows_detector;
-    
+
     ////Defining World
     G4NistManager *nist;
     G4Material *worldMat, *CMat, *DMat;
@@ -52,6 +52,7 @@ private:
 
     G4int randPosDetector = -1;
     G4double randPosScaling = 1;
+    G4double CarbonThickness, dz;
 
     ////Detector Defining
     G4LogicalVolume *fScoringVolume;

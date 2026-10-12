@@ -18,7 +18,6 @@ MyPhysicsList::MyPhysicsList()
 {
     // only use physics u need, otherwise too laggy
     RegisterPhysics (new G4EmStandardPhysics());
-    //RegisterPhysics (new G4OpticalPhysics());
     RegisterPhysics (new G4EmExtraPhysics());
     RegisterPhysics (new G4DecayPhysics());
     RegisterPhysics (new G4IonPhysics());

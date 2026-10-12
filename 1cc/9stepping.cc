@@ -5,6 +5,7 @@
 #include "G4VisAttributes.hh"
 #include "G4StepStatus.hh"
 
+#include <cmath>
 #include "G4ChargeExchange.hh"
 #include "G4HadronicProcess.hh"
 #include "G4ChargeExchangeNP.hh"
@@ -77,8 +78,6 @@ void MySteppingAction::UserSteppingAction(const G4Step *step){
                 thetaCE =(secondary->GetMomentum()).theta();
             }
             
-            
-
             man->FillNtupleIColumn(1, 0, evt);
             man->FillNtupleIColumn(1, 1, id);
             man->FillNtupleDColumn(1, 2, 1);
@@ -94,6 +93,42 @@ void MySteppingAction::UserSteppingAction(const G4Step *step){
         }
     }
 
+    auto* postVol = post->GetPhysicalVolume();
+    if (post->GetStepStatus() == fGeomBoundary && postVol && postVol->GetName() == "physDetector"
+        && (pdg == 2212 || pdg == 2112)){
+        G4ThreeVector Pos = post->GetPosition();
+        G4double KE       = post->GetKineticEnergy();
+        G4ThreeVector detectorCenter = postVol->GetTranslation();
+
+        man->FillNtupleIColumn(0, 0, evt);
+        man->FillNtupleIColumn(0, 1, id);
+        man->FillNtupleIColumn(0, 2, ParentID);
+        man->FillNtupleIColumn(0, 3, post->GetTouchable()->GetCopyNumber());
+        man->FillNtupleIColumn(0, 4, pdg);
+        man->FillNtupleIColumn(0, 5, 2);
+        man->FillNtupleDColumn(0, 6, Pos.x());
+        man->FillNtupleDColumn(0, 7, Pos.y());
+        man->FillNtupleDColumn(0, 8, Pos.z());
+        man->FillNtupleDColumn(0, 9, KE);
+        man->FillNtupleDColumn(0, 10, detectorCenter.x());
+        man->FillNtupleDColumn(0, 11, detectorCenter.y());
+        man->FillNtupleDColumn(0, 12, detectorCenter.z());
+        man->AddNtupleRow(0);
+
+        G4double phi = std::atan2(Pos.y(), Pos.x());
+        if (phi < 0) {phi += 2.0 * CLHEP::pi;}
+        G4double theta = std::acos(Pos.z()/Pos.mag());
+
+        man->FillNtupleIColumn(2, 0, evt);
+        man->FillNtupleIColumn(2, 1, id);
+        man->FillNtupleIColumn(2, 2, ParentID);
+        man->FillNtupleIColumn(2, 3, pdg);
+        man->FillNtupleDColumn(2, 4, phi*(360/CLHEP::pi));
+        man->FillNtupleDColumn(2, 5, theta*(360/CLHEP::pi));
+        man->AddNtupleRow(2);
+
+        track->SetTrackStatus(fStopAndKill);
+    }
 
     //labeling
     /*

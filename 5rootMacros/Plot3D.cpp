@@ -20,7 +20,6 @@ void Plot3D(){
     std::string folder_posD = folder + "/pos/posD/";
     
     std::string folder_energy = folder + "/energy/";
-    std::string folder_energydiff = folder + "/energy/difference";
     
     std::string folder_angles = folder + "/angle/";
     
@@ -28,7 +27,6 @@ void Plot3D(){
     std::filesystem::create_directories(folder_pos);
     std::filesystem::create_directories(folder_posD);
     std::filesystem::create_directories(folder_energy);
-    std::filesystem::create_directories(folder_energydiff);
     std::filesystem::create_directories(folder_angles);
     
     double Graph = 1;
@@ -94,6 +92,14 @@ void Plot3D(){
         events2->GetHistogram()->SetMaximum(100);
         canvas->Update();
         canvas->SaveAs((folder_pos + "3_2.png").c_str());
+        
+        canvas->Clear();
+        events->Draw("fY:fX>>h2(100,-500,500,100,-500,500)", "boundaryType == 2", "colz");
+        events->GetHistogram()->SetTitle("Position at end of World, Charge Exchange Events, All Particles;X Position (cm);Y Position (cm)");
+        events->GetHistogram()->SetMinimum(0);
+        events->GetHistogram()->SetMaximum(100);
+        canvas->Update();
+        canvas->SaveAs((folder_pos + "4.png").c_str());
         
         
         
