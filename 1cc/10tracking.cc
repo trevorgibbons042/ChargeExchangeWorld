@@ -24,17 +24,19 @@ void MyTrackingAction::PreUserTrackingAction(const G4Track* track)
     G4ThreeVector Mom = track->GetMomentum();
     G4double KE = track->GetKineticEnergy();
 
-    man->FillNtupleIColumn(0, evt);
-    man->FillNtupleIColumn(1, trackID);
-    man->FillNtupleIColumn(2, parentID);
-    man->FillNtupleIColumn(4, pdg);
-    man->FillNtupleIColumn(5, 3);
-    man->FillNtupleDColumn(6, Pos.x());
-    man->FillNtupleDColumn(7, Pos.y());
-    man->FillNtupleDColumn(8, Pos.z());
-    //man->FillNtupleDColumn(9, Mom.x());
-    //man->FillNtupleDColumn(10, Mom.y());
-    //man->FillNtupleDColumn(11, Mom.z());
-    man->FillNtupleDColumn(9, KE);
-    man->AddNtupleRow(0);
+    if (pdg == 2212 || pdg == 2112){
+        man->FillNtupleIColumn(0, evt);
+        man->FillNtupleIColumn(1, trackID);
+        man->FillNtupleIColumn(2, parentID);
+        man->FillNtupleIColumn(4, pdg);
+        man->FillNtupleIColumn(5, 3);
+        man->FillNtupleDColumn(6, Pos.x());
+        man->FillNtupleDColumn(7, Pos.y());
+        man->FillNtupleDColumn(8, Pos.z());
+        //man->FillNtupleDColumn(9, Mom.x());
+        //man->FillNtupleDColumn(10, Mom.y());
+        //man->FillNtupleDColumn(11, Mom.z());
+        man->FillNtupleDColumn(9, KE);
+        man->AddNtupleRow(0);
+    }
 };

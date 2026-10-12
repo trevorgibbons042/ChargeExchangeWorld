@@ -9,6 +9,7 @@ MyRunAction::MyRunAction()
     
     //CREATING EMPTY TABLES
     G4AnalysisManager *man = G4AnalysisManager::Instance();
+    man->SetNtupleMerging(true);
     
     //6detector.cc
     man->CreateNtuple("ParticleInfo", "Position when Entering/Leaving Volume");

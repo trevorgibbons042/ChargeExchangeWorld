@@ -164,6 +164,19 @@ void ReconAngle(){
     double bxDOut;
     double byDOut;
     
+    double xVertexOut;
+    double yVertexOut;
+    double zVertexOut;
+    
+    double z_bx_reconVertexOut;
+    double z_by_reconVertexOut;
+    double z_bx_reconVertexDIFFOut;
+    double z_by_reconVertexDIFFOut;
+    double x_bx_reconVertexDIFFOut;
+    double x_by_reconVertexDIFFOut;
+    double y_bx_reconVertexDIFFOut;
+    double y_by_reconVertexDIFFOut;
+    
     double finalKE;
     int fParentID;
     
@@ -185,7 +198,14 @@ void ReconAngle(){
     outTree->Branch("finalKE", &finalKE);
     outTree->Branch("ParentID", &fParentID);
     
+    outTree->Branch("xVertexOut", &xVertexOut);
+    outTree->Branch("yVertexOut", &yVertexOut);
+    outTree->Branch("zVertexOut", &zVertexOut);
     
+    outTree->Branch("z_bx_reconVertexOut", &z_bx_reconVertexOut);
+    outTree->Branch("z_by_reconVertexOut", &z_by_reconVertexOut);
+    outTree->Branch("z_bx_reconVertexDIFFOut", &z_bx_reconVertexDIFFOut);
+    outTree->Branch("z_by_reconVertexDIFFOut", &z_by_reconVertexDIFFOut);
     
     std::map<std::tuple<int, int, int>, Track> tracks;
     std::mutex m;
@@ -193,6 +213,16 @@ void ReconAngle(){
         int eventID, int trackID, int pdg, int boundary,
         double x, double y, double z, double xD, double yD, double zD, double KE, int ParentID, ULong64_t entry){
         std::lock_guard<std::mutex> lock(m);
+        
+        if (Verbose == true && pdg == 2212){
+                std::cout
+                    << "CUT_EOL: event = " << eventID
+                    << " TrackID = " << trackID
+                    << " pdg = " << pdg
+                    << " x = " << x << " y =" << y << " z =" << z
+                    << " xD = " << xD << " yD =" << yD << " zD =" << zD
+                    << std::endl;
+        }
         
         auto &t = tracks[{eventID, trackID, pdg}];
         t.points.push_back({x, y, z, xD, yD, zD, KE, ParentID});
@@ -296,9 +326,10 @@ void ReconAngle(){
             }
         }
         
-        
-        
-        
+        xVertexOut = startPoint->x;
+        yVertexOut = startPoint->y;
+        zVertexOut = startPoint->z;
+                
         outEventID = std::get<0>(key);
         outTrackID = std::get<1>(key);
         outPDG = std::get<2>(key);
@@ -313,7 +344,21 @@ void ReconAngle(){
         fParentID = endPoint->ParentID;
         
         
+        if (Verbose == true){
+            std::cout
+                << "Event = " << eventID
+                << " TrackID = " << trackID
+                << " PDG = " << pdg
+                << " theta = " << theta
+                << " phi = " << phi
+                << std::endl;
+        }
+        
         auto endPointD = std::max_element(t.points.begin(), t.points.end(),[](const Pos &a, const Pos &b){
+                return a.zD < b.zD;
+            });
+        
+        auto startPointD = std::min_element(t.points.begin(),t.points.end(),[](const Pos &a, const Pos &b){
                 return a.zD < b.zD;
             });
         
@@ -325,6 +370,7 @@ void ReconAngle(){
         double phiD = std::atan2(fit.byD, fit.bxD);
         if (phiD < 0) {phiD += 2.0 * M_PI;}
         
+        
         outDTheta = thetaD;
         outDPhi = phiD;
         x0DOut = fit.x0D;
@@ -332,7 +378,18 @@ void ReconAngle(){
         bxDOut = fit.bxD;
         byDOut = fit.byD;
         
-        if (Verbose == true){
+        z_bx_reconVertexOut = 0;
+        if (fit.bxD != 0){z_bx_reconVertexOut = -fit.x0D/fit.bxD;
+        } else{z_bx_reconVertexOut = 0;}
+        
+        if (fit.byD != 0){z_by_reconVertexOut = -fit.y0D/fit.byD;
+        } else{z_by_reconVertexOut = 0;}
+        
+        z_bx_reconVertexDIFFOut = zVertexOut - z_bx_reconVertexOut;
+        z_by_reconVertexDIFFOut = zVertexOut - z_by_reconVertexOut;
+        
+        
+        if (Verbose == true && (z_bx_reconVertexDIFFOut > 100)){
             for (size_t i = 0; i < t.points.size(); i++) {
                 std::cout
                     << "Point " << i
@@ -341,20 +398,21 @@ void ReconAngle(){
                     << ", z = " << t.points[i].z
                     << " | xD = " << t.points[i].xD
                     << ", yD = " << t.points[i].yD
-                    << ", zD = " << t.points[i].zD
-                    << std::endl;
-                std::cout
-                    << "Event: "   << std::get<0>(key)
-                    << " TrackID: " << std::get<1>(key)
-                    << " PDG: "     << std::get<2>(key)
-                    << "\n";
+                    << ", zD = " << t.points[i].zD;
+                std::cout << " fitx0D = " << fit.x0D << " fitbxD = " << fit.bxD
+                << " fity0D = " << fit.y0D << " fitbyD = " << fit.byD
+                << " thetaD = " << thetaD << " phiD = " << phiD
+                << " z_bx_reconVertexDIFFOut=" << z_bx_reconVertexDIFFOut << " z_by_reconVertexDIFFOut = " << z_by_reconVertexDIFFOut
+                << std::endl;
                 
+                /*
                 std::cout
                     << "theta: "   << theta
                     << " phi: " << phi
                     << " thetaD: " << thetaD
                     << " phiD: " << phiD
                     << "\n";
+                 */
             }
         }
         
@@ -364,6 +422,18 @@ void ReconAngle(){
     outTree->Write();
     outFile->Close();
 }
+
+
+
+
+
+
+
+
+
+
+
+
 
 void PlotFit3D(
     const std::vector<Pos>& points,

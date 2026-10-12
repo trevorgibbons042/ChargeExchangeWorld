@@ -27,8 +27,8 @@ namespace
 }
 
 using Key = std::pair<int, int>;
+struct Angles {double LastPhi, LastTheta, LastMomentum, LastT, LastAP; int PDG; double FinalKE;};
 
-struct Angles {double LastPhi, LastTheta, LastMomentum, LastT, LastAP; int PDG;};
 struct Track {std::vector<Angles> points;};
 
 void CalcAPandT(){
@@ -50,6 +50,7 @@ void CalcAPandT(){
     int outPDG;
     int outEventID;
     int outType;
+    double outFinalKE;
     
     double outThetaCE;
     double outPhiCE;
@@ -88,6 +89,7 @@ void CalcAPandT(){
     outTree->Branch("PDG", &outPDG);
     outTree->Branch("fEvent", &outEventID);
     outTree->Branch("fType", &outType);
+    outTree->Branch("finalKE", &outFinalKE);
     outTree->Branch("thetaCE", &outThetaCE);
     outTree->Branch("phiCE", &outPhiCE);
     outTree->Branch("tCE", &outTCE);
@@ -99,6 +101,7 @@ void CalcAPandT(){
     outTree2->Branch("PDG", &outPDG);
     outTree2->Branch("fEvent", &outEventID);
     outTree2->Branch("fType", &outType);
+    outTree2->Branch("finalKE", &outFinalKE);
     outTree2->Branch("thetaRe", &outThetaRe);
     outTree2->Branch("phiRe", &outPhiRe);
     outTree2->Branch("tRe", &outTRe);
@@ -110,6 +113,7 @@ void CalcAPandT(){
     outTree3->Branch("PDG", &outPDG);
     outTree3->Branch("fEvent", &outEventID);
     outTree3->Branch("fType", &outType);
+    outTree3->Branch("finalKE", &outFinalKE);
     outTree3->Branch("thetaReD", &outThetaReD);
     outTree3->Branch("phiReD", &outPhiReD);
     outTree3->Branch("tReD", &outTReD);
@@ -121,6 +125,7 @@ void CalcAPandT(){
     outTree4->Branch("PDG", &outPDG);
     outTree4->Branch("fEvent", &outEventID);
     outTree4->Branch("fType", &outType);
+    outTree4->Branch("finalKE", &outFinalKE);
     outTree4->Branch("thetaReD", &outThetaReDIFF);
     outTree4->Branch("phiReD", &outPhiReDIFF);
     outTree4->Branch("tReD", &outTReDIFF);
@@ -131,6 +136,7 @@ void CalcAPandT(){
     outTree5->Branch("PDG", &outPDG);
     outTree5->Branch("fEvent", &outEventID);
     outTree5->Branch("fType", &outType);
+    outTree5->Branch("finalKE", &outFinalKE);
     outTree5->Branch("thetaReD", &outThetaReDDIFF);
     outTree5->Branch("phiReD", &outPhiReDDIFF);
     outTree5->Branch("tReD", &outTReDDIFF);
@@ -167,13 +173,13 @@ void CalcAPandT(){
         double t_recon = std::acos(1-outTheta);
         double AP_recon = AP_A*(1-std::exp(-(AP_k*mom_recon)))*std::sqrt(t_recon);
                      
-        tRecon.points.push_back({outPhi, outTheta, mom_recon, t_recon, AP_recon, pdg});
+        tRecon.points.push_back({outPhi, outTheta, mom_recon, t_recon, AP_recon, pdg, finalKE});
         
         auto &tReconBlock = tracksAngles[{eventID, ParentID, 2}];
         double t_reconBlock = std::acos(1-outDTheta);
         double AP_reconBlock = (AP_A)*(1-std::exp(-(AP_k*mom_recon)))*std::sqrt(t_reconBlock);
         
-        tReconBlock.points.push_back({outDPhi, outDTheta, mom_recon, t_reconBlock, AP_reconBlock});
+        tReconBlock.points.push_back({outDPhi, outDTheta, mom_recon, t_reconBlock, AP_reconBlock, pdg, finalKE});
         },{"fEvent", "ParentID","outTheta", "outPhi", "outDTheta", "outDPhi", "finalKE", "PDG","rdfentry_"});
     
     if (Verbose == true){
@@ -217,35 +223,36 @@ void CalcAPandT(){
         outEventID = eventID;
         outTrackID = CETrackID;
 
-        outPhiCE   = ce.LastPhi;
-        outThetaCE = ce.LastTheta;
+        outPhiCE   = ce.LastPhi*(360)/(2*3.14);
+        outThetaCE = ce.LastTheta*(360)/(2*3.14);
         outMomCE   = ce.LastMomentum;
         outTCE     = ce.LastT;
         outAPCE    = ce.LastAP;
 
-        outPhiRe   = re.LastPhi;
-        outThetaRe = re.LastTheta;
+        outPhiRe   = re.LastPhi*(360)/(2*3.14);
+        outThetaRe = re.LastTheta*(360)/(2*3.14);
         outMomRe   = re.LastMomentum;
         outTRe     = re.LastT;
         outAPRe    = re.LastAP;
 
-        outPhiReD   = reD.LastPhi;
-        outThetaReD = reD.LastTheta;
+        outPhiReD   = reD.LastPhi*(360)/(2*3.14);
+        outThetaReD = reD.LastTheta*(360)/(2*3.14);
         outMomReD   = reD.LastMomentum;
         outTReD     = reD.LastT;
         outAPReD    = reD.LastAP;
         
         outPDG = re.PDG;
+        outFinalKE = re.FinalKE;
         
         outThetaReDIFF = outThetaRe - outThetaCE;
         outPhiReDIFF = outPhiRe - outPhiCE;
-        outTReDIFF = outTRe - outThetaCE;
+        outTReDIFF = outTRe - outTCE;
         outAPReDIFF = outAPRe - outAPCE;
         outFOMReDIFF = 0;
         
         outThetaReDDIFF = outThetaReD - outThetaCE;
         outPhiReDDIFF = outPhiReD - outPhiCE;
-        outTReDDIFF = outTReD - outThetaCE;
+        outTReDDIFF = outTReD - outTCE;
         outAPReDDIFF = outAPReD - outAPCE;
         outFOMReDDIFF = 0;
         

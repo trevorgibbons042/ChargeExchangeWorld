@@ -13,16 +13,12 @@ void CutEvents(){
     TChain *ChargeExchange = new TChain("ChargeExchange_values");
     TChain *CalcVals = new TChain("CalcVals");
     
-    for (int j = 0; j < 1; j++){
-        for (int i = 0; i < 128; i++){
-            TString filename = Form("output%d_t%d.root",j, i);
-            events->Add(filename);
-            ChargeExchange->Add(filename);
-            CalcVals->Add(filename);
-        }
-    }
+    TString filename = "output0.root";
+    events->Add(filename);
+    ChargeExchange->Add(filename);
+    CalcVals->Add(filename);
     
-    Long64_t Sync = ChargeExchange->Draw("fEvent:TrackID", "didChargeExchange>0", "goff");
+    Long64_t Sync = ChargeExchange->Draw("fEvent:TrackID", "didChargeExchange>0 && fZ<7000", "goff");
 
     TString cut_EventSync = "0";
 
@@ -48,7 +44,8 @@ void CutEvents(){
         );
     
     ROOT::RDataFrame df(*events);
-    ROOT::RDataFrame dfCE(*ChargeExchange);
+    ROOT::RDataFrame dfCEAll(*ChargeExchange);
+    auto dfCE = dfCEAll.Filter("fZ<7000");
     ROOT::RDataFrame dfCV(*CalcVals);
 
     ROOT::RDF::RSnapshotOptions update;
