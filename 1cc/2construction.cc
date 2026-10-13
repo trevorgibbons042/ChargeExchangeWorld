@@ -112,10 +112,6 @@ G4VPhysicalVolume *MyDetectorConstruction::Construct() //defines volume and mate
     }
 
 
-    // ============================================================
-    // Final tracker group after the last carbon
-    // ============================================================
-
     for (G4int j = 0; j < nBlocksTracking; j++) {
 
         G4double zTracker =
@@ -124,31 +120,14 @@ G4VPhysicalVolume *MyDetectorConstruction::Construct() //defines volume and mate
         for (G4int row = 0; row < nRows; row++) {
             for (G4int col = 0; col < nCols; col++) {
 
-                G4double x =
-                    -totalX / 2.0
-                    + cellX / 2.0
-                    + col * cellX;
+                G4double x = -totalX / 2.0 + cellX / 2.0 + col * cellX;
+                G4double y = -totalY / 2.0 + cellY / 2.0 + row * cellY;
 
-                G4double y =
-                    -totalY / 2.0
-                    + cellY / 2.0
-                    + row * cellY;
+                G4int copyNo = trackerIndex * nRows * nCols + row * nCols + col;
 
-                G4int copyNo =
-                    trackerIndex * nRows * nCols
-                    + row * nCols
-                    + col;
-
-                physTrack = new G4PVPlacement(
-                    nullptr,
-                    G4ThreeVector(x, y, zTracker),
-                    logicTrack,
-                    "physTrack",
-                    logicWorld,
-                    false,
-                    copyNo,
-                    false
-                );
+                physTrack = new G4PVPlacement(nullptr,
+                    G4ThreeVector(x, y, zTracker), logicTrack, "physTrack",
+                    logicWorld,false,copyNo,false);
             }
         }
 
@@ -158,7 +137,6 @@ G4VPhysicalVolume *MyDetectorConstruction::Construct() //defines volume and mate
     
 
     G4ThreeVector detectorPos = G4ThreeVector(0,0, 8*m);
-
     G4double detectorX = 0.4*m;
     G4double detectorY = 0.4*m;
     G4double detectorZ = 0.6*m;
@@ -177,7 +155,7 @@ G4VPhysicalVolume *MyDetectorConstruction::Construct() //defines volume and mate
             G4int copyNumber = row * nCols_detector + col;
 
             physDetector = new G4PVPlacement(0, cellPos, logicDetector,"physDetector",
-                                            logicWorld,false,copyNumber, false);
+                        logicWorld,false,copyNumber, false);
         }
     }
 

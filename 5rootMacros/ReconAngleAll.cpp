@@ -86,7 +86,7 @@ FitResult fitTrack(const std::vector<Pos>& points){
 void ReconAngleAll(){
     ROOT::EnableImplicitMT();
 
-    ROOT::RDataFrame df("ParticleInfo", "output0.root");
+    ROOT::RDataFrame df("ParticleInfo", "output0_t*.root");
 
     std::set<std::pair<int, int>> reachedEnd;
     std::mutex mEnd;
@@ -99,7 +99,7 @@ void ReconAngleAll(){
     // CE neutrons (same selection as CutEvents.cpp): event -> CE track IDs.
     std::map<int, std::set<int>> ceTracks;
     std::mutex mCE;
-    ROOT::RDataFrame dfCE("ChargeExchange_values", "output0.root");
+    ROOT::RDataFrame dfCE("ChargeExchange_values", "output0_t*.root");
     dfCE.Filter("didChargeExchange>0 && fZ<7000")
         .Foreach([&](int eventID, int trackID){
         std::lock_guard<std::mutex> lock(mCE);

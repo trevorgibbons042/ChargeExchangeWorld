@@ -13,7 +13,7 @@ void CutEvents(){
     TChain *ChargeExchange = new TChain("ChargeExchange_values");
     TChain *CalcVals = new TChain("CalcVals");
     
-    TString filename = "output0.root";
+    TString filename = "output0_t*.root";
     events->Add(filename);
     ChargeExchange->Add(filename);
     CalcVals->Add(filename);

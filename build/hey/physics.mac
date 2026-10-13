@@ -16,10 +16,12 @@
 #/randGun/randPos
 
 #Folder
-/output/folder checkingAP
+/output/folder checking_GraphBlocks
 
 #Polarization
 /Polarization/PPIndex 7
 /Polarization/PrintPPIndex
 
+/gun/verbose 0
+/run/printProgress 1000
 /run/beamOn 100000
