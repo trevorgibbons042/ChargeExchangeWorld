@@ -228,7 +228,7 @@ void ReconAngle(){
         t.points.push_back({x, y, z, xD, yD, zD, KE, ParentID});
         },{"fEvent","TrackID", "pdg", "boundaryType", "fX", "fY", "fZ", "fDx", "fDy", "fDz", "fKEnergy", "ParentID", "rdfentry_"});
 
-    bool plotted = false;
+    std::filesystem::create_directories("pngs/reconpngs");
 
     for (auto &[key, t] : tracks) {
         std::sort(
@@ -292,16 +292,9 @@ void ReconAngle(){
         int eventID = std::get<0>(key);
         int trackID = std::get<1>(key);
 
-        if (!plotted && pdg == 2212) {
-            std::cout
-                << "PLOTTING event " << eventID
-                << " track " << trackID
-                << " with " << t.points.size()
-                << " points"
-                << std::endl;
-
+        // only plot tracks with a non-zero slope (theta > 0)
+        if (pdg == 2212 && theta > 1e-9) {
             PlotFit3D(t.points,fit,eventID,trackID);
-            plotted = true;
         }
         
         if (Verbose == true){
@@ -496,7 +489,7 @@ void PlotFit3D(
 
     gX->SetTitle(
         Form(
-            "Event %d Track %d : x(z);z;x",
+            "Event %d TrackID %d : x(z);z;x",
             eventID,
             trackID
         )
@@ -580,7 +573,7 @@ void PlotFit3D(
 
     gY->SetTitle(
         Form(
-            "Event %d Track %d : y(z);z;y",
+            "Event %d TrackID %d : y(z);z;y",
             eventID,
             trackID
         )
@@ -652,4 +645,6 @@ void PlotFit3D(
 
     c->Modified();
     c->Update();
+    c->SaveAs(Form("pngs/reconpngs/Event_%d_TrackID_%d.png", eventID, trackID));
+    delete c;
 }
