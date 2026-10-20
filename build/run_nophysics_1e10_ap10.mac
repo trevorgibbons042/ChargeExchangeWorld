@@ -1,0 +1,48 @@
+/control/verbose 0
+/run/verbose 0
+/event/verbose 0
+/tracking/verbose 0
+
+/run/numberOfThreads 8
+/run/initialize
+/output/print false
+
+#ZDC energy smearing, sigma/E = sqrt((a/sqrt(E[GeV]))^2 + b^2), 0 and 0 = off
+/zdc/resStochastic 0.50
+/zdc/resConstant 0.045
+
+#Detector, 801x801 for astropix
+/detector/nCols_blocks 101
+/detector/nRows_blocks 101
+/detector/nCols_detector 101
+/detector/nRows_detector 101
+
+#/detector/nBlocks 4
+#/detector/nBlocksTracking 2
+#/detector/dz 0.25
+#/detector/CarbonThickness 0.2
+
+/run/reinitializeGeometry
+
+#Paritcle Position
+#/randGun/randPAngle
+#/randGun/randPos
+
+#Folder
+/output/folder noPhysicsXS1e10AP10
+
+#Polarization
+/Polarization/PPValue 0.7
+
+#Physics
+/process/inactivate Electromagnetic
+/process/inactivate Hadronic
+/process/inactivate Decay
+/process/activate neutronChargeExNP
+
+#CE NP cross section factor, 1 = regular value
+/CE/NPCrossSectionFactor 1e10
+
+/run/printProgress 100000
+/CE/APScale 10
+/run/beamOn 100000
