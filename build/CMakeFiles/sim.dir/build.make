@@ -100,10 +100,24 @@ CMakeFiles/sim.dir/1cc/10tracking.cc.s: cmake_force
 	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Compiling CXX source to assembly CMakeFiles/sim.dir/1cc/10tracking.cc.s"
 	/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -S /Users/trevorg04/G4ChargeExchange/1cc/10tracking.cc -o CMakeFiles/sim.dir/1cc/10tracking.cc.s
 
+CMakeFiles/sim.dir/1cc/11stacking.cc.o: CMakeFiles/sim.dir/flags.make
+CMakeFiles/sim.dir/1cc/11stacking.cc.o: /Users/trevorg04/G4ChargeExchange/1cc/11stacking.cc
+CMakeFiles/sim.dir/1cc/11stacking.cc.o: CMakeFiles/sim.dir/compiler_depend.ts
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/Users/trevorg04/G4ChargeExchange/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_3) "Building CXX object CMakeFiles/sim.dir/1cc/11stacking.cc.o"
+	/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT CMakeFiles/sim.dir/1cc/11stacking.cc.o -MF CMakeFiles/sim.dir/1cc/11stacking.cc.o.d -o CMakeFiles/sim.dir/1cc/11stacking.cc.o -c /Users/trevorg04/G4ChargeExchange/1cc/11stacking.cc
+
+CMakeFiles/sim.dir/1cc/11stacking.cc.i: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Preprocessing CXX source to CMakeFiles/sim.dir/1cc/11stacking.cc.i"
+	/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -E /Users/trevorg04/G4ChargeExchange/1cc/11stacking.cc > CMakeFiles/sim.dir/1cc/11stacking.cc.i
+
+CMakeFiles/sim.dir/1cc/11stacking.cc.s: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Compiling CXX source to assembly CMakeFiles/sim.dir/1cc/11stacking.cc.s"
+	/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -S /Users/trevorg04/G4ChargeExchange/1cc/11stacking.cc -o CMakeFiles/sim.dir/1cc/11stacking.cc.s
+
 CMakeFiles/sim.dir/1cc/2construction.cc.o: CMakeFiles/sim.dir/flags.make
 CMakeFiles/sim.dir/1cc/2construction.cc.o: /Users/trevorg04/G4ChargeExchange/1cc/2construction.cc
 CMakeFiles/sim.dir/1cc/2construction.cc.o: CMakeFiles/sim.dir/compiler_depend.ts
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/Users/trevorg04/G4ChargeExchange/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_3) "Building CXX object CMakeFiles/sim.dir/1cc/2construction.cc.o"
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/Users/trevorg04/G4ChargeExchange/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_4) "Building CXX object CMakeFiles/sim.dir/1cc/2construction.cc.o"
 	/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT CMakeFiles/sim.dir/1cc/2construction.cc.o -MF CMakeFiles/sim.dir/1cc/2construction.cc.o.d -o CMakeFiles/sim.dir/1cc/2construction.cc.o -c /Users/trevorg04/G4ChargeExchange/1cc/2construction.cc
 
 CMakeFiles/sim.dir/1cc/2construction.cc.i: cmake_force
@@ -117,7 +131,7 @@ CMakeFiles/sim.dir/1cc/2construction.cc.s: cmake_force
 CMakeFiles/sim.dir/1cc/3physics.cc.o: CMakeFiles/sim.dir/flags.make
 CMakeFiles/sim.dir/1cc/3physics.cc.o: /Users/trevorg04/G4ChargeExchange/1cc/3physics.cc
 CMakeFiles/sim.dir/1cc/3physics.cc.o: CMakeFiles/sim.dir/compiler_depend.ts
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/Users/trevorg04/G4ChargeExchange/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_4) "Building CXX object CMakeFiles/sim.dir/1cc/3physics.cc.o"
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/Users/trevorg04/G4ChargeExchange/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_5) "Building CXX object CMakeFiles/sim.dir/1cc/3physics.cc.o"
 	/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT CMakeFiles/sim.dir/1cc/3physics.cc.o -MF CMakeFiles/sim.dir/1cc/3physics.cc.o.d -o CMakeFiles/sim.dir/1cc/3physics.cc.o -c /Users/trevorg04/G4ChargeExchange/1cc/3physics.cc
 
 CMakeFiles/sim.dir/1cc/3physics.cc.i: cmake_force
@@ -131,7 +145,7 @@ CMakeFiles/sim.dir/1cc/3physics.cc.s: cmake_force
 CMakeFiles/sim.dir/1cc/4action.cc.o: CMakeFiles/sim.dir/flags.make
 CMakeFiles/sim.dir/1cc/4action.cc.o: /Users/trevorg04/G4ChargeExchange/1cc/4action.cc
 CMakeFiles/sim.dir/1cc/4action.cc.o: CMakeFiles/sim.dir/compiler_depend.ts
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/Users/trevorg04/G4ChargeExchange/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_5) "Building CXX object CMakeFiles/sim.dir/1cc/4action.cc.o"
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/Users/trevorg04/G4ChargeExchange/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_6) "Building CXX object CMakeFiles/sim.dir/1cc/4action.cc.o"
 	/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT CMakeFiles/sim.dir/1cc/4action.cc.o -MF CMakeFiles/sim.dir/1cc/4action.cc.o.d -o CMakeFiles/sim.dir/1cc/4action.cc.o -c /Users/trevorg04/G4ChargeExchange/1cc/4action.cc
 
 CMakeFiles/sim.dir/1cc/4action.cc.i: cmake_force
@@ -145,7 +159,7 @@ CMakeFiles/sim.dir/1cc/4action.cc.s: cmake_force
 CMakeFiles/sim.dir/1cc/5generator.cc.o: CMakeFiles/sim.dir/flags.make
 CMakeFiles/sim.dir/1cc/5generator.cc.o: /Users/trevorg04/G4ChargeExchange/1cc/5generator.cc
 CMakeFiles/sim.dir/1cc/5generator.cc.o: CMakeFiles/sim.dir/compiler_depend.ts
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/Users/trevorg04/G4ChargeExchange/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_6) "Building CXX object CMakeFiles/sim.dir/1cc/5generator.cc.o"
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/Users/trevorg04/G4ChargeExchange/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_7) "Building CXX object CMakeFiles/sim.dir/1cc/5generator.cc.o"
 	/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT CMakeFiles/sim.dir/1cc/5generator.cc.o -MF CMakeFiles/sim.dir/1cc/5generator.cc.o.d -o CMakeFiles/sim.dir/1cc/5generator.cc.o -c /Users/trevorg04/G4ChargeExchange/1cc/5generator.cc
 
 CMakeFiles/sim.dir/1cc/5generator.cc.i: cmake_force
@@ -159,7 +173,7 @@ CMakeFiles/sim.dir/1cc/5generator.cc.s: cmake_force
 CMakeFiles/sim.dir/1cc/6detector.cc.o: CMakeFiles/sim.dir/flags.make
 CMakeFiles/sim.dir/1cc/6detector.cc.o: /Users/trevorg04/G4ChargeExchange/1cc/6detector.cc
 CMakeFiles/sim.dir/1cc/6detector.cc.o: CMakeFiles/sim.dir/compiler_depend.ts
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/Users/trevorg04/G4ChargeExchange/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_7) "Building CXX object CMakeFiles/sim.dir/1cc/6detector.cc.o"
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/Users/trevorg04/G4ChargeExchange/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_8) "Building CXX object CMakeFiles/sim.dir/1cc/6detector.cc.o"
 	/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT CMakeFiles/sim.dir/1cc/6detector.cc.o -MF CMakeFiles/sim.dir/1cc/6detector.cc.o.d -o CMakeFiles/sim.dir/1cc/6detector.cc.o -c /Users/trevorg04/G4ChargeExchange/1cc/6detector.cc
 
 CMakeFiles/sim.dir/1cc/6detector.cc.i: cmake_force
@@ -173,7 +187,7 @@ CMakeFiles/sim.dir/1cc/6detector.cc.s: cmake_force
 CMakeFiles/sim.dir/1cc/7run.cc.o: CMakeFiles/sim.dir/flags.make
 CMakeFiles/sim.dir/1cc/7run.cc.o: /Users/trevorg04/G4ChargeExchange/1cc/7run.cc
 CMakeFiles/sim.dir/1cc/7run.cc.o: CMakeFiles/sim.dir/compiler_depend.ts
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/Users/trevorg04/G4ChargeExchange/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_8) "Building CXX object CMakeFiles/sim.dir/1cc/7run.cc.o"
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/Users/trevorg04/G4ChargeExchange/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_9) "Building CXX object CMakeFiles/sim.dir/1cc/7run.cc.o"
 	/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT CMakeFiles/sim.dir/1cc/7run.cc.o -MF CMakeFiles/sim.dir/1cc/7run.cc.o.d -o CMakeFiles/sim.dir/1cc/7run.cc.o -c /Users/trevorg04/G4ChargeExchange/1cc/7run.cc
 
 CMakeFiles/sim.dir/1cc/7run.cc.i: cmake_force
@@ -187,7 +201,7 @@ CMakeFiles/sim.dir/1cc/7run.cc.s: cmake_force
 CMakeFiles/sim.dir/1cc/8event.cc.o: CMakeFiles/sim.dir/flags.make
 CMakeFiles/sim.dir/1cc/8event.cc.o: /Users/trevorg04/G4ChargeExchange/1cc/8event.cc
 CMakeFiles/sim.dir/1cc/8event.cc.o: CMakeFiles/sim.dir/compiler_depend.ts
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/Users/trevorg04/G4ChargeExchange/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_9) "Building CXX object CMakeFiles/sim.dir/1cc/8event.cc.o"
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/Users/trevorg04/G4ChargeExchange/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_10) "Building CXX object CMakeFiles/sim.dir/1cc/8event.cc.o"
 	/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT CMakeFiles/sim.dir/1cc/8event.cc.o -MF CMakeFiles/sim.dir/1cc/8event.cc.o.d -o CMakeFiles/sim.dir/1cc/8event.cc.o -c /Users/trevorg04/G4ChargeExchange/1cc/8event.cc
 
 CMakeFiles/sim.dir/1cc/8event.cc.i: cmake_force
@@ -201,7 +215,7 @@ CMakeFiles/sim.dir/1cc/8event.cc.s: cmake_force
 CMakeFiles/sim.dir/1cc/9stepping.cc.o: CMakeFiles/sim.dir/flags.make
 CMakeFiles/sim.dir/1cc/9stepping.cc.o: /Users/trevorg04/G4ChargeExchange/1cc/9stepping.cc
 CMakeFiles/sim.dir/1cc/9stepping.cc.o: CMakeFiles/sim.dir/compiler_depend.ts
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/Users/trevorg04/G4ChargeExchange/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_10) "Building CXX object CMakeFiles/sim.dir/1cc/9stepping.cc.o"
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/Users/trevorg04/G4ChargeExchange/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_11) "Building CXX object CMakeFiles/sim.dir/1cc/9stepping.cc.o"
 	/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT CMakeFiles/sim.dir/1cc/9stepping.cc.o -MF CMakeFiles/sim.dir/1cc/9stepping.cc.o.d -o CMakeFiles/sim.dir/1cc/9stepping.cc.o -c /Users/trevorg04/G4ChargeExchange/1cc/9stepping.cc
 
 CMakeFiles/sim.dir/1cc/9stepping.cc.i: cmake_force
@@ -216,6 +230,7 @@ CMakeFiles/sim.dir/1cc/9stepping.cc.s: cmake_force
 sim_OBJECTS = \
 "CMakeFiles/sim.dir/1sim.cc.o" \
 "CMakeFiles/sim.dir/1cc/10tracking.cc.o" \
+"CMakeFiles/sim.dir/1cc/11stacking.cc.o" \
 "CMakeFiles/sim.dir/1cc/2construction.cc.o" \
 "CMakeFiles/sim.dir/1cc/3physics.cc.o" \
 "CMakeFiles/sim.dir/1cc/4action.cc.o" \
@@ -230,6 +245,7 @@ sim_EXTERNAL_OBJECTS =
 
 sim: CMakeFiles/sim.dir/1sim.cc.o
 sim: CMakeFiles/sim.dir/1cc/10tracking.cc.o
+sim: CMakeFiles/sim.dir/1cc/11stacking.cc.o
 sim: CMakeFiles/sim.dir/1cc/2construction.cc.o
 sim: CMakeFiles/sim.dir/1cc/3physics.cc.o
 sim: CMakeFiles/sim.dir/1cc/4action.cc.o
@@ -277,7 +293,7 @@ sim: /Users/trevorg04/geant4-11.4.1-install/lib/libG4clhep.dylib
 sim: /Users/trevorg04/geant4-11.4.1-install/lib/libG4ptl.3.0.0.dylib
 sim: /Users/trevorg04/geant4-11.4.1-install/lib/libG4zlib.dylib
 sim: CMakeFiles/sim.dir/link.txt
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --bold --progress-dir=/Users/trevorg04/G4ChargeExchange/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_11) "Linking CXX executable sim"
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --bold --progress-dir=/Users/trevorg04/G4ChargeExchange/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_12) "Linking CXX executable sim"
 	$(CMAKE_COMMAND) -E cmake_link_script CMakeFiles/sim.dir/link.txt --verbose=$(VERBOSE)
 
 # Rule to build all files generated by this target.

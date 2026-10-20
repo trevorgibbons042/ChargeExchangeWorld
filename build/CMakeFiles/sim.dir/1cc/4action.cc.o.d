@@ -1007,7 +1007,6 @@ CMakeFiles/sim.dir/1cc/4action.cc.o: \
   /Users/trevorg04/geant4-11.4.1-install/include/Geant4/G4TouchableHistory.hh \
   /Users/trevorg04/geant4-11.4.1-install/include/Geant4/G4NavigationHistory.hh \
   /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/assert.h \
-  /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/_assert.h \
   /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/_static_assert.h \
   /Users/trevorg04/geant4-11.4.1-install/include/Geant4/G4AffineTransform.hh \
   /Users/trevorg04/geant4-11.4.1-install/include/Geant4/G4Transform3D.hh \
@@ -1091,6 +1090,10 @@ CMakeFiles/sim.dir/1cc/4action.cc.o: \
   /Users/trevorg04/geant4-11.4.1-install/include/Geant4/G4Visible.icc \
   /Users/trevorg04/geant4-11.4.1-install/include/Geant4/G4Box.icc \
   /Users/trevorg04/geant4-11.4.1-install/include/Geant4/G4PVPlacement.hh \
+  /Users/trevorg04/geant4-11.4.1-install/include/Geant4/G4PVParameterised.hh \
+  /Users/trevorg04/geant4-11.4.1-install/include/Geant4/G4PVReplica.hh \
+  /Users/trevorg04/geant4-11.4.1-install/include/Geant4/G4VPVParameterisation.hh \
+  /Users/trevorg04/geant4-11.4.1-install/include/Geant4/G4VVolumeMaterialScanner.hh \
   /Users/trevorg04/geant4-11.4.1-install/include/Geant4/G4GeometryManager.hh \
   /Users/trevorg04/geant4-11.4.1-install/include/Geant4/G4SmartVoxelStat.hh \
   /Users/trevorg04/geant4-11.4.1-install/include/Geant4/G4PhysicalVolumeStore.hh \
@@ -1145,8 +1148,6 @@ CMakeFiles/sim.dir/1cc/4action.cc.o: \
   /Users/trevorg04/geant4-11.4.1-install/include/Geant4/G4SmartVoxelHeader.icc \
   /Users/trevorg04/geant4-11.4.1-install/include/Geant4/G4VoxelNavigation.icc \
   /Users/trevorg04/geant4-11.4.1-install/include/Geant4/G4ParameterisedNavigation.hh \
-  /Users/trevorg04/geant4-11.4.1-install/include/Geant4/G4VPVParameterisation.hh \
-  /Users/trevorg04/geant4-11.4.1-install/include/Geant4/G4VVolumeMaterialScanner.hh \
   /Users/trevorg04/geant4-11.4.1-install/include/Geant4/G4ParameterisedNavigation.icc \
   /Users/trevorg04/geant4-11.4.1-install/include/Geant4/G4ReplicaNavigation.hh \
   /Users/trevorg04/geant4-11.4.1-install/include/Geant4/G4ReplicaNavigation.icc \
@@ -1223,4 +1224,5 @@ CMakeFiles/sim.dir/1cc/4action.cc.o: \
   /Users/trevorg04/geant4-11.4.1-install/include/Geant4/rundefs.hh \
   /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/c++/v1/list \
   /Users/trevorg04/geant4-11.4.1-install/include/Geant4/G4PhysicsOrderedFreeVector.hh \
-  /Users/trevorg04/G4ChargeExchange/2hh/10tracking.hh
+  /Users/trevorg04/G4ChargeExchange/2hh/10tracking.hh \
+  /Users/trevorg04/G4ChargeExchange/2hh/11stacking.hh

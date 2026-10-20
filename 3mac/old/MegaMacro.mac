@@ -11,8 +11,8 @@
 #/randGun/randPos
 
 #Polarization
-/Polarization/PPIndex 7
-/Polarization/PrintPPIndex
+/Polarization/PPValue 0.7
+/Polarization/PrintPPValue
 
 #Folder
 /output/folder default

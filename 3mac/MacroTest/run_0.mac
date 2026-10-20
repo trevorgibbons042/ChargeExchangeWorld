@@ -19,7 +19,11 @@
 /output/folder MacroTest_output/51
 
 #Polarization
-/Polarization/PPIndex 7
-/Polarization/PrintPPIndex
+/Polarization/PPValue 0.7
+#/Polarization/PPSigma 0.05
+/Polarization/PrintPPValue
+
+#Analyzing power scale (set before the first beamOn)
+/CE/APScale 1
 
 /run/beamOn 100000

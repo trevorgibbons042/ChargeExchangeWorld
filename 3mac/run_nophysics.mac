@@ -1,0 +1,21 @@
+/run/initialize
+
+#Other hadronic physics off, charge exchange (neutronChargeExNP) stays on. EM and decay untouched.
+/process/inactivate hadElastic
+/process/inactivate neutronInelastic
+/process/inactivate protonInelastic
+/process/inactivate nCapture
+
+#Energy smearing stays on (defaults /zdc/resStochastic 0.30, /zdc/resConstant 0)
+
+#Folder
+/output/folder nophysics
+
+#Analyzing power scale (AP is clamped to -1.0)
+/CE/APScale 10
+
+#Polarization
+/Polarization/PPValue 0.7
+#/Polarization/PPSigma 0.05
+
+/run/beamOn 1000000

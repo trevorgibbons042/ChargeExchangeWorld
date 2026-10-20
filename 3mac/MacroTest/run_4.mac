@@ -19,7 +19,7 @@
 /output/folder MacroTest_output/251
 
 #Polarization
-/Polarization/PPIndex 7
-/Polarization/PrintPPIndex
+/Polarization/PPValue 0.7
+/Polarization/PrintPPValue
 
 /run/beamOn 100000

@@ -1,2 +1,0 @@
-set(__QT_DEPLOY_TARGET_close_check_FILE /Users/trevorg04/G4ChargeExchange/work/close-check/build/close_check)
-set(__QT_DEPLOY_TARGET_close_check_TYPE EXECUTABLE)

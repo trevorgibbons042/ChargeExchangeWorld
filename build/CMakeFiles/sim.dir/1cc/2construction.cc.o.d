@@ -931,7 +931,6 @@ CMakeFiles/sim.dir/1cc/2construction.cc.o: \
   /Users/trevorg04/geant4-11.4.1-install/include/Geant4/G4DataVector.hh \
   /Users/trevorg04/geant4-11.4.1-install/include/Geant4/G4DataVector.icc \
   /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/assert.h \
-  /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/_assert.h \
   /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/_static_assert.h \
   /Users/trevorg04/geant4-11.4.1-install/include/Geant4/G4NistElementBuilder.hh \
   /Users/trevorg04/geant4-11.4.1-install/include/Geant4/G4NistMaterialBuilder.hh \
@@ -965,6 +964,24 @@ CMakeFiles/sim.dir/1cc/2construction.cc.o: \
   /Users/trevorg04/geant4-11.4.1-install/include/Geant4/G4Region.icc \
   /Users/trevorg04/geant4-11.4.1-install/include/Geant4/G4LogicalVolume.icc \
   /Users/trevorg04/geant4-11.4.1-install/include/Geant4/G4PVPlacement.hh \
+  /Users/trevorg04/geant4-11.4.1-install/include/Geant4/G4PVParameterised.hh \
+  /Users/trevorg04/geant4-11.4.1-install/include/Geant4/G4PVReplica.hh \
+  /Users/trevorg04/geant4-11.4.1-install/include/Geant4/G4VPVParameterisation.hh \
+  /Users/trevorg04/geant4-11.4.1-install/include/Geant4/G4VVolumeMaterialScanner.hh \
+  /Users/trevorg04/geant4-11.4.1-install/include/Geant4/G4VTouchable.hh \
+  /Users/trevorg04/geant4-11.4.1-install/include/Geant4/G4TouchableHistory.hh \
+  /Users/trevorg04/geant4-11.4.1-install/include/Geant4/G4NavigationHistory.hh \
+  /Users/trevorg04/geant4-11.4.1-install/include/Geant4/G4AffineTransform.hh \
+  /Users/trevorg04/geant4-11.4.1-install/include/Geant4/G4AffineTransform.icc \
+  /Users/trevorg04/geant4-11.4.1-install/include/Geant4/G4NavigationLevel.hh \
+  /Users/trevorg04/geant4-11.4.1-install/include/Geant4/G4NavigationLevelRep.hh \
+  /Users/trevorg04/geant4-11.4.1-install/include/Geant4/G4Allocator.hh \
+  /Users/trevorg04/geant4-11.4.1-install/include/Geant4/G4AllocatorPool.hh \
+  /Users/trevorg04/geant4-11.4.1-install/include/Geant4/G4NavigationLevelRep.icc \
+  /Users/trevorg04/geant4-11.4.1-install/include/Geant4/G4NavigationLevel.icc \
+  /Users/trevorg04/geant4-11.4.1-install/include/Geant4/G4NavigationHistoryPool.hh \
+  /Users/trevorg04/geant4-11.4.1-install/include/Geant4/G4NavigationHistory.icc \
+  /Users/trevorg04/geant4-11.4.1-install/include/Geant4/G4TouchableHistory.icc \
   /Users/trevorg04/geant4-11.4.1-install/include/Geant4/G4GeometryManager.hh \
   /Users/trevorg04/geant4-11.4.1-install/include/Geant4/G4SmartVoxelStat.hh \
   /Users/trevorg04/geant4-11.4.1-install/include/Geant4/G4PhysicalVolumeStore.hh \
@@ -986,26 +1003,12 @@ CMakeFiles/sim.dir/1cc/2construction.cc.o: \
   /Users/trevorg04/geant4-11.4.1-install/include/Geant4/G4VSensitiveDetector.hh \
   /Users/trevorg04/geant4-11.4.1-install/include/Geant4/G4CollectionNameVector.hh \
   /Users/trevorg04/geant4-11.4.1-install/include/Geant4/G4HCofThisEvent.hh \
-  /Users/trevorg04/geant4-11.4.1-install/include/Geant4/G4Allocator.hh \
-  /Users/trevorg04/geant4-11.4.1-install/include/Geant4/G4AllocatorPool.hh \
   /Users/trevorg04/geant4-11.4.1-install/include/Geant4/G4VHitsCollection.hh \
   /Users/trevorg04/geant4-11.4.1-install/include/Geant4/G4Step.hh \
   /Users/trevorg04/geant4-11.4.1-install/include/Geant4/G4StepPoint.hh \
   /Users/trevorg04/geant4-11.4.1-install/include/Geant4/G4SteppingControl.hh \
   /Users/trevorg04/geant4-11.4.1-install/include/Geant4/G4StepStatus.hh \
   /Users/trevorg04/geant4-11.4.1-install/include/Geant4/G4TouchableHandle.hh \
-  /Users/trevorg04/geant4-11.4.1-install/include/Geant4/G4VTouchable.hh \
-  /Users/trevorg04/geant4-11.4.1-install/include/Geant4/G4TouchableHistory.hh \
-  /Users/trevorg04/geant4-11.4.1-install/include/Geant4/G4NavigationHistory.hh \
-  /Users/trevorg04/geant4-11.4.1-install/include/Geant4/G4AffineTransform.hh \
-  /Users/trevorg04/geant4-11.4.1-install/include/Geant4/G4AffineTransform.icc \
-  /Users/trevorg04/geant4-11.4.1-install/include/Geant4/G4NavigationLevel.hh \
-  /Users/trevorg04/geant4-11.4.1-install/include/Geant4/G4NavigationLevelRep.hh \
-  /Users/trevorg04/geant4-11.4.1-install/include/Geant4/G4NavigationLevelRep.icc \
-  /Users/trevorg04/geant4-11.4.1-install/include/Geant4/G4NavigationLevel.icc \
-  /Users/trevorg04/geant4-11.4.1-install/include/Geant4/G4NavigationHistoryPool.hh \
-  /Users/trevorg04/geant4-11.4.1-install/include/Geant4/G4NavigationHistory.icc \
-  /Users/trevorg04/geant4-11.4.1-install/include/Geant4/G4TouchableHistory.icc \
   /Users/trevorg04/geant4-11.4.1-install/include/Geant4/G4ReferenceCountedHandle.hh \
   /Users/trevorg04/geant4-11.4.1-install/include/Geant4/G4StepPoint.icc \
   /Users/trevorg04/geant4-11.4.1-install/include/Geant4/G4TrackVector.hh \
@@ -1072,8 +1075,6 @@ CMakeFiles/sim.dir/1cc/2construction.cc.o: \
   /Users/trevorg04/geant4-11.4.1-install/include/Geant4/G4SmartVoxelHeader.icc \
   /Users/trevorg04/geant4-11.4.1-install/include/Geant4/G4VoxelNavigation.icc \
   /Users/trevorg04/geant4-11.4.1-install/include/Geant4/G4ParameterisedNavigation.hh \
-  /Users/trevorg04/geant4-11.4.1-install/include/Geant4/G4VPVParameterisation.hh \
-  /Users/trevorg04/geant4-11.4.1-install/include/Geant4/G4VVolumeMaterialScanner.hh \
   /Users/trevorg04/geant4-11.4.1-install/include/Geant4/G4ParameterisedNavigation.icc \
   /Users/trevorg04/geant4-11.4.1-install/include/Geant4/G4ReplicaNavigation.hh \
   /Users/trevorg04/geant4-11.4.1-install/include/Geant4/G4ReplicaNavigation.icc \

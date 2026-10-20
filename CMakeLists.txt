@@ -2,6 +2,11 @@
 cmake_minimum_required(VERSION 3.5 FATAL_ERROR)
 project(g4outline)
 
+#optimized build unless told otherwise
+if(NOT CMAKE_BUILD_TYPE)
+  set(CMAKE_BUILD_TYPE Release CACHE STRING "Build type" FORCE)
+endif()
+
 #finds Geant4 packages, ui_all and vis_all make GUI stuff, gdml for cad files
 find_package(Geant4 REQUIRED ui_all vis_all)
 include(${Geant4_USE_FILE})

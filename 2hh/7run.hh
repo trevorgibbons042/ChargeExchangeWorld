@@ -18,7 +18,10 @@ public:
     virtual void EndOfRunAction(const G4Run*);
 private:
     G4GenericMessenger *fMessenger;
+    G4GenericMessenger *fCEMessenger;
+    G4double NPCrossSectionFactor = 1.0; //multiplies the neutronChargeExNP cross section, /CE/NPCrossSectionFactor
     G4String outputFolder = "output";
+    G4bool printStatus = true; //opening/writing/closing/end of run lines, /output/print false turns them off
 };
 
 #endif

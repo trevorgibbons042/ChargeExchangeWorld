@@ -1,5 +1,6 @@
 #include "4action.hh"
 #include "10tracking.hh"
+#include "11stacking.hh"
 
 MyActionInitialization::MyActionInitialization()
 {};
@@ -23,6 +24,8 @@ void MyActionInitialization::Build() const
 
     MyTrackingAction *trackingAction = new MyTrackingAction(); //setup for 8event.hh (part 2)
     SetUserAction(trackingAction);
+
+    SetUserAction(new MyStackingAction()); //setup for 11stacking.hh
 };
 
 void MyActionInitialization::BuildForMaster() const
