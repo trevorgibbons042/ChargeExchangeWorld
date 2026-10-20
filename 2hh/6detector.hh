@@ -16,7 +16,9 @@ class MySensitiveDetector : public G4VSensitiveDetector
 public:
     MySensitiveDetector(G4String);
     ~MySensitiveDetector();
+    void SetTrackVolume(const G4LogicalVolume *lv) {trackLV = lv;} //logicTrack, compared by pointer in ProcessHits
 private:
+    const G4LogicalVolume *trackLV = nullptr;
     virtual G4bool ProcessHits(G4Step *, G4TouchableHistory *) override;
 
     //adding in detector efficency

@@ -19,20 +19,17 @@
 int main(int argc, char** argv)
 { 
     auto* runManager = G4RunManagerFactory::CreateRunManager();
-    if (auto* mtRunManager = dynamic_cast<G4MTRunManager*>(runManager)){
-        mtRunManager->SetNumberOfThreads(128);}
-    
+    //thread count comes from /run/numberOfThreads in the macro (set before /run/initialize)
     std::random_device rd;
     G4long seed = static_cast<G4long>(rd());
     G4Random::setTheSeed(seed);
-    runManager->SetRandomNumberStore(true);
 
     runManager->SetUserInitialization(new MyDetectorConstruction()); //construction.cc stuff
     runManager->SetUserInitialization(new MyPhysicsList()); //physics.cc stuff
     runManager->SetUserInitialization(new MyActionInitialization()); //action.cc stuff
 
-    runManager->Initialize(); //STARTS IT UP!, get rid of particles arent there
-    
+    //initialization happens via /run/initialize in the macro / interactive branch, so /run/numberOfThreads takes effect
+
     G4UIExecutive *ui = nullptr;
     if(argc == 1){
         ui = new G4UIExecutive(argc, argv);

@@ -3,6 +3,7 @@
 
 #include "G4UserSteppingAction.hh"
 #include "G4Step.hh"
+#include "G4GenericMessenger.hh"
 
 #include "2construction.hh"
 #include "8event.hh"
@@ -23,6 +24,11 @@ public:
 private:
     MyEventAction *fEventAction;
     std::set<G4int> labeledTracks;
+
+    //ZDC energy resolution: sigma/E = sqrt((a/sqrt(E[GeV]))^2 + b^2)
+    G4GenericMessenger *fMessenger;
+    G4double fResStochastic = 0.30;
+    G4double fResConstant = 0.0;
 };
 
 #endif

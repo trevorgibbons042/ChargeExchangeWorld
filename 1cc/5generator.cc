@@ -2,20 +2,21 @@
 #include "G4SystemOfUnits.hh"
 #include "G4PhysicalConstants.hh"
 #include "Randomize.hh"
+#include <algorithm>
 
 MyPrimaryGenerator::MyPrimaryGenerator()
 {
     fMessenger = new G4GenericMessenger(this, "/Polarization/", "Gun Properties");
     fMessenger->DeclareProperty("PolarizationIndex", PolarizationIndex, "Polarization Vector Index Number");
-    fMessenger->DeclareProperty("PPIndex", PPIndex, "Polarization Percentage Index Number");
+    fMessenger->DeclareMethod("PPValue", &MyPrimaryGenerator::SetPPValue, "Polarization fraction, -1.0 to 1.0");
+    fMessenger->DeclareMethod("PPSigma", &MyPrimaryGenerator::SetPPSigma, "Gaussian sigma on polarization fraction, 0 or more; each event is clamped to -1.0 to 1.0");
     fMessenger->DeclareMethod("PrintPolarization", &MyPrimaryGenerator::PrintPolarization, "Printing Polarization from Polarization Index");
-    fMessenger->DeclareMethod("PrintPPIndex", &MyPrimaryGenerator::PrintPPIndex, "Print PPIndex");
+    fMessenger->DeclareMethod("PrintPPValue", &MyPrimaryGenerator::PrintPPValue, "Print PPValue and PPSigma");
 
-    fMessenger = new G4GenericMessenger(this, "/randGun/", "random Gun Properties");
-    fMessenger->DeclareProperty("randPAngle", randPAngle, "Is random angle on?");
-    fMessenger->DeclareProperty("randPos", randPos, "Is random position on?");
-    fMessenger->DeclareProperty("EnergyBool", EnergyBool, "Is random energy on?");
-    fMessenger->DeclareProperty("EnergySD", EnergySD, "Standard Deviation on Energy");
+    fRandMessenger = new G4GenericMessenger(this, "/randGun/", "random Gun Properties");
+    fRandMessenger->DeclareProperty("randPAngle", randPAngle, "Is random angle on?");
+    fRandMessenger->DeclareProperty("randPos", randPos, "Is random position on?");
+    fRandMessenger->DeclareProperty("EnergySD", EnergySD, "Standard Deviation on Energy");
 
     //number of particles per event (can do 1 run with bunch of events tho)
     fParticleGun = new G4ParticleGun(1);
@@ -31,6 +32,7 @@ MyPrimaryGenerator::~MyPrimaryGenerator()
 {
     delete fParticleGun;
     delete fMessenger;
+    delete fRandMessenger;
 };
 
 void MyPrimaryGenerator::GeneratePrimaries(G4Event *anEvent)
@@ -49,7 +51,6 @@ void MyPrimaryGenerator::GeneratePrimaries(G4Event *anEvent)
     phi = twopi*G4UniformRand();
     }
 
-
     G4ThreeVector mom(std::sin(theta)*std::cos(phi),
                 std::sin(theta)*std::sin(phi),
                 cos(theta));
@@ -64,10 +65,10 @@ void MyPrimaryGenerator::GeneratePrimaries(G4Event *anEvent)
 
     G4double Energy = 25*GeV;
 
-    if (EnergyBool == true){
-        Energy = 25*GeV*G4RandGauss::shoot(0,EnergySD);
+    if (EnergySD > 0){
+        Energy = 25*GeV*G4RandGauss::shoot(1,EnergySD);
     }
-    fParticleGun->SetParticleMomentum(25*GeV);
+    fParticleGun->SetParticleMomentum(Energy);
 
     fParticleGun->SetParticlePosition(pos);
     fParticleGun->SetParticleMomentumDirection(mom);
@@ -76,9 +77,12 @@ void MyPrimaryGenerator::GeneratePrimaries(G4Event *anEvent)
         polarization = polarizationTable.at(PolarizationIndex);
         fParticleGun->SetParticlePolarization(polarization);
         fParticleGun->GeneratePrimaryVertex(anEvent);
-    } else if (PPIndex > -1){
-        
-        G4double PPNumber = PPTable[PPIndex];
+    } else if (PPOn){
+
+        G4double PPNumber = PPValue;
+        if (PPSigma > 0){
+            PPNumber = std::clamp(G4RandGauss::shoot(PPValue, PPSigma), -1.0, 1.0);
+        }
 
         if (G4UniformRand() < std::abs(PPNumber)){
             if (PPNumber > 0){
@@ -117,7 +121,24 @@ void MyPrimaryGenerator::PrintPolarization(){
            << G4endl;
 }
 
-void MyPrimaryGenerator::PrintPPIndex(){
-    G4cout << "PPIndex = " << PPIndex << G4endl;
-    G4cout << "Percentage = " << PPTable[PPIndex] << G4endl;
+void MyPrimaryGenerator::SetPPValue(G4double value){
+    if (value < -1.0 || value > 1.0){
+        G4cerr << "PPValue " << value << " outside [-1, 1], ignored" << G4endl;
+        return;
+    }
+    PPValue = value;
+    PPOn = true;
+}
+
+void MyPrimaryGenerator::SetPPSigma(G4double sigma){
+    if (sigma < 0){
+        G4cerr << "PPSigma " << sigma << " is negative, ignored" << G4endl;
+        return;
+    }
+    PPSigma = sigma;
+}
+
+void MyPrimaryGenerator::PrintPPValue(){
+    G4cout << "PPValue = " << PPValue << ", PPSigma = " << PPSigma
+           << ", on = " << PPOn << G4endl;
 }

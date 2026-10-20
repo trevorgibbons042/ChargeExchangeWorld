@@ -6,7 +6,7 @@ CXX_DEFINES = -DG4LIB_BUILD_DLL -DG4UI_USE_QT -DG4VIS_USE_OPENGLQT -DG4VIS_USE_R
 
 CXX_INCLUDES = -I/Users/trevorg04/G4ChargeExchange/include -I/Users/trevorg04/G4ChargeExchange/2hh -isystem /Users/trevorg04/geant4-11.4.1-install/include/Geant4 -isystem /opt/homebrew/lib/QtCore.framework/Headers -iframework /opt/homebrew/lib -isystem /opt/homebrew/share/qt/mkspecs/macx-clang -isystem /opt/homebrew/include -isystem /opt/homebrew/lib/QtGui.framework/Headers -isystem /opt/homebrew/lib/QtWidgets.framework/Headers -isystem /Users/trevorg04/spack/opt/spack/darwin-m1/expat-2.8.0-pjwwokjg4lqwd32son37sh2hhxiumm2m/include
 
-CXX_FLAGSarm64 = -std=gnu++17 -arch arm64
+CXX_FLAGSarm64 = -O3 -DNDEBUG -std=gnu++17 -arch arm64
 
-CXX_FLAGS = -std=gnu++17 -arch arm64
+CXX_FLAGS = -O3 -DNDEBUG -std=gnu++17 -arch arm64
 

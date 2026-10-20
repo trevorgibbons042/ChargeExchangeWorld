@@ -1,4 +1,10 @@
 #include "7run.hh"
+#include "3physics.hh"
+#include "G4ProcessTable.hh"
+#include "G4HadronicProcess.hh"
+#include "G4CrossSectionDataStore.hh"
+#include "G4ChargeExchangeNP.hh"
+#include "G4ChargeExchange.hh"
 #include <filesystem>
 #include <sstream>
 
@@ -6,7 +12,11 @@ MyRunAction::MyRunAction()
 {
     fMessenger = new G4GenericMessenger(this, "/output/", "Output file settings");
     fMessenger->DeclareProperty("folder", outputFolder, "Folder for ROOT output files");
-    
+    fMessenger->DeclareProperty("print", printStatus, "Print run status lines (opening/writing/closing/end of run)");
+
+    fCEMessenger = new G4GenericMessenger(this, "/CE/", "Charge exchange settings");
+    fCEMessenger->DeclareProperty("NPCrossSectionFactor", NPCrossSectionFactor, "Factor on the neutronChargeExNP cross section (1 = regular value)");
+
     //CREATING EMPTY TABLES
     G4AnalysisManager *man = G4AnalysisManager::Instance();
     //man->SetNtupleMerging(true);
@@ -16,7 +26,6 @@ MyRunAction::MyRunAction()
     man->CreateNtupleIColumn("fEvent");
     man->CreateNtupleIColumn("TrackID");
     man->CreateNtupleIColumn("ParentID");
-    man->CreateNtupleIColumn("copyNo");
     man->CreateNtupleIColumn("pdg");
     man->CreateNtupleIColumn("boundaryType");
     man->CreateNtupleDColumn("fX");
@@ -26,6 +35,7 @@ MyRunAction::MyRunAction()
     man->CreateNtupleDColumn("fDx");
     man->CreateNtupleDColumn("fDy");
     man->CreateNtupleDColumn("fDz");
+    man->CreateNtupleDColumn("fDEnergy");
     man->FinishNtuple(0);
 
     //9stepping.cc
@@ -43,28 +53,24 @@ MyRunAction::MyRunAction()
     man->CreateNtupleDColumn("LastAP");
     man->FinishNtuple(1);
 
-    //9stepping.cc
-    man->CreateNtuple("CalcVals", "Calculated Values");
-    man->CreateNtupleIColumn("fEvent");
-    man->CreateNtupleIColumn("TrackID");
-    man->CreateNtupleIColumn("ParentID");
-    man->CreateNtupleIColumn("pdg");
-    man->CreateNtupleDColumn("phiCalcXY0detector0Pos");
-    //man->CreateNtupleDColumn("phiCalcXY0detectorRealPos");
-    man->CreateNtupleDColumn("thetaCalcXY0detector0Pos");
-    //man->CreateNtupleDColumn("thetaCalcXY0detectorRealPos");
-    //man->CreateNtupleDColumn("phiCalcWithMomDirec");
-    //man->CreateNtupleDColumn("phiCalcWithMomDirecdetectorRealPos");
-    man->FinishNtuple(2);
 };
 
 MyRunAction::~MyRunAction()
-{delete fMessenger;};
+{delete fMessenger; delete fCEMessenger;};
 
 void MyRunAction::BeginOfRunAction(const G4Run* run)
 {
     G4AnalysisManager* man = G4AnalysisManager::Instance();
     man->Reset();
+
+    //the CE NP cross section dataset is built per thread inside G4ChargeExchangePhysics, so set its factor here on every thread
+    auto* ceProcess = dynamic_cast<G4HadronicProcess*>(G4ProcessTable::GetProcessTable()->FindProcess("neutronChargeExNP", "neutron"));
+    if (ceProcess != nullptr){
+        for (auto* dataSet : ceProcess->GetCrossSectionDataStore()->GetDataSetList()){
+            if (auto* npXS = dynamic_cast<G4ChargeExchangeNP*>(dataSet)){npXS->SetCrossSectionFactor(NPCrossSectionFactor);}
+        }
+    }
+    MyPhysicsList::ApplyAPScale();
 
     G4int runID = run->GetRunID();
     std::stringstream strRunID;
@@ -75,9 +81,9 @@ void MyRunAction::BeginOfRunAction(const G4Run* run)
     std::filesystem::create_directories(folder);
     std::string fileName = "root/" + outputFolder + "/output" + strRunID.str() + ".root";
     
-    G4cout << "Opening: " << fileName << G4endl;
+    if (printStatus){G4cout << "Opening: " << fileName << G4endl;}
     man->OpenFile(fileName);
-    G4cout << "Past open: " << G4endl;
+    if (printStatus){G4cout << "Past open: " << G4endl;}
 };
 
 void MyRunAction::EndOfRunAction(const G4Run*)
@@ -85,12 +91,12 @@ void MyRunAction::EndOfRunAction(const G4Run*)
     
     ////Writes into root file
     G4AnalysisManager *man = G4AnalysisManager::Instance();
-    G4cout << "writing: " << G4endl;
+    if (printStatus){G4cout << "writing: " << G4endl;}
     man->Write();
 
-    G4cout << "closing: " << G4endl;
+    if (printStatus){G4cout << "closing: " << G4endl;}
     man->CloseFile();
 
-    G4cout << "End of Event" << G4endl<< G4endl<< G4endl<< G4endl<< G4endl<< G4endl;
+    if (printStatus){G4cout << "End of Run" << G4endl<< G4endl<< G4endl<< G4endl<< G4endl<< G4endl;}
 };
 

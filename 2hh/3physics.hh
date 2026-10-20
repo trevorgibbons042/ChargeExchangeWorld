@@ -13,6 +13,7 @@
 #include "FTFP_BERT.hh"
 #include "G4HadronPhysicsFTFP_BERT_ATL.hh"
 #include "G4ChargeExchangePhysics.hh"
+#include "G4GenericMessenger.hh"
 
 class MyPhysicsList : public G4VModularPhysicsList
 {
@@ -20,6 +21,10 @@ public:
     MyPhysicsList();
     ~MyPhysicsList();
     //void ConstructParticle();
+    static void ApplyAPScale(); //pushes /CE/APScale into the calling thread's NP model, call from each thread at the start of a run
+private:
+    G4GenericMessenger *fCEMessenger;
+    static G4double APScale; //multiplies the analyzing power (clamped at -1.0), /CE/APScale, static so worker threads read the master's value
 };
 
 #endif

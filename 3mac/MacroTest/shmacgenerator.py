@@ -39,8 +39,11 @@ for i in range(totalfiles):
 /output/folder {foldername_root}/{variable}
 
 #Polarization
-/Polarization/PPIndex 7
-/Polarization/PrintPPIndex
+/Polarization/PPValue 0.7
+/Polarization/PrintPPValue
+
+#Analyzing power scale (set before the first beamOn)
+/CE/APScale 1
 
 /run/beamOn 100000
 """)

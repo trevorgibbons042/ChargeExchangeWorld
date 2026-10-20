@@ -932,7 +932,6 @@ CMakeFiles/sim.dir/1sim.cc.o: \
   /Users/trevorg04/geant4-11.4.1-install/include/Geant4/G4TouchableHistory.hh \
   /Users/trevorg04/geant4-11.4.1-install/include/Geant4/G4NavigationHistory.hh \
   /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/assert.h \
-  /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/_assert.h \
   /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/_static_assert.h \
   /Users/trevorg04/geant4-11.4.1-install/include/Geant4/G4AffineTransform.hh \
   /Users/trevorg04/geant4-11.4.1-install/include/Geant4/G4Transform3D.hh \
@@ -1242,6 +1241,8 @@ CMakeFiles/sim.dir/1sim.cc.o: \
   /Users/trevorg04/geant4-11.4.1-install/include/Geant4/G4Pow.hh \
   /Users/trevorg04/geant4-11.4.1-install/include/Geant4/G4Exp.hh \
   /Users/trevorg04/geant4-11.4.1-install/include/Geant4/G4PVPlacement.hh \
+  /Users/trevorg04/geant4-11.4.1-install/include/Geant4/G4PVParameterised.hh \
+  /Users/trevorg04/geant4-11.4.1-install/include/Geant4/G4PVReplica.hh \
   /Users/trevorg04/geant4-11.4.1-install/include/Geant4/G4GeometryManager.hh \
   /Users/trevorg04/geant4-11.4.1-install/include/Geant4/G4SmartVoxelStat.hh \
   /Users/trevorg04/geant4-11.4.1-install/include/Geant4/G4PhysicalVolumeStore.hh \

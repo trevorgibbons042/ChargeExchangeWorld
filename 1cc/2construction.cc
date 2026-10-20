@@ -8,12 +8,15 @@ MyDetectorConstruction::MyDetectorConstruction()
     fMessenger = new G4GenericMessenger(this, "/detector/", "Detector Construction");
     fMessenger->DeclareProperty("nBlocks", nBlocks, "Number of Blocks");
     fMessenger->DeclareProperty("nBlocksTracking", nBlocksTracking, "Number of Tracking Blocks");
+
     fMessenger->DeclareProperty("nCols_blocks", nCols, "Number of columns for tracking");
     fMessenger->DeclareProperty("nRows_blocks", nRows, "Number of rows for tracking");
     fMessenger->DeclareProperty("nCols_detector", nCols_detector, "Number of columns for detector");
     fMessenger->DeclareProperty("nRows_detector", nRows_detector, "Number of rows for detector");
+
     fMessenger->DeclareProperty("dz", dz, "Distance between trackers and blocks (in meters)");
     fMessenger->DeclareProperty("CarbonThickness", CarbonThickness, "Thickness of carbons (Meters)");
+    
     fMessenger->DeclareProperty("randPosDetector", randPosDetector, "Is detector in random position?");
     fMessenger->DeclareProperty("randPosScaling", randPosScaling, "randPos Scaling Factor");
 
@@ -72,10 +75,16 @@ G4VPhysicalVolume *MyDetectorConstruction::Construct() //defines volume and mate
     G4double totalY = 0.4 * m;
     G4double cellX = totalX / nCols;
     G4double cellY = totalY / nRows;
-    G4double detectorThickness = 0.002 * m;
+    G4double detectorThickness = 0.03 * m;
 
+    //each grid of cells is one parameterised volume inside a slab, so a plane costs one volume, not nCols*nRows
     solidTrack = new G4Box("solidTrack",cellX / 2.0,cellY / 2.0,detectorThickness / 2.0);
     logicTrack = new G4LogicalVolume(solidTrack, DMat, "logicTrack");
+
+    G4Box *solidTrackSlab = new G4Box("solidTrackSlab", totalX / 2.0, totalY / 2.0, detectorThickness / 2.0);
+    G4LogicalVolume *logicTrackSlab = new G4LogicalVolume(solidTrackSlab, DMat, "logicTrackSlab");
+    physTrack = new G4PVParameterised("physTrack", logicTrack, logicTrackSlab, kUndefined, nRows * nCols,
+                    new GridParameterisation(nCols, cellX, cellY, totalX, totalY));
 
     G4int nTrackerPlanes = (nBlocks + 1) * nBlocksTracking;
     G4int nElements = nTrackerPlanes + nBlocks;
@@ -88,18 +97,8 @@ G4VPhysicalVolume *MyDetectorConstruction::Construct() //defines volume and mate
     for (G4int i = 0; i < nBlocks; i++) {
         for (G4int j = 0; j < nBlocksTracking; j++) {
             G4double zTracker = zStart + elementIndex * (dz * m);
-            for (G4int row = 0; row < nRows; row++) {
-                for (G4int col = 0; col < nCols; col++) {
-
-                    G4double x = -totalX / 2.0 + cellX / 2.0 + col * cellX;
-                    G4double y =-totalY / 2.0 + cellY / 2.0 + row * cellY;
-                    G4int copyNo = trackerIndex * nRows * nCols + row * nCols + col;
-
-                    physTrack = new G4PVPlacement( nullptr,
-                        G4ThreeVector(x, y, zTracker), logicTrack, "physTrack",
-                        logicWorld,false,copyNo,false);
-                }
-            }
+            new G4PVPlacement(nullptr, G4ThreeVector(0, 0, zTracker), logicTrackSlab, "physTrackSlab",
+                        logicWorld, false, trackerIndex, false);
             trackerIndex++;
             elementIndex++;
         }
@@ -111,30 +110,13 @@ G4VPhysicalVolume *MyDetectorConstruction::Construct() //defines volume and mate
         elementIndex++;
     }
 
-
     for (G4int j = 0; j < nBlocksTracking; j++) {
-
-        G4double zTracker =
-            zStart + elementIndex * (dz * m);
-
-        for (G4int row = 0; row < nRows; row++) {
-            for (G4int col = 0; col < nCols; col++) {
-
-                G4double x = -totalX / 2.0 + cellX / 2.0 + col * cellX;
-                G4double y = -totalY / 2.0 + cellY / 2.0 + row * cellY;
-
-                G4int copyNo = trackerIndex * nRows * nCols + row * nCols + col;
-
-                physTrack = new G4PVPlacement(nullptr,
-                    G4ThreeVector(x, y, zTracker), logicTrack, "physTrack",
-                    logicWorld,false,copyNo,false);
-            }
-        }
-
+        G4double zTracker = zStart + elementIndex * (dz * m);
+        new G4PVPlacement(nullptr, G4ThreeVector(0, 0, zTracker), logicTrackSlab, "physTrackSlab",
+                    logicWorld, false, trackerIndex, false);
         trackerIndex++;
         elementIndex++;
     }
-    
 
     G4ThreeVector detectorPos = G4ThreeVector(0,0, 8*m);
     G4double detectorX = 0.4*m;
@@ -145,30 +127,28 @@ G4VPhysicalVolume *MyDetectorConstruction::Construct() //defines volume and mate
 
     solidDetector = new G4Box("solidDetector", cellXd / 2.0, cellYd / 2.0, detectorZ / 2.0);
     logicDetector = new G4LogicalVolume(solidDetector, DMat, "logicDetector");
-    
-    for (G4int row = 0; row < nRows_detector; row++){
-        for (G4int col = 0; col < nCols_detector; col++){
-            G4double x = detectorPos.x()- detectorX / 2.0+ cellXd / 2.0+ col * cellXd;
-            G4double y = detectorPos.y()- detectorY / 2.0+ cellYd / 2.0+ row * cellYd;
-            G4double z = detectorPos.z();
-            G4ThreeVector cellPos = G4ThreeVector(x, y, z);
-            G4int copyNumber = row * nCols_detector + col;
 
-            physDetector = new G4PVPlacement(0, cellPos, logicDetector,"physDetector",
-                        logicWorld,false,copyNumber, false);
-        }
-    }
+    G4Box *solidDetectorSlab = new G4Box("solidDetectorSlab", detectorX / 2.0, detectorY / 2.0, detectorZ / 2.0);
+    G4LogicalVolume *logicDetectorSlab = new G4LogicalVolume(solidDetectorSlab, DMat, "logicDetectorSlab");
+    physDetector = new G4PVParameterised("physDetector", logicDetector, logicDetectorSlab, kUndefined,
+                    nRows_detector * nCols_detector,
+                    new GridParameterisation(nCols_detector, cellXd, cellYd, detectorX, detectorY));
+    new G4PVPlacement(nullptr, detectorPos, logicDetectorSlab, "physDetectorSlab", logicWorld, false, 0, false);
 
     return physWorld;
 }
 
 //this for making the detector (need here b/c we gonna use it to find boundaries)
 void MyDetectorConstruction::ConstructSDandField(){
-    MySensitiveDetector* sensDet = new MySensitiveDetector("SensitiveDetector");
+    //reuse the detector after /run/reinitializeGeometry, registering it again triggers DET1010
+    auto* sensDet = static_cast<MySensitiveDetector*>(G4SDManager::GetSDMpointer()->FindSensitiveDetector("SensitiveDetector", false));
+    if (!sensDet) {
+        sensDet = new MySensitiveDetector("SensitiveDetector");
+        G4SDManager::GetSDMpointer()->AddNewDetector(sensDet);
+    }
+    sensDet->SetTrackVolume(logicTrack); //refreshed each call, geometry rebuilds change the pointer
 
-    G4SDManager::GetSDMpointer()->AddNewDetector(sensDet);
-
-    logicMat->SetSensitiveDetector(sensDet);
+    //logicMat (carbon) is not sensitive: its hits are never recorded and cost a call per step
     logicDetector->SetSensitiveDetector(sensDet);
     logicTrack->SetSensitiveDetector(sensDet);
 }

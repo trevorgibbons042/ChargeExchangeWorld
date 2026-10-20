@@ -166,6 +166,30 @@ g4outline/fast:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/sim.dir/build.make CMakeFiles/sim.dir/1cc/10tracking.cc.s
 .PHONY : 1cc/10tracking.cc.s
 
+1cc/11stacking.o: 1cc/11stacking.cc.o
+.PHONY : 1cc/11stacking.o
+
+# target to build an object file
+1cc/11stacking.cc.o:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/sim.dir/build.make CMakeFiles/sim.dir/1cc/11stacking.cc.o
+.PHONY : 1cc/11stacking.cc.o
+
+1cc/11stacking.i: 1cc/11stacking.cc.i
+.PHONY : 1cc/11stacking.i
+
+# target to preprocess a source file
+1cc/11stacking.cc.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/sim.dir/build.make CMakeFiles/sim.dir/1cc/11stacking.cc.i
+.PHONY : 1cc/11stacking.cc.i
+
+1cc/11stacking.s: 1cc/11stacking.cc.s
+.PHONY : 1cc/11stacking.s
+
+# target to generate assembly for a file
+1cc/11stacking.cc.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/sim.dir/build.make CMakeFiles/sim.dir/1cc/11stacking.cc.s
+.PHONY : 1cc/11stacking.cc.s
+
 1cc/2construction.o: 1cc/2construction.cc.o
 .PHONY : 1cc/2construction.o
 
@@ -395,6 +419,9 @@ help:
 	@echo "... 1cc/10tracking.o"
 	@echo "... 1cc/10tracking.i"
 	@echo "... 1cc/10tracking.s"
+	@echo "... 1cc/11stacking.o"
+	@echo "... 1cc/11stacking.i"
+	@echo "... 1cc/11stacking.s"
 	@echo "... 1cc/2construction.o"
 	@echo "... 1cc/2construction.i"
 	@echo "... 1cc/2construction.s"

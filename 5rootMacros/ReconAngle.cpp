@@ -8,7 +8,7 @@
 
 #include <algorithm>
 #include <memory>
-#include <filesystem>
+#include <TSystem.h>
 #include <sstream>
 #include <TStyle.h>
 #include <limits>
@@ -136,14 +136,16 @@ void PlotFit3D(
     int trackID
 );
 
-void ReconAngle(){
-    ROOT::EnableImplicitMT();
+void ReconAngle(std::string energy = "fKEnergy"){ // energy: "fKEnergy" (true KE) or "fDEnergy" (detector energy)
+    const std::string suffix = (energy == "fDEnergy") ? "_DE" : "";
+    ROOT::EnableImplicitMT(128);
     
     bool Verbose = false;
-    
+    bool SavePNGs = false; // true: write Event_<id>_TrackID_<id>.pdf to plots/3_angle_recon/recon_tracks
+
     ROOT::RDataFrame df("ParticleInfo", "cut_EOL.root");
-    TFile *outFile = new TFile("cut_angles.root", "RECREATE");
-    TTree *outTree = new TTree("Angles", "Reconstructed Angles");
+    TFile *outFile = new TFile("cut_angles.root", energy == "fDEnergy" ? "UPDATE" : "RECREATE"); // detector-energy pass appends its _DE tree to the true-KE file
+    TTree *outTree = new TTree(("Angles" + suffix).c_str(), "Reconstructed Angles");
 
     int outTrackID;
     int outPDG;
@@ -207,14 +209,16 @@ void ReconAngle(){
     outTree->Branch("z_bx_reconVertexDIFFOut", &z_bx_reconVertexDIFFOut);
     outTree->Branch("z_by_reconVertexDIFFOut", &z_by_reconVertexDIFFOut);
     
-    std::map<std::tuple<int, int, int>, Track> tracks;
-    std::mutex m;
-    df.Foreach([&](
+    // One map per thread slot, merged after the loop, so the entry loop needs no global lock. Point order inside a track
+    // does not matter: the points are sorted by z below.
+    std::vector<std::map<std::tuple<int, int, int>, Track>> slotTracks(df.GetNSlots());
+    std::mutex printMutex;
+    df.ForeachSlot([&](unsigned slot,
         int eventID, int trackID, int pdg, int boundary,
-        double x, double y, double z, double xD, double yD, double zD, double KE, int ParentID, ULong64_t entry){
-        std::lock_guard<std::mutex> lock(m);
+        double x, double y, double z, double xD, double yD, double zD, double KE, int ParentID){
         
         if (Verbose == true && pdg == 2212){
+                std::lock_guard<std::mutex> lock(printMutex);
                 std::cout
                     << "CUT_EOL: event = " << eventID
                     << " TrackID = " << trackID
@@ -224,11 +228,19 @@ void ReconAngle(){
                     << std::endl;
         }
         
-        auto &t = tracks[{eventID, trackID, pdg}];
+        auto &t = slotTracks[slot][{eventID, trackID, pdg}];
         t.points.push_back({x, y, z, xD, yD, zD, KE, ParentID});
-        },{"fEvent","TrackID", "pdg", "boundaryType", "fX", "fY", "fZ", "fDx", "fDy", "fDz", "fKEnergy", "ParentID", "rdfentry_"});
+        },{"fEvent","TrackID", "pdg", "boundaryType", "fX", "fY", "fZ", "fDx", "fDy", "fDz", energy, "ParentID"});
 
-    std::filesystem::create_directories("pngs/reconpngs");
+    std::map<std::tuple<int, int, int>, Track> tracks;
+    for (auto &slotMap : slotTracks) {
+        for (auto &[key, t] : slotMap) {
+            auto &dst = tracks[key].points;
+            dst.insert(dst.end(), t.points.begin(), t.points.end());
+        }
+    }
+
+    if (SavePNGs) gSystem->mkdir("plots/3_angle_recon/recon_tracks", true);
 
     for (auto &[key, t] : tracks) {
         std::sort(
@@ -293,7 +305,7 @@ void ReconAngle(){
         int trackID = std::get<1>(key);
 
         // only plot tracks with a non-zero slope (theta > 0)
-        if (pdg == 2212 && theta > 1e-9) {
+        if (SavePNGs && pdg == 2212 && theta > 1e-9) {
             PlotFit3D(t.points,fit,eventID,trackID);
         }
         
@@ -346,7 +358,7 @@ void ReconAngle(){
                 << " phi = " << phi
                 << std::endl;
         }
-        
+
         auto endPointD = std::max_element(t.points.begin(), t.points.end(),[](const Pos &a, const Pos &b){
                 return a.zD < b.zD;
             });
@@ -362,7 +374,7 @@ void ReconAngle(){
         double thetaD = std::atan2(std::hypot(fit.bxD, fit.byD), 1.0);
         double phiD = std::atan2(fit.byD, fit.bxD);
         if (phiD < 0) {phiD += 2.0 * M_PI;}
-        
+
         
         outDTheta = thetaD;
         outDPhi = phiD;
@@ -489,7 +501,7 @@ void PlotFit3D(
 
     gX->SetTitle(
         Form(
-            "Event %d TrackID %d : x(z);z;x",
+            "Event %d TrackID %d : x(z);z (mm);x (mm)",
             eventID,
             trackID
         )
@@ -498,7 +510,7 @@ void PlotFit3D(
     gX->SetMarkerStyle(20);
     gX->SetMarkerSize(0.7);
 
-    gX->GetXaxis()->SetLimits(0,26000);
+    gX->GetXaxis()->SetLimits(0,8300);
     gX->SetMinimum(-100);
     gX->SetMaximum(100);
 
@@ -573,7 +585,7 @@ void PlotFit3D(
 
     gY->SetTitle(
         Form(
-            "Event %d TrackID %d : y(z);z;y",
+            "Event %d TrackID %d : y(z);z (mm);y (mm)",
             eventID,
             trackID
         )
@@ -582,7 +594,7 @@ void PlotFit3D(
     gY->SetMarkerStyle(20);
     gY->SetMarkerSize(0.7);
 
-    gY->GetXaxis()->SetLimits(0,26000);
+    gY->GetXaxis()->SetLimits(0,8300);
     gY->SetMinimum(-100);
     gY->SetMaximum(100);
 
@@ -645,6 +657,6 @@ void PlotFit3D(
 
     c->Modified();
     c->Update();
-    c->SaveAs(Form("pngs/reconpngs/Event_%d_TrackID_%d.png", eventID, trackID));
+    c->SaveAs(Form("plots/3_angle_recon/recon_tracks/Event_%d_TrackID_%d.pdf", eventID, trackID));
     delete c;
 }

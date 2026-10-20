@@ -15,11 +15,14 @@ public:
     ~MyPrimaryGenerator();
     virtual void GeneratePrimaries(G4Event*);
     void PrintPolarization();
-    void PrintPPIndex();
+    void PrintPPValue();
+    void SetPPValue(G4double value);
+    void SetPPSigma(G4double sigma);
 
 private:
     G4ParticleGun *fParticleGun;
     G4GenericMessenger* fMessenger;
+    G4GenericMessenger* fRandMessenger;
     std::vector<G4ThreeVector>  polarizationTable = {
     G4ThreeVector(0,1,0),
     G4ThreeVector(0,-1,0),
@@ -45,15 +48,13 @@ private:
 
     G4ThreeVector(-0.08132,-0.50905,-0.85689)};
 
-    G4double PPTable[21] = {0.0,0.1,0.2,0.3,0.4,0.5,0.6,0.7,0.8,0.9,1.0,
-                        -0.1,-0.2,-0.3,-0.4,-0.5,-0.6,-0.7,-0.8,-0.9,-1.0};
-
     G4int PolarizationIndex = -1;
-    G4int PPIndex = -1;
+    G4bool PPOn = false;
+    G4double PPValue = 0;
+    G4double PPSigma = 0;
     G4int randPos = -1;
     G4int randPAngle = -1;
     G4double EnergySD = 0;
-    G4int EnergyBool = 0;
 };
 
 #endif

@@ -83,42 +83,52 @@ FitResult fitTrack(const std::vector<Pos>& points){
     return fit;
 }
 
-void ReconAngleAll(){
-    ROOT::EnableImplicitMT();
+void ReconAngleAll(std::string energy = "fKEnergy"){ // energy: "fKEnergy" (true KE) or "fDEnergy" (detector energy)
+    const std::string suffix = (energy == "fDEnergy") ? "_DE" : "";
+    ROOT::EnableImplicitMT(128);
 
     ROOT::RDataFrame df("ParticleInfo", "output0_t*.root");
 
-    std::set<std::pair<int, int>> reachedEnd;
-    std::mutex mEnd;
+    // One container per thread slot, merged after each loop, so the entry loops need no global lock.
+    std::vector<std::set<std::pair<int, int>>> slotReachedEnd(df.GetNSlots());
     df.Filter("boundaryType == 2 && pdg == 2212")
-      .Foreach([&](int eventID, int trackID){
-        std::lock_guard<std::mutex> lock(mEnd);
-        reachedEnd.insert({eventID, trackID});
+      .ForeachSlot([&](unsigned slot, int eventID, int trackID){
+        slotReachedEnd[slot].insert({eventID, trackID});
       }, {"fEvent", "TrackID"});
+    std::set<std::pair<int, int>> reachedEnd;
+    for (auto &s : slotReachedEnd) reachedEnd.insert(s.begin(), s.end());
 
     // CE neutrons (same selection as CutEvents.cpp): event -> CE track IDs.
-    std::map<int, std::set<int>> ceTracks;
-    std::mutex mCE;
     ROOT::RDataFrame dfCE("ChargeExchange_values", "output0_t*.root");
+    std::vector<std::map<int, std::set<int>>> slotCeTracks(dfCE.GetNSlots());
     dfCE.Filter("didChargeExchange>0 && fZ<7000")
-        .Foreach([&](int eventID, int trackID){
-        std::lock_guard<std::mutex> lock(mCE);
-        ceTracks[eventID].insert(trackID);
+        .ForeachSlot([&](unsigned slot, int eventID, int trackID){
+        slotCeTracks[slot][eventID].insert(trackID);
     }, {"fEvent", "TrackID"});
+    std::map<int, std::set<int>> ceTracks;
+    for (auto &m : slotCeTracks) {
+        for (auto &[ev, ids] : m) ceTracks[ev].insert(ids.begin(), ids.end());
+    }
 
-    std::map<std::tuple<int, int, int>, Track> tracks;
-    std::mutex m;
-    df.Filter("pdg == 2212").Foreach([&](
+    std::vector<std::map<std::tuple<int, int, int>, Track>> slotTracks(df.GetNSlots());
+    df.Filter("pdg == 2212").ForeachSlot([&](unsigned slot,
         int eventID, int trackID, int pdg,
         double x, double y, double z, double xD, double yD, double zD, double KE, int ParentID){
         if (!reachedEnd.count({eventID, trackID})) {return;}
-        std::lock_guard<std::mutex> lock(m);
-        tracks[{eventID, trackID, pdg}].points.push_back({x, y, z, xD, yD, zD, KE, ParentID});
-    }, {"fEvent", "TrackID", "pdg", "fX", "fY", "fZ", "fDx", "fDy", "fDz", "fKEnergy", "ParentID"});
+        slotTracks[slot][{eventID, trackID, pdg}].points.push_back({x, y, z, xD, yD, zD, KE, ParentID});
+    }, {"fEvent", "TrackID", "pdg", "fX", "fY", "fZ", "fDx", "fDy", "fDz", energy, "ParentID"});
+    // Points are sorted and de-duplicated per track below, so the merge order does not matter.
+    std::map<std::tuple<int, int, int>, Track> tracks;
+    for (auto &slotMap : slotTracks) {
+        for (auto &[key, t] : slotMap) {
+            auto &dst = tracks[key].points;
+            dst.insert(dst.end(), t.points.begin(), t.points.end());
+        }
+    }
 
-    TFile *outFile = new TFile("cut_angles_all.root", "RECREATE");
-    TTree *outTree = new TTree("Angles", "Reconstructed Angles, all protons");
-    TTree *outTreeCE = new TTree("AnglesCE", "Reconstructed Angles, all protons in CE events");
+    TFile *outFile = new TFile("cut_angles_all.root", energy == "fDEnergy" ? "UPDATE" : "RECREATE"); // detector-energy pass appends its _DE trees to the true-KE file
+    TTree *outTree = new TTree(("Angles" + suffix).c_str(), "Reconstructed Angles, all protons");
+    TTree *outTreeCE = new TTree(("AnglesCE" + suffix).c_str(), "Reconstructed Angles, all protons in CE events");
 
     int outTrackID, outPDG, outEventID, fParentID;
     double outTheta, outPhi, outDTheta, outDPhi;

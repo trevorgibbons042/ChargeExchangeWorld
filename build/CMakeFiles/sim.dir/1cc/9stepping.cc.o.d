@@ -898,7 +898,6 @@ CMakeFiles/sim.dir/1cc/9stepping.cc.o: \
   /Users/trevorg04/geant4-11.4.1-install/include/Geant4/G4TouchableHistory.hh \
   /Users/trevorg04/geant4-11.4.1-install/include/Geant4/G4NavigationHistory.hh \
   /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/assert.h \
-  /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/_assert.h \
   /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/_static_assert.h \
   /Users/trevorg04/geant4-11.4.1-install/include/Geant4/G4AffineTransform.hh \
   /Users/trevorg04/geant4-11.4.1-install/include/Geant4/G4Transform3D.hh \
@@ -980,6 +979,14 @@ CMakeFiles/sim.dir/1cc/9stepping.cc.o: \
   /Users/trevorg04/geant4-11.4.1-install/include/Geant4/G4VUserTrackInformation.hh \
   /Users/trevorg04/geant4-11.4.1-install/include/Geant4/G4PhysicsModelCatalog.hh \
   /Users/trevorg04/geant4-11.4.1-install/include/Geant4/G4Track.icc \
+  /Users/trevorg04/geant4-11.4.1-install/include/Geant4/G4GenericMessenger.hh \
+  /Users/trevorg04/geant4-11.4.1-install/include/Geant4/G4AnyMethod.hh \
+  /Users/trevorg04/geant4-11.4.1-install/include/Geant4/G4AnyType.hh \
+  /Users/trevorg04/geant4-11.4.1-install/include/Geant4/G4UIcommand.hh \
+  /Users/trevorg04/geant4-11.4.1-install/include/Geant4/G4ApplicationState.hh \
+  /Users/trevorg04/geant4-11.4.1-install/include/Geant4/G4UIparameter.hh \
+  /Users/trevorg04/geant4-11.4.1-install/include/Geant4/G4UImessenger.hh \
+  /Users/trevorg04/geant4-11.4.1-install/include/Geant4/G4UIdirectory.hh \
   /Users/trevorg04/G4ChargeExchange/2hh/2construction.hh \
   /Users/trevorg04/geant4-11.4.1-install/include/Geant4/G4VUserDetectorConstruction.hh \
   /Users/trevorg04/geant4-11.4.1-install/include/Geant4/G4NistManager.hh \
@@ -1005,6 +1012,10 @@ CMakeFiles/sim.dir/1cc/9stepping.cc.o: \
   /Users/trevorg04/geant4-11.4.1-install/include/Geant4/G4Visible.icc \
   /Users/trevorg04/geant4-11.4.1-install/include/Geant4/G4Box.icc \
   /Users/trevorg04/geant4-11.4.1-install/include/Geant4/G4PVPlacement.hh \
+  /Users/trevorg04/geant4-11.4.1-install/include/Geant4/G4PVParameterised.hh \
+  /Users/trevorg04/geant4-11.4.1-install/include/Geant4/G4PVReplica.hh \
+  /Users/trevorg04/geant4-11.4.1-install/include/Geant4/G4VPVParameterisation.hh \
+  /Users/trevorg04/geant4-11.4.1-install/include/Geant4/G4VVolumeMaterialScanner.hh \
   /Users/trevorg04/geant4-11.4.1-install/include/Geant4/G4GeometryManager.hh \
   /Users/trevorg04/geant4-11.4.1-install/include/Geant4/G4SmartVoxelStat.hh \
   /Users/trevorg04/geant4-11.4.1-install/include/Geant4/G4PhysicalVolumeStore.hh \
@@ -1013,14 +1024,6 @@ CMakeFiles/sim.dir/1cc/9stepping.cc.o: \
   /Users/trevorg04/geant4-11.4.1-install/include/Geant4/G4LogicalVolumeStore.hh \
   /Users/trevorg04/geant4-11.4.1-install/include/Geant4/G4SolidStore.hh \
   /Users/trevorg04/geant4-11.4.1-install/include/Geant4/G4SystemOfUnits.hh \
-  /Users/trevorg04/geant4-11.4.1-install/include/Geant4/G4GenericMessenger.hh \
-  /Users/trevorg04/geant4-11.4.1-install/include/Geant4/G4AnyMethod.hh \
-  /Users/trevorg04/geant4-11.4.1-install/include/Geant4/G4AnyType.hh \
-  /Users/trevorg04/geant4-11.4.1-install/include/Geant4/G4UIcommand.hh \
-  /Users/trevorg04/geant4-11.4.1-install/include/Geant4/G4ApplicationState.hh \
-  /Users/trevorg04/geant4-11.4.1-install/include/Geant4/G4UIparameter.hh \
-  /Users/trevorg04/geant4-11.4.1-install/include/Geant4/G4UImessenger.hh \
-  /Users/trevorg04/geant4-11.4.1-install/include/Geant4/G4UIdirectory.hh \
   /Users/trevorg04/G4ChargeExchange/2hh/6detector.hh \
   /Users/trevorg04/geant4-11.4.1-install/include/Geant4/G4VSensitiveDetector.hh \
   /Users/trevorg04/geant4-11.4.1-install/include/Geant4/G4CollectionNameVector.hh \
@@ -1074,8 +1077,6 @@ CMakeFiles/sim.dir/1cc/9stepping.cc.o: \
   /Users/trevorg04/geant4-11.4.1-install/include/Geant4/G4SmartVoxelHeader.icc \
   /Users/trevorg04/geant4-11.4.1-install/include/Geant4/G4VoxelNavigation.icc \
   /Users/trevorg04/geant4-11.4.1-install/include/Geant4/G4ParameterisedNavigation.hh \
-  /Users/trevorg04/geant4-11.4.1-install/include/Geant4/G4VPVParameterisation.hh \
-  /Users/trevorg04/geant4-11.4.1-install/include/Geant4/G4VVolumeMaterialScanner.hh \
   /Users/trevorg04/geant4-11.4.1-install/include/Geant4/G4ParameterisedNavigation.icc \
   /Users/trevorg04/geant4-11.4.1-install/include/Geant4/G4ReplicaNavigation.hh \
   /Users/trevorg04/geant4-11.4.1-install/include/Geant4/G4ReplicaNavigation.icc \
