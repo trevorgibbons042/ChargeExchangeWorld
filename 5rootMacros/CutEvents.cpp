@@ -74,6 +74,8 @@ void CutEvents(){
     };
     queue(selectedEvent, 0, 0);   queue(selectedParent, 0, 1);   queue(selectedFake, 0, 2);
     queue(dfCE, 1, 0);            queue(dfCE, 1, 1);             queue(dfCE, 1, 2);
+    // ZDC protons of every event, the only rows Plot3D.cpp draws from the all-events set (one tree, so no merge step)
+    handles.emplace_back(df.Filter("boundaryType == 2 && pdg == 2212").Snapshot(treeNames[0], "cut_AllEvProtons.root", "", lazy));
     ROOT::RDF::RunGraphs(handles);
     ROOT::DisableImplicitMT(); // merging with implicit MT on crashed in TTree::FlushBasketsImpl
 

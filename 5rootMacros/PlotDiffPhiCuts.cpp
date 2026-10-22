@@ -18,9 +18,9 @@
 // energy: "fKEnergy" (true KE) or "fDEnergy" (detector energy), picks the input trees like PlotAngle.cpp.
 void PlotDiffPhiCuts(double phiLo = -180, double phiHi = -50, std::string energy = "fKEnergy"){
     const std::string suffix = (energy == "fDEnergy") ? "_DE" : "";
-    const std::string folder = std::string("plots/3_angle_recon/diffphi_cuts/") + (energy == "fDEnergy" ? "2_KEDetector" : "1_KEtrue") + "/";
+    const std::string folder = std::string("plots/4_ReconCalcVals/3_diffphi_cuts/") + (energy == "fDEnergy" ? "2_KEDetector" : "1_KEtrue") + "/";
     gSystem->mkdir(folder.c_str(), true);
-    gStyle->SetStatX(0.99); gStyle->SetStatW(0.19); gStyle->SetNdivisions(505, "X");
+    gStyle->SetStatX(0.99); gStyle->SetStatW(0.19); gStyle->SetPalette(kViridis); gStyle->SetNumberContours(255); gStyle->SetNdivisions(505, "X");
 
     TFile* fAP = TFile::Open("cut_APandT.root", "READ");
     TTree* diff = (TTree*)fAP->Get(("CalcValsReDDIFF" + suffix).c_str());
@@ -55,10 +55,12 @@ void PlotDiffPhiCuts(double phiLo = -180, double phiHi = -50, std::string energy
     gPad->SetLeftMargin(0.14); gPad->SetBottomMargin(0.13);
 
     const std::string cutLabel = Form("CE events CE protons, block phi diff %g to %g deg, N = %lld", phiLo, phiHi, nSel);
+    std::set<std::string> numbersStarted;
     auto save = [&](TH1* h, const std::string& title, const std::string& file, const char* opt){
         h->SetTitle(PlotTitle(file, title).c_str());
         canvas->Clear();
         h->Draw(opt);
+        WritePlotNumbers(h, folder + file, numbersStarted);
         canvas->Update();
         canvas->SaveAs((folder + file).c_str());
     };

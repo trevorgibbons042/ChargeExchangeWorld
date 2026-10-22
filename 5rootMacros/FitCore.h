@@ -8,11 +8,33 @@
 
 #include <algorithm>
 #include <cstdio>
+#include <fstream>
+#include <map>
+#include <sstream>
+#include <stdexcept>
 #include <set>
 #include <cctype>
 #include <cmath>
 #include <string>
 #include <vector>
+
+// Run settings the sim wrote to settings.csv (a row of names, a row of values), as name -> value (.at("APScale"), ...).
+// Throws if the file is missing or the two rows do not match.
+inline std::map<std::string, double> ReadSettings(const std::string& path = "settings.csv"){
+    std::ifstream in(path);
+    std::string names, values;
+    if (!std::getline(in, names) || !std::getline(in, values))
+        throw std::runtime_error("cannot read " + path + " (copy it from the sim's root/<folder>/ next to the ROOT files)");
+    std::map<std::string, double> settings;
+    std::istringstream nameStream(names), valueStream(values);
+    std::string name, value;
+    while (std::getline(nameStream, name, ',') && std::getline(valueStream, value, ',')){
+        if (!name.empty() && name[0] == '#') name.erase(0, 1); // # marks a default value, the name is the same
+        settings[name] = std::stod(value);
+    }
+    if (settings.empty()) throw std::runtime_error(path + " has no settings");
+    return settings;
+}
 
 // Plot title in the shared "N. Quantity, Label" format. title is "title;xaxis;yaxis". N is the leading digit groups of the
 // file name joined by dots (1_1_xy_all.pdf -> 1.1), omitted if the file has none. Spaces around every ';' segment are trimmed.
@@ -113,7 +135,25 @@ inline void FitCore(TH1* h){
             mean = m; sigma = s;
             if (settled) break;
         }
-        if (TF1* g = h->GetFunction("fCoreBkg")) DrawFitTails(h, g);
+        TF1* g = h->GetFunction("fCoreBkg");
+        if (!g) return;
+        // A flat background cannot take up shoulders around the core, so the window fit pushes it up to the shoulder level.
+        // When the fit is poor, refit the whole range with a second, wider gaussian for the shoulders: the flat part is then
+        // set by the far wings, and the narrow gaussian stays the core (Constant, Mean, Sigma).
+        if (g->GetNDF() > 0 && g->GetChisquare() / g->GetNDF() > 3){
+            const double c = g->GetParameter(0), m = g->GetParameter(1), s = std::fabs(g->GetParameter(2)), b0 = g->GetParameter(3);
+            const double xlo = h->GetXaxis()->GetXmin(), xhi = h->GetXaxis()->GetXmax();
+            TF1 f2("fCore2Bkg", "gaus(0) + gaus(3) + pol0(6)", xlo, xhi);
+            f2.SetParNames("Constant", "Mean", "Sigma", "Constant2", "Mean2", "Sigma2", "Background");
+            f2.SetParameters(c, m, s, 0.3 * c, m, 4 * s, 0.3 * b0);
+            f2.SetParLimits(2, bw, 2 * s);
+            f2.SetParLimits(4, m - 4 * s, m + 4 * s);
+            f2.SetParLimits(5, 1.5 * s, 0.5 * (xhi - xlo));
+            f2.SetParLimits(6, 0, b0);
+            h->Fit(&f2, "QL");
+            if (TF1* g2 = h->GetFunction("fCore2Bkg")) g = g2;
+        }
+        DrawFitTails(h, g);
         return;
     }
 
@@ -159,6 +199,17 @@ inline void WriteHistStats(TH1* h, const std::string& plotPath, std::set<std::st
     fprintf(out, "%s,%.0f,%.8g,%.8g", gSystem->BaseName(plotPath.c_str()), h->GetEntries(), h->GetMean(1), h->GetStdDev(1));
     if (h->GetDimension() == 2) fprintf(out, ",%.8g,%.8g\n", h->GetMean(2), h->GetStdDev(2));
     else fprintf(out, ",,\n");
+    fclose(out);
+}
+
+// Appends one row (the numbers drawn on a graph, not a histogram) to stats.csv in the folder of plotPath, after a header
+// row written once per file. Same truncate-on-first-write rule as WriteHistStats; header and row are comma-joined strings.
+inline void WriteStatsRow(const std::string& plotPath, const std::string& header, const std::string& row, std::set<std::string>& started){
+    const std::string file = std::string(gSystem->GetDirName(plotPath.c_str())) + "/stats.csv";
+    FILE* out = fopen(file.c_str(), started.insert(file).second ? "w" : "a");
+    if (!out) return;
+    if (started.insert(file + "#header").second) fprintf(out, "%s\n", header.c_str());
+    fprintf(out, "%s\n", row.c_str());
     fclose(out);
 }
 
