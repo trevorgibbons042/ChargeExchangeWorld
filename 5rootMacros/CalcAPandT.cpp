@@ -1,4 +1,4 @@
-#include "Settings.h"
+#include "FitCore.h"
 #include <TError.h>
 #include <TFile.h>
 #include <TTree.h>
@@ -51,15 +51,16 @@ struct Angles {double LastPhi, LastTheta, LastMomentum, LastT, LastAP; int PDG; 
 
 struct Track {std::vector<Angles> points;};
 
-void CalcAPandT(std::string energy = "fKEnergy"){ // energy: "fKEnergy" (true KE) or "fDEnergy" (detector energy), picks the cut_angles file
-    const double apScale = kAPScale; // Settings.h
+void CalcAPandT(std::string energy = "fKEnergy"){ // energy: "fKEnergy" (true KE) or "fDEnergy" (detector energy), picks the Angles tree
+    const double apScale = ReadSettings().at("APScale"); // settings.csv from the sim
     const std::string suffix = (energy == "fDEnergy") ? "_DE" : "";
     ROOT::EnableImplicitMT(128);
     
     bool Verbose = false;
     
     ROOT::RDataFrame dfCEV("ChargeExchange_values", "cut_CE.root");
-    ROOT::RDataFrame dfAngles("Angles" + suffix, "cut_angles.root");
+    ROOT::RDataFrame dfAnglesAll("Angles" + suffix, "cut_angles_all.root");
+    auto dfAngles = dfAnglesAll.Filter("isFromCE==1"); // the fitted CE protons, ReconAngleAll.cpp fits every proton
     
     TFile *outFile = new TFile("cut_APandT.root", energy == "fDEnergy" ? "UPDATE" : "RECREATE"); // detector-energy pass appends its _DE trees to the true-KE file
     TTree *outTree = new TTree(("CE" + suffix).c_str(), "values from ChargeExchange directly");

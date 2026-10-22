@@ -15,7 +15,7 @@
 
 void GraphBlocks(){
     const TString filename = "cut_blocks.root";
-    const TString outDir = "plots/2_CEblock";
+    const TString outDir = "plots/5_CEblock";
     const int nBins = 100;
     const char *ceLabel = "CE events CE protons";
 
@@ -32,7 +32,7 @@ void GraphBlocks(){
     TCanvas* canvas = new TCanvas("canvas", "Plots", 1500, 1200);
     gPad->SetRightMargin(0.30);
     gPad->SetLeftMargin(0.14); gPad->SetBottomMargin(0.13); // room for the rotated Y title and bottom tick labels
-    gStyle->SetStatX(0.99); gStyle->SetStatW(0.19); gStyle->SetNdivisions(505, "X"); // stats/fit box to the right, fewer x labels
+    gStyle->SetStatX(0.99); gStyle->SetStatW(0.19); gStyle->SetPalette(kViridis); gStyle->SetNumberContours(255); gStyle->SetNdivisions(505, "X"); // stats/fit box to the right, fewer x labels
 
     // 2x2 style grid (more blocks make it grow)
     int nCols = std::ceil(std::sqrt((double)blocks.size()));
@@ -108,4 +108,6 @@ void GraphBlocks(){
 
     gridCanvas->Update();
     gridCanvas->SaveAs(Form("%s/CE_per_block.pdf", outDir.Data()));
+    std::set<std::string> gridStats; // one row per block: the CE count in each panel's title
+    for (TTree* t : blocks) WriteStatsRow(Form("%s/CE_per_block.pdf", outDir.Data()), "plot,block,ce_events", Form("CE_per_block.pdf,%s,%lld", t->GetName(), (Long64_t)t->GetEntries()), gridStats);
 }

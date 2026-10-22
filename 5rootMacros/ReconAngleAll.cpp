@@ -11,7 +11,7 @@
 #include <utility>
 #include <vector>
 
-struct Pos {double x, y, z; double xD, yD, zD; double KE; int ParentID;};
+struct Pos {double x, y, z; double xD, yD, zD; double KE; int ParentID; double KED;}; // KE: true KE, KED: detector KE
 struct FitResult {double x0, y0, bx, by;
     double x0D, y0D, bxD, byD;};
 struct Track {std::vector<Pos> points;};
@@ -83,8 +83,8 @@ FitResult fitTrack(const std::vector<Pos>& points){
     return fit;
 }
 
-void ReconAngleAll(std::string energy = "fKEnergy"){ // energy: "fKEnergy" (true KE) or "fDEnergy" (detector energy)
-    const std::string suffix = (energy == "fDEnergy") ? "_DE" : "";
+// One pass fits every proton and writes the true-KE trees (Angles, AnglesCE) and the detector-KE trees (Angles_DE, AnglesCE_DE); they differ only in finalKE.
+void ReconAngleAll(){
     ROOT::EnableImplicitMT(128);
 
     ROOT::RDataFrame df("ParticleInfo", "output0_t*.root");
@@ -113,10 +113,10 @@ void ReconAngleAll(std::string energy = "fKEnergy"){ // energy: "fKEnergy" (true
     std::vector<std::map<std::tuple<int, int, int>, Track>> slotTracks(df.GetNSlots());
     df.Filter("pdg == 2212").ForeachSlot([&](unsigned slot,
         int eventID, int trackID, int pdg,
-        double x, double y, double z, double xD, double yD, double zD, double KE, int ParentID){
+        double x, double y, double z, double xD, double yD, double zD, double KE, double KED, int ParentID){
         if (!reachedEnd.count({eventID, trackID})) {return;}
-        slotTracks[slot][{eventID, trackID, pdg}].points.push_back({x, y, z, xD, yD, zD, KE, ParentID});
-    }, {"fEvent", "TrackID", "pdg", "fX", "fY", "fZ", "fDx", "fDy", "fDz", energy, "ParentID"});
+        slotTracks[slot][{eventID, trackID, pdg}].points.push_back({x, y, z, xD, yD, zD, KE, ParentID, KED});
+    }, {"fEvent", "TrackID", "pdg", "fX", "fY", "fZ", "fDx", "fDy", "fDz", "fKEnergy", "fDEnergy", "ParentID"});
     // Points are sorted and de-duplicated per track below, so the merge order does not matter.
     std::map<std::tuple<int, int, int>, Track> tracks;
     for (auto &slotMap : slotTracks) {
@@ -126,9 +126,11 @@ void ReconAngleAll(std::string energy = "fKEnergy"){ // energy: "fKEnergy" (true
         }
     }
 
-    TFile *outFile = new TFile("cut_angles_all.root", energy == "fDEnergy" ? "UPDATE" : "RECREATE"); // detector-energy pass appends its _DE trees to the true-KE file
-    TTree *outTree = new TTree(("Angles" + suffix).c_str(), "Reconstructed Angles, all protons");
-    TTree *outTreeCE = new TTree(("AnglesCE" + suffix).c_str(), "Reconstructed Angles, all protons in CE events");
+    TFile *outFile = new TFile("cut_angles_all.root", "RECREATE");
+    TTree *outTree = new TTree("Angles", "Reconstructed Angles, all protons");
+    TTree *outTreeCE = new TTree("AnglesCE", "Reconstructed Angles, all protons in CE events");
+    TTree *outTreeDE = new TTree("Angles_DE", "Reconstructed Angles, all protons, detector KE");
+    TTree *outTreeCEDE = new TTree("AnglesCE_DE", "Reconstructed Angles, all protons in CE events, detector KE");
 
     int outTrackID, outPDG, outEventID, fParentID;
     double outTheta, outPhi, outDTheta, outDPhi;
@@ -137,10 +139,10 @@ void ReconAngleAll(std::string energy = "fKEnergy"){ // energy: "fKEnergy" (true
     double xVertexOut, yVertexOut, zVertexOut;
     double z_bx_reconVertexOut, z_by_reconVertexOut;
     double z_bx_reconVertexDIFFOut, z_by_reconVertexDIFFOut;
-    double finalKE;
+    double finalKE, finalKED; // true and detector KE of the track end
     int isFromCE;
 
-    for (TTree *tree : {outTree, outTreeCE}) {
+    for (TTree *tree : {outTree, outTreeCE, outTreeDE, outTreeCEDE}) {
         tree->Branch("TrackID", &outTrackID);
         tree->Branch("PDG", &outPDG);
         tree->Branch("fEvent", &outEventID);
@@ -156,7 +158,7 @@ void ReconAngleAll(std::string energy = "fKEnergy"){ // energy: "fKEnergy" (true
         tree->Branch("y0DOut", &y0DOut);
         tree->Branch("bxDOut", &bxDOut);
         tree->Branch("byDOut", &byDOut);
-        tree->Branch("finalKE", &finalKE);
+        tree->Branch("finalKE", (tree == outTreeDE || tree == outTreeCEDE) ? &finalKED : &finalKE);
         tree->Branch("ParentID", &fParentID);
         tree->Branch("xVertexOut", &xVertexOut);
         tree->Branch("yVertexOut", &yVertexOut);
@@ -210,6 +212,7 @@ void ReconAngleAll(std::string energy = "fKEnergy"){ // energy: "fKEnergy" (true
         x0DOut = fit.x0D; y0DOut = fit.y0D; bxDOut = fit.bxD; byDOut = fit.byD;
 
         finalKE   = endPoint->KE;
+        finalKED  = endPoint->KED;
         fParentID = endPoint->ParentID;
 
         z_bx_reconVertexOut = (fit.bxD != 0) ? -fit.x0D/fit.bxD : 0;
@@ -221,11 +224,14 @@ void ReconAngleAll(std::string energy = "fKEnergy"){ // energy: "fKEnergy" (true
         isFromCE = (ce != ceTracks.end() && ce->second.count(fParentID)) ? 1 : 0;
 
         outTree->Fill();
-        if (ce != ceTracks.end()) {outTreeCE->Fill();}
+        outTreeDE->Fill();
+        if (ce != ceTracks.end()) {outTreeCE->Fill(); outTreeCEDE->Fill();}
     }
 
     outFile->cd();
     outTree->Write();
     outTreeCE->Write();
+    outTreeDE->Write();
+    outTreeCEDE->Write();
     outFile->Close();
 }

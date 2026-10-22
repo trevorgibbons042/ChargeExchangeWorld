@@ -1,3 +1,6 @@
+#include <tuple>
+#include <map>
+#include <ROOT/RDataFrame.hxx>
 #include <set>
 #include <TFile.h>
 #include <TTree.h>
@@ -74,102 +77,87 @@ static void DrawGroup(TCanvas* canvas, const std::string& groupDir, const std::v
     }
 }
 
-const double totalNeutrons = 100e6; // neutrons simulated, the FOM denominator
-const double beamPol = 0.7;         // beam polarization P in dN/dphi ~ 1 + P*AP*cos(phi)
+const double totalNeutrons = ReadSettings().at("TotalNeutrons"); // settings.csv from the sim
+// Theta bin edges (deg) for the FOM table, from the data: every pair of block (cell center) hit points of a reconstructed track gives an angle
+// atan(hypot(dx, dy) / dz). The unique angles up to maxTheta are ordered and each gets one bin: edges sit midway between consecutive angles,
+// the first edge is 0 and the last is maxTheta. keys: (fEvent, TrackID) of the reconstructed tracks (the Angles tree).
+static std::vector<double> HitPairThetaEdges(const std::set<std::pair<int, int>>& keys, double maxTheta)
+{
+    struct Hit {double x, y, z;};
+    std::map<std::pair<int, int>, std::set<std::tuple<double, double, double>>> tracks; // de-duplicated points per track
+    ROOT::RDataFrame df("ParticleInfo", "output0_t*.root");
+    df.Filter("pdg == 2212 && fDz != 0").Foreach([&](int ev, int tid, double x, double y, double z){
+        if (keys.count({ev, tid})) tracks[{ev, tid}].insert({x, y, z});
+    }, {"fEvent", "TrackID", "fDx", "fDy", "fDz"});
 
-// Pulls (AP, phi) of every event passing cut out of tree t.
-static void GetApPhi(TTree* t, const std::string& sfx, const std::string& cut, std::vector<double>& ap, std::vector<double>& phi){
-    t->SetEstimate(t->GetEntries() + 1);
-    Long64_t n = t->Draw(("ap" + sfx + ":phi" + sfx).c_str(), cut.c_str(), "goff");
-    ap.assign(t->GetV1(), t->GetV1() + n);
-    phi.assign(t->GetV2(), t->GetV2() + n);
+    std::vector<double> angles;
+    for (const auto& [key, pts] : tracks) {
+        std::vector<Hit> h;
+        for (const auto& [x, y, z] : pts) h.push_back({x, y, z});
+        for (size_t i = 0; i < h.size(); i++) for (size_t j = i + 1; j < h.size(); j++) {
+            const double dz = std::fabs(h[j].z - h[i].z);
+            if (dz == 0) continue;
+            const double theta = std::atan(std::hypot(h[j].x - h[i].x, h[j].y - h[i].y) / dz) * 180.0 / TMath::Pi();
+            if (theta <= maxTheta) angles.push_back(theta);
+        }
+    }
+    std::sort(angles.begin(), angles.end());
+    angles.erase(std::unique(angles.begin(), angles.end(), [](double a, double b){return std::fabs(a - b) < 1e-9;}), angles.end());
+
+    std::vector<double> edges = {0.0};
+    for (size_t i = 1; i < angles.size(); i++) edges.push_back(0.5 * (angles[i - 1] + angles[i]));
+    edges.push_back(maxTheta);
+    return edges;
 }
 
-// For every KE folder and theta bin: the recon phi distribution (position set by sfx: "Re" true, "ReD" block) fitted with N*(1 + P*<AP>*cos(phi)), P = beamPol
-// and <AP> = mean AP of the events in the bin, both fixed, so only the normalization N floats.
-static void DrawPhiBins(TCanvas* canvas, const std::string& groupDir, const std::vector<KECut>& kes, TTree* t,
-                        const std::string& sfx, const std::string& what, const std::vector<double>& thetaEdges, bool showPhiBins)
+// FOM table, csv only, one file per KE cut: <groupDir>/1_csv/<ke.dir>.csv. t is the tree with the recon values (sfx: "Re" true position, "ReD" block position);
+// all is the tree of every proton from every event (cut_angles_all.root), allThetaExpr its recon theta in degrees for the same position type.
+// Per theta bin: N = all protons in the bin, N_CE = CE protons in the bin (the ones with AP), eff = N / total neutrons, mean AP of the CE protons,
+// eff*|<AP>| (the FOM) and eff*<AP>^2 (the F^2 term). The last row is the sum over all bins.
+static void WriteFomCsv(const std::string& groupDir, const std::vector<KECut>& kes, TTree* t, const std::string& sfx, TTree* all, const std::string& allThetaExpr, const std::vector<double>& thetaEdges)
 {
-    std::set<std::string> numberFiles; // stats and fit files already truncated in this call
-    gSystem->mkdir(groupDir.c_str(), true);
+    const size_t nb = thetaEdges.size() - 1;
+    auto binOf = [&](double theta){ // bin = [lo, hi), -1 outside
+        auto it = std::upper_bound(thetaEdges.begin(), thetaEdges.end(), theta);
+        return (it == thetaEdges.begin() || it == thetaEdges.end()) ? -1 : int(it - thetaEdges.begin() - 1);
+    };
     for (const auto& ke : kes) {
-        std::string keCut = ke.cut.empty() ? "1" : ke.cut;
-        std::vector<double> ap, phi;
-
-        std::vector<double> fom(thetaEdges.size() - 1, 0.0);
-        struct BinNumbers {double lo, hi, n, meanAP, fitN, fitNErr, chi2ndf;};
-        std::vector<BinNumbers> rows; // written to numbers.txt next to the FOM plot
-        for (size_t b = 0; b + 1 < thetaEdges.size(); b++) {
-            double lo = thetaEdges[b], hi = thetaEdges[b + 1];
-            std::string name = Form("th_%g_%g", lo, hi);
-            std::replace(name.begin(), name.end(), '.', 'p');
-
-            GetApPhi(t, sfx, Form("(%s) && theta%s >= %g && theta%s < %g", keCut.c_str(), sfx.c_str(), lo, sfx.c_str(), hi), ap, phi);
-            if (ap.empty()) {rows.push_back({lo, hi, 0, 0, NAN, NAN, NAN}); continue;}
-            double meanAP = 0;
-            for (double x : ap) meanAP += x;
-            meanAP /= ap.size();
-            fom[b] = ap.size() * std::fabs(meanAP) / totalNeutrons;
-            rows.push_back({lo, hi, (double)ap.size(), meanAP, NAN, NAN, NAN});
-
-            if (!showPhiBins) continue; // phi-bin fit plots are optional, the FOM above does not need them
-            gSystem->mkdir((groupDir + "/" + ke.dir + "/phi_fit").c_str(), true);
-
-            TH1D h("hPhiBin", "", 100, 0, 360);
-            for (double x : phi) h.Fill(x < 0 ? x + 360 : x);
-            h.SetStats(1); // fit box (gStyle OptFit) lists the fit parameters
-            h.SetTitle(PlotTitle("phi_fit.pdf", Form("Recon %s phi, CE events CE protons, %s, theta %g to %g deg, <AP> = %.4f, P = %.2f;Phi (degrees);Count",
-                            what.c_str(), ke.label.c_str(), lo, hi, meanAP, beamPol)).c_str());
-            TF1 f("fPhiBin", "[0]*(1 + [1]*cos(x*TMath::DegToRad()))", 0, 360);
-            f.SetParNames("N", "P*<AP>");
-            f.SetParameters(h.GetEntries() * h.GetBinWidth(1) / 360.0, beamPol * meanAP);
-            f.FixParameter(1, beamPol * meanAP);
-            h.Fit(&f, "QR");
-            rows.back().fitN = f.GetParameter(0);
-            rows.back().fitNErr = f.GetParError(0);
-            rows.back().chi2ndf = f.GetNDF() ? f.GetChisquare() / f.GetNDF() : NAN;
-
-            canvas->Clear();
-            const int oldOptStat = gStyle->GetOptStat();
-            gStyle->SetOptStat(10); // entries only, plus the fit box
-            h.SetLineWidth(2);
-            h.Draw("HIST");
-            f.SetLineColor(kRed); f.SetLineWidth(3);
-            f.Draw("SAME");
-            canvas->Update();
-            canvas->SaveAs((groupDir + "/" + ke.dir + "/phi_fit/" + name + ".pdf").c_str());
-            WritePlotNumbers(&h, groupDir + "/" + ke.dir + "/phi_fit/" + name + ".pdf", numberFiles);
-            gStyle->SetOptStat(oldOptStat);
+        const std::string cut = ke.cut.empty() ? "1" : ke.cut;
+        t->SetEstimate(t->GetEntries() + 1);
+        const Long64_t n = t->Draw(("theta" + sfx + ":ap" + sfx).c_str(), cut.c_str(), "goff");
+        std::vector<double> countCE(nb, 0.0), countAll(nb, 0.0), sumAP(nb, 0.0);
+        for (Long64_t i = 0; i < n; i++) {
+            const int b = binOf(t->GetV1()[i]);
+            if (b < 0) continue;
+            countCE[b]++;
+            sumAP[b] += t->GetV2()[i];
         }
-
-        // FOM = (#CE events in the bin * |mean AP|) / total neutrons, one bar per theta bin
-        gSystem->mkdir((groupDir + "/" + ke.dir).c_str(), true);
-        if (FILE* out = fopen((groupDir + "/" + ke.dir + "/numbers.txt").c_str(), "w")) {
-            fprintf(out, "FOM and phi fit, Recon %s, CE events CE protons, %s, N_neutrons = %.3g, P = %.2f\n", what.c_str(), ke.label.empty() ? "no KE cut" : ke.label.c_str(), totalNeutrons, beamPol);
-            fprintf(out, "%-14s %8s %10s %12s %10s %10s %14s %9s\n", "theta (deg)", "N", "<AP>", "FOM", "fit N", "fit N err", "fit P*<AP> fixed", "chi2/ndf");
-            for (size_t b = 0; b < rows.size(); b++) {
-                const auto& r = rows[b];
-                fprintf(out, "%5g - %-6g %8.0f %10.4f %12.4e %10.4g %10.4g %14.4g %9.3g\n", r.lo, r.hi, r.n, r.meanAP, fom[b], r.fitN, r.fitNErr, beamPol * r.meanAP, r.chi2ndf);
-            }
-            fclose(out);
+        all->SetEstimate(all->GetEntries() + 1);
+        const Long64_t nAll = all->Draw(allThetaExpr.c_str(), cut.c_str(), "goff");
+        for (Long64_t i = 0; i < nAll; i++) {
+            const int b = binOf(all->GetV1()[i]);
+            if (b >= 0) countAll[b]++;
         }
-        TGraph gFom;
-        for (size_t b = 0; b < fom.size(); b++) gFom.SetPoint(b, 0.5 * (thetaEdges[b] + thetaEdges[b + 1]), fom[b]);
-        gFom.SetMarkerStyle(20);
-        gFom.SetTitle(PlotTitle("FOM_vs_theta.pdf", Form("FOM = N_{CE} #times |#LTAP#GT| / N_{neutrons}, N_{neutrons} = %.2g, CE events CE protons, %s;Recon %s theta (degrees, bin center);FOM", totalNeutrons, ke.label.c_str(), what.c_str())).c_str());
-        canvas->Clear();
-        gFom.Draw("APL");
-        canvas->Update();
-        gSystem->mkdir((groupDir + "/" + ke.dir).c_str(), true);
-        canvas->SaveAs((groupDir + "/" + ke.dir + "/FOM_vs_theta.pdf").c_str());
+        gSystem->mkdir((groupDir + "/1_csv").c_str(), true);
+        FILE* out = fopen((groupDir + "/1_csv/" + ke.dir + ".csv").c_str(), "w");
+        if (!out) continue;
+        fprintf(out, "theta_lo,theta_hi,N,N_CE,eff,mean_AP,eff_x_AP,eff_x_AP2\n");
+        double totN = 0, totCE = 0, totAP = 0, totFom = 0, totFom2 = 0;
+        for (size_t b = 0; b < nb; b++) {
+            const double mean = countCE[b] > 0 ? sumAP[b] / countCE[b] : 0.0, eff = countAll[b] / totalNeutrons;
+            fprintf(out, "%g,%g,%.0f,%.0f,%.8g,%.8g,%.8g,%.8g\n", thetaEdges[b], thetaEdges[b + 1], countAll[b], countCE[b], eff, mean, eff * std::fabs(mean), eff * mean * mean);
+            totN += countAll[b]; totCE += countCE[b]; totAP += sumAP[b]; totFom += eff * std::fabs(mean); totFom2 += eff * mean * mean;
+        }
+        fprintf(out, "%g,%g,%.0f,%.0f,%.8g,%.8g,%.8g,%.8g\n", thetaEdges.front(), thetaEdges.back(), totN, totCE, totN / totalNeutrons, totCE > 0 ? totAP / totCE : 0.0, totFom, totFom2);
+        fclose(out);
     }
 }
 
-void PlotAngle(std::string energy = "fKEnergy", bool showPhiBins = true){ // energy: "fKEnergy" (true KE) or "fDEnergy" (detector energy), picks the input files and plot folder; showPhiBins: also save the per-theta-bin phi fit plots
+void PlotAngle(std::string energy = "fKEnergy"){ // energy: "fKEnergy" (true KE) or "fDEnergy" (detector energy), picks the input files and plot folder
     const std::string suffix = (energy == "fDEnergy") ? "_DE" : "";
     gStyle->SetOptFit(1111); // probability, chi2/ndf, fit parameters with errors
     const std::string energyDir = (energy == "fDEnergy") ? "2_KEDetector" : "1_KEtrue";
-    std::string foldermain = "plots/3_angle_recon/";
+    std::string foldermain = "plots/4_ReconCalcVals/";
     gSystem->mkdir(foldermain.c_str(), true);
 
 
@@ -190,7 +178,7 @@ void PlotAngle(std::string energy = "fKEnergy", bool showPhiBins = true){ // ene
     TCanvas* canvas = new TCanvas("canvas", "Plots", 1500, 1200);
     gPad->SetRightMargin(0.30);
     gPad->SetLeftMargin(0.14); gPad->SetBottomMargin(0.13); // room for the rotated Y title and bottom tick labels
-    gStyle->SetStatX(0.99); gStyle->SetStatW(0.19); gStyle->SetNdivisions(505, "X"); // stats/fit box to the right, fewer x labels
+    gStyle->SetStatX(0.99); gStyle->SetStatW(0.19); gStyle->SetPalette(kViridis); gStyle->SetNumberContours(255); gStyle->SetNdivisions(505, "X"); // stats/fit box to the right, fewer x labels
 
     // Same x range on every theta distribution so plots compare directly: 0.023 deg bins, 0 to 2.3 deg (theta acceptance 0.04 rad)
     auto thetaHist = [](const std::string& name){return ">>" + name + "(100,0,2.3)";};
@@ -230,9 +218,9 @@ void PlotAngle(std::string energy = "fKEnergy", bool showPhiBins = true){ // ene
         {events5, "phiReD>>hPhiBlockDiff(100,-180,180)",   "Difference between CE and Recon Block Phi", diff, true, "2_phi/5_phiBlockDiff.pdf"},
         {events,  "tCE>>hTCE(100,0,0.05)", "CE t Distribution", "t;Count", false, "3_t/1_tCE.pdf"},
         {events2, "tRe>>hTRe(100,0,0.05)", "Recon t Distribution", "t;Count", false, "3_t/2_tRe.pdf"},
-        {events4, "tReD>>hTDiff(100,-0.05,0)", "Difference between CE and Recon t", "t Difference;Count", true, "3_t/4_tDiff.pdf"},
+        {events4, "tReD>>hTDiff(100,-0.05,0.05)", "Difference between CE and Recon t", "t Difference;Count", true, "3_t/4_tDiff.pdf"},
         {events3, "tReD>>hTBlock(100,0,0.05)", "Recon block t Distribution", "t;Count", false, "3_t/3_tBlock.pdf"},
-        {events5, "tReD>>hTBlockDiff(100,-0.05,0)", "Difference between CE and Recon Block t", "t Difference;Count", true, "3_t/5_tBlockDiff.pdf"},
+        {events5, "tReD>>hTBlockDiff(100,-0.05,0.05)", "Difference between CE and Recon Block t", "t Difference;Count", true, "3_t/5_tBlockDiff.pdf"},
         {events,  "apCE>>hAPCE(100,-1,0)",     "CE AP Distribution", "AP;Count", false, "4_ap/1_apCE.pdf"},
         {events2, "apRe>>hAPRe(100,-1,0)",     "Recon AP Distribution", "AP;Count", false, "4_ap/2_apRe.pdf"},
         {events4, "apReD>>hAPDiff(100,-0.15,0.1)",    "Difference between CE and Recon AP", "AP Difference;Count", true, "4_ap/4_apDiff.pdf"},
@@ -277,20 +265,33 @@ void PlotAngle(std::string energy = "fKEnergy", bool showPhiBins = true){ // ene
             }
         }
     }
-    std::vector<double> thetaEdges; // 0.1 deg bins, 0 to 2.3 deg (theta acceptance 0.04 rad)
-    for (int i = 0; i <= 23; i++) thetaEdges.push_back(i * 0.1);
 
-    const std::string reconDir = foldermain + "1_CEvalues/" + energyDir + "/";
-    DrawGroup(canvas, reconDir + "1_CEprotons", keCE, specsCE, "CE events CE protons", "", "",
+    const std::string reconDir = foldermain + "1_CEvalues/" + energyDir;
+    DrawGroup(canvas, reconDir, keCE, specsCE, "CE events CE protons", "", "",
               [&](TTree* t){return std::string(t == events2 ? "thetaRe" : "CalcValsRe" + suffix + ".thetaRe");});
     // FOM from the true position recon (events2, "Re") and from the block position recon (events3, "ReD")
-    DrawPhiBins(canvas, reconDir + "2_fomCalc/1_true", keCE, events2, "Re", "true position", thetaEdges, showPhiBins); // theta bin edges, degrees
-    DrawPhiBins(canvas, reconDir + "2_fomCalc/2_block", keCE, events3, "ReD", "block position", thetaEdges, showPhiBins);
+    const std::string fomDir = "plots/6_fomCalc/" + energyDir + "/";
 
     //All protons and CE protons, theta/phi and block theta/phi
     TFile* FileAll = TFile::Open("cut_angles_all.root", "READ");
     TTree *all = (TTree*)FileAll->Get(("Angles" + suffix).c_str());
     TTree *allCE = (TTree*)FileAll->Get(("AnglesCE" + suffix).c_str());
+
+    // FOM theta bins: one per unique hit-pair angle in the data
+    std::set<std::pair<int, int>> recoKeys;
+    {
+        int ev, tid;
+        all->SetBranchAddress("fEvent", &ev); all->SetBranchAddress("TrackID", &tid);
+        for (Long64_t i = 0; i < all->GetEntries(); i++){all->GetEntry(i); recoKeys.insert({ev, tid});}
+        all->ResetBranchAddresses();
+    }
+    // up to the largest recon theta of any reconstructed proton (true or block), so every one lands in a bin
+    const double maxTheta = std::max(all->GetMaximum("outTheta"), all->GetMaximum("outDTheta")) * 180.0 / TMath::Pi() + 1e-6;
+    const std::vector<double> thetaEdges = HitPairThetaEdges(recoKeys, maxTheta);
+
+    // FOM tables: all protons from all events (N) and the CE protons with AP (N_CE) per theta bin
+    WriteFomCsv(fomDir + "FOM_calc/1_reconTheta", keCE, events2, "Re", all, "outTheta*180/TMath::Pi()", thetaEdges);
+    WriteFomCsv(fomDir + "FOM_calc/2_reconBlockTheta", keCE, events3, "ReD", all, "outDTheta*180/TMath::Pi()", thetaEdges);
 
     // Detector acceptance is square: above this theta (rad) phi is only accepted toward the corners.
     const double thetaMax = 0.04;
