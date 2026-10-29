@@ -1,0 +1,44 @@
+#!/bin/bash -l
+#PBS -A eic
+#PBS -N Plot
+
+#PBS -l select=1:ncpus=16
+#PBS -l walltime=12:00:00
+#PBS -j oe
+
+# One lane of the plotting chain (5rootMacros/plot.sh) for one run folder, submitted by SubmitPlots.sh with -v RUN=<folder in build/root>,STEP=<step name>.
+# The macros run from the run folder's own copy (SubmitPlots.sh copies them in), so the ACLiC libraries of parallel jobs do not collide.
+# BASE can be overridden to try the step list on another machine.
+BASE=${BASE:-/lcrc/project/eic/tgibbons/G4ChargeExchange}
+
+cd $BASE/build/root/$RUN || exit 1
+
+module load root
+export LD_LIBRARY_PATH=/lcrc/project/eic/tgibbons/xxhash-install/lib:$LD_LIBRARY_PATH
+
+echo Jobid: $PBS_JOBID
+echo Running on host `hostname`
+echo Run folder: $RUN, step: $STEP
+
+# The same lanes as plot.sh: a lane holds the macros that write into the same plots/ folders or read another's csv files
+case $STEP in
+    cuttrees) macros=('CutTrees.cpp') ;;
+    cuts)     macros=('Plot3D.cpp' 'QualityStudy.cpp') ;; # 1_position, 2_energy, 6_cuts
+    fom)      macros=('PlotAngle.cpp("fDEnergy")' 'PlotCEFraction.cpp' 'PlotPolarization.cpp("fDEnergy")' 'PlotFomPolarization.cpp("fDEnergy")') ;; # 3_ReconCalcVals, 5_fomCalc
+    ceblock)  macros=('PlotDiffPhiCuts.cpp(-180, -50, "fDEnergy")' 'GraphBlocks.cpp' 'CETCompare.cpp') ;; # 4_CEblock
+    secce)    macros=('SecondaryCE.cpp') ;; # 7_secondaryCE
+    pdfs)     macros=() ;; # the python steps of plot.sh, after every lane
+    *) echo "unknown step $STEP"; exit 1 ;;
+esac
+
+for m in "${macros[@]}"; do
+    echo "=== $m $(date +%H:%M:%S)"
+    time root -l -b -q "${m/.cpp/.cpp${ACLIC-+O}}" # compiled with ACLiC (+O) unless ACLIC= (empty)
+done
+
+if [ "$STEP" = pdfs ]; then
+    python3 tidy_plots.py plots
+    python3 cut_side_box.py plots
+    python3 crop_pdfs.py plots
+    bash to_png.sh plots
+fi

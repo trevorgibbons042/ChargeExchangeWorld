@@ -22,32 +22,15 @@
 
 namespace
 {
-  const double AP_A = 0.7079;   // same fit as G4ChargeExchange.cc (there per GeV, here momentum is converted to GeV)
-  const double AP_k = 0.3860;
   const double z_end = 23000;
 
-  // Lab momentum of the 25 GeV KE beam neutron, MeV. LastMomentum is the CMS momentum of the model, so it cannot be
+  // Lab momentum of the beam neutron, MeV (kBeamMomentum, FitCore.h). LastMomentum is the CMS momentum of the model, so it cannot be
   // used as the lab momentum in t and in the AP exponent (the model uses the lab pin.mag() there).
-  const double beamKE = 25000.0;
-  const double neutronMass = 939.565;
-  const double pBeam = std::sqrt(beamKE*beamKE + 2.0*beamKE*neutronMass);
-
-  // Transverse-only t in GeV^2: (p_n sin(theta))^2, theta = proton lab polar angle (rad), p_n = lab beam momentum
-  // (MeV, pBeam). The full invariant also has an energy term, which the measured final KE (after energy loss) overwhelms.
-  double TFromAngle(double pn, double theta){
-    double pT = pn*std::sin(theta)/1000.0;
-    return pT*pT;
-  }
-
-  // Same formula as the model, including its minus sign. pbeam in MeV, t in GeV^2.
-  // AP times apScale (the sim's /CE/APScale), clamped to -1.0 at the low end like the model.
-  double APFromT(double pbeam, double t, double apScale){
-    return std::max(-1.0, apScale*-AP_A*(1-std::exp(-AP_k*pbeam/1000.0))*std::sqrt(std::max(t, 0.0)));
-  }
+  const double pBeam = kBeamMomentum;
 }
 
 using Key = std::pair<int, int>;
-struct Angles {double LastPhi, LastTheta, LastMomentum, LastT, LastAP; int PDG; double FinalKE; ULong64_t entry = 0;};
+struct Angles {double LastPhi, LastTheta, LastMomentum, LastT, LastAP; int PDG; double FinalKE; ULong64_t entry = 0; int passResD = 1; double resDRms = 0;};
 
 struct Track {std::vector<Angles> points;};
 
@@ -58,11 +41,11 @@ void CalcAPandT(std::string energy = "fKEnergy"){ // energy: "fKEnergy" (true KE
     
     bool Verbose = false;
     
-    ROOT::RDataFrame dfCEV("ChargeExchange_values", "cut_CE.root");
-    ROOT::RDataFrame dfAnglesAll("Angles" + suffix, "cut_angles_all.root");
+    ROOT::RDataFrame dfCEV("ChargeExchange_values", "cuts/cut_CE.root");
+    ROOT::RDataFrame dfAnglesAll("Angles" + suffix, "cuts/cut_angles_all.root");
     auto dfAngles = dfAnglesAll.Filter("isFromCE==1"); // the fitted CE protons, ReconAngleAll.cpp fits every proton
     
-    TFile *outFile = new TFile("cut_APandT.root", energy == "fDEnergy" ? "UPDATE" : "RECREATE"); // detector-energy pass appends its _DE trees to the true-KE file
+    TFile *outFile = new TFile("cuts/cut_APandT.root", energy == "fDEnergy" ? "UPDATE" : "RECREATE"); // detector-energy pass appends its _DE trees to the true-KE file
     TTree *outTree = new TTree(("CE" + suffix).c_str(), "values from ChargeExchange directly");
     TTree *outTree2 = new TTree(("CalcValsRe" + suffix).c_str(), "Calculated AP and t from recon");
     TTree *outTree3 = new TTree(("CalcValsReD" + suffix).c_str(), "Calculated AP and t from recon Dectector Blocks");
@@ -107,12 +90,15 @@ void CalcAPandT(std::string energy = "fKEnergy"){ // energy: "fKEnergy" (true KE
     double outTReDDIFF;
     double outAPReDDIFF;
     double outFOMReDDIFF;
-    
+    int outPassResD; // block residual cut (QualityCut.h), only on the block trees: the block plots cut on passResD == 1
+    double outResDRms; // block fit residual of the track, on every tree: the <ke>_res2mm cuts (kRes2Cut, QualityCut.h)
+
     outTree->Branch("TrackID", &outTrackID);
     outTree->Branch("PDG", &outPDG);
     outTree->Branch("fEvent", &outEventID);
     outTree->Branch("fType", &outType);
     outTree->Branch("finalKE", &outFinalKE);
+    outTree->Branch("resDRms", &outResDRms);
     outTree->Branch("thetaCE", &outThetaCE);
     outTree->Branch("phiCE", &outPhiCE);
     outTree->Branch("tCE", &outTCE);
@@ -125,6 +111,7 @@ void CalcAPandT(std::string energy = "fKEnergy"){ // energy: "fKEnergy" (true KE
     outTree2->Branch("fEvent", &outEventID);
     outTree2->Branch("fType", &outType);
     outTree2->Branch("finalKE", &outFinalKE);
+    outTree2->Branch("resDRms", &outResDRms);
     outTree2->Branch("thetaRe", &outThetaRe);
     outTree2->Branch("phiRe", &outPhiRe);
     outTree2->Branch("tRe", &outTRe);
@@ -137,18 +124,21 @@ void CalcAPandT(std::string energy = "fKEnergy"){ // energy: "fKEnergy" (true KE
     outTree3->Branch("fEvent", &outEventID);
     outTree3->Branch("fType", &outType);
     outTree3->Branch("finalKE", &outFinalKE);
+    outTree3->Branch("resDRms", &outResDRms);
     outTree3->Branch("thetaReD", &outThetaReD);
     outTree3->Branch("phiReD", &outPhiReD);
     outTree3->Branch("tReD", &outTReD);
     outTree3->Branch("apReD", &outAPReD);
     outTree3->Branch("fomReD", &outFOMReD);
     outTree3->Branch("momReD", &outMomReD);
+    outTree3->Branch("passResD", &outPassResD);
     
     outTree4->Branch("TrackID", &outTrackID);
     outTree4->Branch("PDG", &outPDG);
     outTree4->Branch("fEvent", &outEventID);
     outTree4->Branch("fType", &outType);
     outTree4->Branch("finalKE", &outFinalKE);
+    outTree4->Branch("resDRms", &outResDRms);
     outTree4->Branch("thetaReD", &outThetaReDIFF);
     outTree4->Branch("phiReD", &outPhiReDIFF);
     outTree4->Branch("tReD", &outTReDIFF);
@@ -160,11 +150,13 @@ void CalcAPandT(std::string energy = "fKEnergy"){ // energy: "fKEnergy" (true KE
     outTree5->Branch("fEvent", &outEventID);
     outTree5->Branch("fType", &outType);
     outTree5->Branch("finalKE", &outFinalKE);
+    outTree5->Branch("resDRms", &outResDRms);
     outTree5->Branch("thetaReD", &outThetaReDDIFF);
     outTree5->Branch("phiReD", &outPhiReDDIFF);
     outTree5->Branch("tReD", &outTReDDIFF);
     outTree5->Branch("apReD", &outAPReDDIFF);
     outTree5->Branch("fomReD", &outFOMReDDIFF);
+    outTree5->Branch("passResD", &outPassResD);
     
     
     // One map per thread slot, merged after the loop, so the entry loops need no global lock. The last point of a
@@ -188,24 +180,25 @@ void CalcAPandT(std::string energy = "fKEnergy"){ // energy: "fKEnergy" (true KE
     dfCEV.ForeachSlot([&](unsigned slot,
     int eventID, int trackID, double LastPhi, double LastTheta, double LastMomentum, double LastT, double LastAP, double z, ULong64_t entry){
         auto &t = slotTracksCE[slot][{eventID, trackID, 0}];
-        t.points.push_back({LastPhi, LastTheta, LastMomentum, LastT, LastAP, 2112, 0.0, entry});
-    },{"fEvent", "TrackID", "LastPhi", "LastTheta", "LastMomentum", "LastT", "LastAP", "fZ", "rdfentry_"});
+        // the CE phi is the lab phi of the proton (LastPhiLab, same secondary as LastTheta), wrapped to 0 to 2 pi like the recon phi
+        t.points.push_back({LastPhi < 0 ? LastPhi + 2.0 * M_PI : LastPhi, LastTheta, LastMomentum, LastT, LastAP, 2112, 0.0, entry});
+    },{"fEvent", "TrackID", "LastPhiLab", "LastTheta", "LastMomentum", "LastT", "LastAP", "fZ", "rdfentry_"});
     std::map<std::tuple<int, int, int>, Track> tracksCE = mergeSlots(slotTracksCE);
 
     std::vector<std::map<std::tuple<int, int, int>, Track>> slotTracksAngles(dfAngles.GetNSlots());
     dfAngles.ForeachSlot([&](unsigned slot,
-    int eventID, int ParentID, double outTheta, double outPhi, double outDTheta, double outDPhi, double finalKE, int pdg, ULong64_t entry){
+    int eventID, int ParentID, double outTheta, double outPhi, double outDTheta, double outDPhi, double finalKE, int pdg, ULong64_t entry, int passResD, double resDRms){
         if (pdg != 2212) {return;}
-         
+
         auto &tRecon = slotTracksAngles[slot][{eventID, ParentID, 1}];
-        
-                     
+
+
         tRecon.points.push_back({outPhi, outTheta, 0.0, 0.0, 0.0, pdg, finalKE, entry});
-        
+
         auto &tReconBlock = slotTracksAngles[slot][{eventID, ParentID, 2}];
-        
-        tReconBlock.points.push_back({outDPhi, outDTheta, 0.0, 0.0, 0.0, pdg, finalKE, entry});
-        },{"fEvent", "ParentID","outTheta", "outPhi", "outDTheta", "outDPhi", "finalKE", "PDG","rdfentry_"});
+
+        tReconBlock.points.push_back({outDPhi, outDTheta, 0.0, 0.0, 0.0, pdg, finalKE, entry, passResD, resDRms});
+        },{"fEvent", "ParentID","outTheta", "outPhi", "outDTheta", "outDPhi", "finalKE", "PDG","rdfentry_", "passResD", "resDRms"});
     std::map<std::tuple<int, int, int>, Track> tracksAngles = mergeSlots(slotTracksAngles);
     
     if (Verbose == true){
@@ -245,6 +238,8 @@ void CalcAPandT(std::string energy = "fKEnergy"){ // energy: "fKEnergy" (true KE
         const auto &ce = tCE.points.back();
         const auto &re = tRecon.points.back();
         const auto &reD = tReconD.points.back();
+        outPassResD = reD.passResD;
+        outResDRms = reD.resDRms;
 
         outEventID = eventID;
         outTrackID = CETrackID;

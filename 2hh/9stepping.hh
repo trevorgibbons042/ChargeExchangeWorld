@@ -20,6 +20,8 @@ public:
     ~MySteppingAction();
 
     virtual void UserSteppingAction(const G4Step*);
+    static G4double GetResStochastic() {return fResStochastic;}
+    static G4double GetResConstant() {return fResConstant;}
 
 private:
     MyEventAction *fEventAction;
@@ -27,8 +29,8 @@ private:
 
     //ZDC energy resolution: sigma/E = sqrt((a/sqrt(E[GeV]))^2 + b^2)
     G4GenericMessenger *fMessenger;
-    G4double fResStochastic = 0.30;
-    G4double fResConstant = 0.0;
+    static G4double fResStochastic; //static so the master can write them to settings.csv
+    static G4double fResConstant;
 };
 
 #endif

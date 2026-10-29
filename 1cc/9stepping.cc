@@ -10,6 +10,9 @@
 #include "G4HadronicProcess.hh"
 #include "G4ChargeExchangeNP.hh"
 
+G4double MySteppingAction::fResStochastic = 0.30;
+G4double MySteppingAction::fResConstant = 0.0;
+
 MySteppingAction::MySteppingAction(MyEventAction *eventAction)
 {
     fEventAction = eventAction;
@@ -56,24 +59,8 @@ void MySteppingAction::UserSteppingAction(const G4Step *step){
 
         if (postVolume && postVolume->GetLogicalVolume() == trackLV &&
             preVolume && preVolume->GetLogicalVolume() != trackLV){
-            G4AnalysisManager *man = G4AnalysisManager::Instance();
-            G4ThreeVector Pos = post->GetPosition();
             G4ThreeVector detectorCenter = post->GetTouchable()->GetTranslation(); //global center, cells sit inside a slab
-
-            man->FillNtupleIColumn(0, 0, G4RunManager::GetRunManager()->GetCurrentEvent()->GetEventID());
-            man->FillNtupleIColumn(0, 1, id);
-            man->FillNtupleIColumn(0, 2, ParentID);
-            man->FillNtupleIColumn(0, 3, static_cast<G4int>(pdg));
-            man->FillNtupleIColumn(0, 4, 0);
-            man->FillNtupleDColumn(0, 5, Pos.x());
-            man->FillNtupleDColumn(0, 6, Pos.y());
-            man->FillNtupleDColumn(0, 7, Pos.z());
-            man->FillNtupleDColumn(0, 8, post->GetKineticEnergy());
-            man->FillNtupleDColumn(0, 9, detectorCenter.x());
-            man->FillNtupleDColumn(0, 10, detectorCenter.y());
-            man->FillNtupleDColumn(0, 11, detectorCenter.z());
-            man->FillNtupleDColumn(0, 12, post->GetKineticEnergy());
-            man->AddNtupleRow(0);
+            FillParticleInfo(track, 0, post->GetPosition(), post->GetKineticEnergy(), detectorCenter, post->GetKineticEnergy());
         }
     }
 
@@ -97,13 +84,15 @@ void MySteppingAction::UserSteppingAction(const G4Step *step){
             G4ThreeVector reactionPosition = step->GetPostStepPoint()->GetPosition();
 
             const auto* secondaries = step->GetSecondaryInCurrentStep();
-            G4double thetaCE = NAN;
+            G4double thetaCE = NAN, phiLabCE = NAN; G4int nProtons = 0;
 
             for (const auto* secondary : *secondaries) {
                 if (secondary->GetDefinition()->GetPDGEncoding() != 2212) {continue;}
+                nProtons++;
                 thetaCE =(secondary->GetMomentum()).theta();
+                phiLabCE = (secondary->GetMomentum()).phi(); //lab phi of the same proton, LastPhi is the model's phi before the boost to lab
             }
-            
+
             man->FillNtupleIColumn(1, 0, evt);
             man->FillNtupleIColumn(1, 1, id);
             man->FillNtupleDColumn(1, 2, 1);
@@ -115,6 +104,30 @@ void MySteppingAction::UserSteppingAction(const G4Step *step){
             man->FillNtupleDColumn(1, 8, modelNP->GetLastmomentum());
             man->FillNtupleDColumn(1, 9, modelNP->GetLastT());
             man->FillNtupleDColumn(1, 10, modelNP->GetLastAP());
+            man->FillNtupleDColumn(1, 11, phiLabCE);
+            man->FillNtupleDColumn(1, 12, modelNP->GetLasttheta());
+            man->FillNtupleDColumn(1, 13, nProtons);
+            man->FillNtupleDColumn(1, 14, modelNP->GetLastPinTheta());
+            man->FillNtupleDColumn(1, 15, modelNP->GetLastModelTheta());
+            man->FillNtupleDColumn(1, 16, modelNP->GetLastCMTheta());
+            const auto* cePostVol = step->GetPostStepPoint()->GetPhysicalVolume();
+            const auto* cePreVol = step->GetPreStepPoint()->GetPhysicalVolume();
+            man->FillNtupleSColumn(1, 17, cePostVol ? cePostVol->GetName() : "none");
+            man->FillNtupleSColumn(1, 18, cePreVol ? cePreVol->GetName() : "none");
+            const auto* ceCreator = track->GetCreatorProcess();
+            man->FillNtupleSColumn(1, 19, ceCreator ? ceCreator->GetProcessName() : "primary");
+            const G4ThreeVector cePol = track->GetPolarization();
+            man->FillNtupleDColumn(1, 20, cePol.x());
+            man->FillNtupleDColumn(1, 21, cePol.y());
+            man->FillNtupleDColumn(1, 22, cePol.z());
+            const G4ThreeVector ceVertex = track->GetVertexPosition();
+            man->FillNtupleDColumn(1, 23, ceVertex.x());
+            man->FillNtupleDColumn(1, 24, ceVertex.y());
+            man->FillNtupleDColumn(1, 25, ceVertex.z());
+            const G4ThreeVector ceNDir = step->GetPreStepPoint()->GetMomentumDirection();
+            man->FillNtupleDColumn(1, 26, ceNDir.x());
+            man->FillNtupleDColumn(1, 27, ceNDir.y());
+            man->FillNtupleDColumn(1, 28, ceNDir.z());
             man->AddNtupleRow(1);
         }
     }
@@ -122,28 +135,12 @@ void MySteppingAction::UserSteppingAction(const G4Step *step){
     auto* postVol = post->GetPhysicalVolume();
     if (post->GetStepStatus() == fGeomBoundary && (pdg == 2212 || pdg == 2112)
         && postVol && postVol->GetName() == "physDetector"){
-        G4AnalysisManager *man = G4AnalysisManager::Instance();
-        G4int evt = G4RunManager::GetRunManager()->GetCurrentEvent()->GetEventID();
         G4ThreeVector Pos = post->GetPosition();
         G4double KE       = post->GetKineticEnergy();
         G4ThreeVector detectorCenter = post->GetTouchable()->GetTranslation(); //global center, cells sit inside a slab
 
-        man->FillNtupleIColumn(0, 0, evt);
-        man->FillNtupleIColumn(0, 1, id);
-        man->FillNtupleIColumn(0, 2, ParentID);
-        man->FillNtupleIColumn(0, 3, pdg);
-        man->FillNtupleIColumn(0, 4, 2);
-        man->FillNtupleDColumn(0, 5, Pos.x());
-        man->FillNtupleDColumn(0, 6, Pos.y());
-        man->FillNtupleDColumn(0, 7, Pos.z());
-        man->FillNtupleDColumn(0, 8, KE);
-        man->FillNtupleDColumn(0, 9, detectorCenter.x());
-        man->FillNtupleDColumn(0, 10, detectorCenter.y());
-        man->FillNtupleDColumn(0, 11, detectorCenter.z());
-
         G4double relRes = std::sqrt(fResStochastic*fResStochastic/(KE/GeV) + fResConstant*fResConstant);
-        man->FillNtupleDColumn(0, 12, std::max(0., G4RandGauss::shoot(KE, KE*relRes)));
-        man->AddNtupleRow(0);
+        FillParticleInfo(track, 2, Pos, KE, detectorCenter, std::max(0., G4RandGauss::shoot(KE, KE*relRes)));
 
         track->SetTrackStatus(fStopAndKill);
     }

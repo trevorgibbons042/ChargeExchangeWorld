@@ -12,7 +12,9 @@
 #include <vector>
 
 #include <ROOT/RDataFrame.hxx>
+#include "FitCore.h"
 #include <ROOT/RSnapshotOptions.hxx>
+#include <ROOT/RDFHelpers.hxx> // RunGraphs, RResultHandle
 
 void CutEvents(){
     ROOT::EnableImplicitMT(128);
@@ -24,7 +26,7 @@ void CutEvents(){
     events->Add(filename);
     ChargeExchange->Add(filename);
     
-    Long64_t Sync = ChargeExchange->Draw("fEvent:TrackID", "didChargeExchange>0 && fZ<7000", "goff");
+    Long64_t Sync = ChargeExchange->Draw("fEvent:TrackID", CarbonCeCut().c_str(), "goff");
 
     // Lookup tables instead of one huge "a || b || ..." string per cut: those strings were JIT-compiled by cling
     // (serial, slow) and tested term by term for every entry.
@@ -51,7 +53,7 @@ void CutEvents(){
 
     ROOT::RDataFrame df(*events);
     ROOT::RDataFrame dfCEAll(*ChargeExchange);
-    auto dfCE = dfCEAll.Filter("fZ<7000");
+    auto dfCE = dfCEAll.Filter(CarbonCeCut());
 
     // Lazy snapshots: all cuts of one dataframe are written in a single pass over its input, and the three
     // dataframes run at the same time. Each tree goes to its own temp file (two snapshots must not write into
@@ -59,9 +61,9 @@ void CutEvents(){
     ROOT::RDF::RSnapshotOptions lazy;
     lazy.fLazy = true;
 
-    const std::vector<std::string> cutFiles = {"cut_CE.root", "cut_ParentID.root", "cut_FakeID.root"};
+    const std::vector<std::string> cutFiles = {"cuts/cut_CE.root", "cuts/cut_ParentID.root", "cuts/cut_FakeID.root"};
     const std::vector<std::string> treeNames = {events->GetName(), ChargeExchange->GetName()};
-    auto tmpName = [](const std::string& tree, const std::string& cutFile){return "tmp_" + tree + "_" + cutFile;};
+    auto tmpName = [](const std::string& tree, const std::string& cutFile){return "cuts/tmp_" + tree + "_" + cutFile.substr(5);}; // cutFile is cuts/<name>
 
     auto selectedEvent = df.Filter(inEvent, {"fEvent"});
     auto selectedParent = df.Filter(isParent, {"fEvent", "ParentID"});
@@ -75,7 +77,7 @@ void CutEvents(){
     queue(selectedEvent, 0, 0);   queue(selectedParent, 0, 1);   queue(selectedFake, 0, 2);
     queue(dfCE, 1, 0);            queue(dfCE, 1, 1);             queue(dfCE, 1, 2);
     // ZDC protons of every event, the only rows Plot3D.cpp draws from the all-events set (one tree, so no merge step)
-    handles.emplace_back(df.Filter("boundaryType == 2 && pdg == 2212").Snapshot(treeNames[0], "cut_AllEvProtons.root", "", lazy));
+    handles.emplace_back(df.Filter("boundaryType == 2 && pdg == 2212").Snapshot(treeNames[0], "cuts/cut_AllEvProtons.root", "", lazy));
     ROOT::RDF::RunGraphs(handles);
     ROOT::DisableImplicitMT(); // merging with implicit MT on crashed in TTree::FlushBasketsImpl
 

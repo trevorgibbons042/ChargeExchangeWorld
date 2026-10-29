@@ -2,6 +2,7 @@
 #include <TGraph.h>
 #include <TLegend.h>
 #include <TMultiGraph.h>
+#include <TPaveText.h>
 #include <TStyle.h>
 #include <TSystem.h>
 
@@ -18,22 +19,17 @@
 #include "FitCore.h"
 #include "FomCommon.h"
 
-// Fraction of CE protons among all protons per theta, N_CE / N, one curve per KE cut. Reads the 1_csv/ke_*.csv files written by PlotAngle.cpp
-// and writes the 1_* ce_fraction_vs_theta plots and the 2_* cumulative_ce_percent plots (log y axis only; the numbers 1, 3 of each group are the unused linear plots) into the 2_plots folder beside the csv folder. The csv bins are added into 0.1 deg bins (full range) or 0.05 deg bins (0.3 to 2 deg), each plotted as a point at its center.
+// Running percent of CE protons among reconstructed protons up to each theta, 100 * sum N_CE / sum N over the 1_csv/ke_*.csv bins written by
+// PlotAngle.cpp, one curve per KE cut: ke_all/1_cumulative_ce_percent_log.pdf (log y axis only), beside the csv folder.
 void PlotCEFraction(){
     gStyle->SetOptStat(0);
-    const auto &energies = kEnergies, &sets = kSets, &kes = kKes;
+    const auto &sets = kSets, &kes = kKes;
     const auto &colors = kColors;
-    const auto &energyName = kEnergyName, &setName = kSetName;
+    const auto &setName = kSetName;
     const auto keName = KeName;
 
-    const double thetaMax = ReadThetaMax();
+    const double thetaMax = 15.0; // deg, fixed axis range for every plot (ReadThetaMax() ran to the largest recon theta)
 
-    // full theta range in 0.1 deg bins, and the 0.3 to 2 deg integrating region in 0.05 deg bins
-    struct Variant {double binWidth, xMin, xMax; std::string tag, label; double minN;}; // minN: bins with fewer protons are left out (too noisy)
-    std::vector<Variant> variants = {{0.1, 0.0, thetaMax, "", "0.1", 20}, {0.05, 0.3, 2.0, "_0p3to2", "0.05", 1}};
-
-    // variants with a minN: the x range ends at the last bin that holds at least minN protons for any plot, so every plot of the variant shares it
     auto readCsv = [](const std::string& path){
         std::vector<std::array<double, 4>> rows; // theta_lo, theta_hi, N, N_CE
         std::ifstream in(path);
@@ -46,29 +42,15 @@ void PlotCEFraction(){
         }
         return rows;
     };
-    for (auto& v : variants){
-        if (v.minN <= 1) continue;
-        const int nAll = (int)std::lround((v.xMax - v.xMin) / v.binWidth);
-        int lastBin = 0;
-        for (const auto& en : energies) for (const auto& set : sets) for (const auto& ke : kes){
-            std::vector<double> sumN(nAll, 0.0);
-            for (const auto& r : readCsv("plots/6_fomCalc/" + en + "/" + set + "/1_csv/" + ke + ".csv")){
-                const int bin = (int)std::floor((0.5 * (r[0] + r[1]) - v.xMin) / v.binWidth);
-                if (bin >= 0 && bin < nAll) sumN[bin] += r[2];
-            }
-            for (int i = 0; i < nAll; i++) if (sumN[i] >= v.minN) lastBin = std::max(lastBin, i);
-        }
-        v.xMax = v.xMin + (lastBin + 1) * v.binWidth;
-    }
 
-    // numbers behind each plot go to 2_plots/stats.csv, shared with PlotFomCumulative.cpp: this macro replaces only its own rows (plot names starting "1_" or "2_")
+    // numbers behind each plot go to ke_all/stats.csv, shared with PlotFomCumulative.cpp: this macro replaces only its own rows (plot names starting "1_")
     std::set<std::string> statsStarted;
     const std::string statsHeader = "plot,ke_cut,N,N_CE,pct_CE,fom";
-    for (const auto& en : energies) for (const auto& set : sets){
-        const std::string file = "plots/6_fomCalc/" + en + "/" + set + "/2_plots/stats.csv";
+    for (const auto& set : sets){
+        const std::string file = "plots/5_fomCalc/" + set + "/ke_all/stats.csv";
         std::ifstream in(file);
         std::string line, kept;
-        while (std::getline(in, line)) if (!line.empty() && line[0] >= '3' && line != statsHeader) kept += line + "\n";
+        while (std::getline(in, line)) if (!line.empty() && line[0] >= '2' && line != statsHeader) kept += line + "\n";
         in.close();
         if (kept.empty()) continue;
         gSystem->mkdir(gSystem->GetDirName(file.c_str()), true);
@@ -76,93 +58,86 @@ void PlotCEFraction(){
         out << statsHeader << "\n" << kept;
         statsStarted.insert(file); statsStarted.insert(file + "#header");
     }
-    auto statsRow = [&](const std::string& plotPath, const std::string& ke, double n, double nCE){
-        WriteStatsRow(plotPath, statsHeader, Form("%s,%s,%.0f,%.0f,%.6g,", gSystem->BaseName(plotPath.c_str()), ke.c_str(), n, nCE, n > 0 ? 100.0 * nCE / n : 0.0), statsStarted);
-    };
 
     TCanvas c("c", "", 1200, 900);
     c.SetLeftMargin(0.14); c.SetRightMargin(0.2); // room for the legend outside the graph
-    for (size_t vi = 0; vi < variants.size(); vi++) for (const auto& en : energies) for (const auto& set : sets){
-        const auto& v = variants[vi];
-        const std::string dir = "plots/6_fomCalc/" + en + "/" + set + "/";
-        gSystem->mkdir((dir + "2_plots").c_str(), true);
-        TMultiGraph mg;
-        TLegend leg(0.81, 0.74, 0.99, 0.88);
-        leg.SetBorderSize(0); leg.SetTextSize(0.022);
-        const int nBins = (int)std::lround((v.xMax - v.xMin) / v.binWidth);
-        for (size_t k = 0; k < kes.size(); k++){
-            std::ifstream in(dir + "1_csv/" + kes[k] + ".csv");
-            if (!in) continue;
-            std::string line; std::getline(in, line);
-            // csv bins have unequal widths: add each one to the fixed width bin holding its center
-            std::vector<double> sumN(nBins, 0.0), sumCE(nBins, 0.0);
-            while (std::getline(in, line)){
-                std::vector<double> x; std::stringstream ss(line); std::string f;
-                while (std::getline(ss, f, ',')) x.push_back(std::stod(f));
-                if (x.size() < 4 || x[1] - x[0] > 0.5) continue; // skip the total row
-                const int bin = (int)std::floor((0.5 * (x[0] + x[1]) - v.xMin) / v.binWidth);
-                if (bin < 0 || bin >= nBins) continue;
-                sumN[bin] += x[2]; sumCE[bin] += x[3];
-            }
-            TGraph* g = new TGraph();
-            double plottedN = 0, plottedCE = 0; // protons in the bins that made it onto the plot
-            for (int i = 0; i < nBins; i++) if (sumN[i] >= v.minN){
-                g->SetPoint(g->GetN(), v.xMin + (i + 0.5) * v.binWidth, sumCE[i] / sumN[i]);
-                plottedN += sumN[i]; plottedCE += sumCE[i];
-            }
-            statsRow(dir + "2_plots/1_" + std::to_string(2 * vi + 2) + "_ce_fraction_vs_theta" + v.tag + "_log.pdf", kes[k], plottedN, plottedCE);
-            g->SetLineColor(colors[k]); g->SetMarkerColor(colors[k]); g->SetMarkerStyle(20); g->SetMarkerSize(0.4); g->SetLineWidth(1);
-            mg.Add(g, "LP");
-            leg.AddEntry(g, keName(kes[k]).c_str(), "lp");
-        }
-        if (!mg.GetListOfGraphs() || mg.GetListOfGraphs()->IsEmpty()) continue;
-        c.Clear();
-        mg.SetTitle(("CE protons / all protons vs #theta, " + energyName.at(en) + ", " + setName.at(set) +
-                     (v.minN > 1 ? Form(" (bins with < %g protons left out)", v.minN) : "") + ";recon #theta (deg), " + v.label + " deg bins;N_{CE} / N_{all protons}").c_str());
-        mg.Draw("A");
-        mg.GetXaxis()->SetLimits(v.xMin, v.xMax);
-        leg.DrawClone();
-        // file numbers: 1_ CE fraction per bin (1 full range, 2 its log, 3 window, 4 its log), 2_ cumulative CE percent (same order); PlotFomCumulative.cpp uses 3_ to 5_
-        const std::string fracStem = std::string("_ce_fraction_vs_theta") + v.tag;
-        SaveLogCopy(c, mg, dir + "2_plots/1_" + std::to_string(2 * vi + 2) + fracStem + "_log.pdf");
-    }
-
-    // 2_*: running percent of CE protons, sum of N_CE / sum of N over the bins up to each theta; full range, and only the 0.3 to 2 deg integrating region
-    const std::vector<std::array<double, 2>> cumRanges = {{0.0, thetaMax}, {0.3, 2.0}};
-    const std::vector<std::string> cumTags = {"", "_0p3to2"};
-    const double minCumN = 50; // the running percent starts once this many protons are summed
-    for (size_t ci = 0; ci < cumRanges.size(); ci++) for (const auto& en : energies) for (const auto& set : sets){
-        const double lo = cumRanges[ci][0], hi = cumRanges[ci][1];
-        const std::string dir = "plots/6_fomCalc/" + en + "/" + set + "/";
-        TMultiGraph mg;
-        TLegend leg(0.81, 0.74, 0.99, 0.88);
-        leg.SetBorderSize(0); leg.SetTextSize(0.022);
-        for (size_t k = 0; k < kes.size(); k++){
-            const auto rows = readCsv(dir + "1_csv/" + kes[k] + ".csv");
-            if (rows.empty()) continue;
-            TGraph* g = new TGraph();
-            double sumN = 0, sumCE = 0;
+    for (const auto& set : sets){
+        const std::string dir = "plots/5_fomCalc/" + set + "/";
+        gSystem->mkdir((dir + "ke_all").c_str(), true);
+        // Not cumulative: percent of the simulated neutrons whose CE proton lands in each theta bin, 100 * N_CE(bin) / N_neutrons (TotalNeutrons, settings.csv)
+        {
+            const double binW = 0.05, nNeutrons = ReadSettings().at("TotalNeutrons");
+            const auto rows = readCsv(dir + "1_csv/ke_all.csv");
+            const int nBins = (int)std::ceil(thetaMax / binW);
+            std::vector<double> nCE(nBins, 0.0), nRecon(nBins, 0.0);
             for (const auto& r : rows){
-                const double center = 0.5 * (r[0] + r[1]);
-                if (center < lo || center >= hi) continue;
-                sumN += r[2]; sumCE += r[3];
-                if (sumN >= minCumN) g->SetPoint(g->GetN(), r[1], 100.0 * sumCE / sumN); // the first few bins hold too few protons for a steady ratio
+                const int b = (int)(0.5 * (r[0] + r[1]) / binW);
+                if (b >= 0 && b < nBins){nCE[b] += r[3]; nRecon[b] += r[2];}
             }
-            statsRow(dir + "2_plots/2_" + std::to_string(2 * ci + 2) + "_cumulative_ce_percent" + cumTags[ci] + "_log.pdf", kes[k], sumN, sumCE); // final point of the curve
-            g->SetLineColor(colors[k]); g->SetLineWidth(1);
-            mg.Add(g, "L");
-            leg.AddEntry(g, keName(kes[k]).c_str(), "l");
+            TGraph g;
+            for (int b = 0; b < nBins; b++) g.SetPoint(g.GetN(), (b + 0.5) * binW, 100.0 * nCE[b] / nNeutrons);
+            c.Clear(); c.SetLogy(0);
+            g.SetTitle(("100 #times N_{CE} / N_{neutrons} per #theta bin (0.05 deg), detector KE, N_{CE} = CE recon protons, " + setName.at(set) + ";" +
+                        std::string(set == "2_reconBlockTheta" ? "recon block #theta" : "recon #theta") + " (deg);100 #times N_{CE} / N_{neutrons} (%)").c_str());
+            g.SetMarkerStyle(20); g.SetMarkerSize(0.6); g.SetLineWidth(1);
+            g.Draw("APL");
+            g.GetXaxis()->SetLimits(0, thetaMax);
+            c.SaveAs((dir + "ke_all/3_ce_percent_of_neutrons_per_bin.pdf").c_str());
+
+            // The same, times A_y^2 at the bin center: t from theta (TFromAngle), A_y from t (APFromT, the model formula) with the run's APScale
+            const double apScale = ReadSettings().at("APScale");
+            TGraph gA2;
+            for (int b = 0; b < nBins; b++){
+                const double theta = (b + 0.5) * binW;
+                const double ap = APFromT(kBeamMomentum, TFromAngle(kBeamMomentum, theta * TMath::Pi() / 180), apScale);
+                gA2.SetPoint(gA2.GetN(), theta, ap * ap * 100.0 * nCE[b] / nNeutrons);
+            }
+            c.Clear();
+            gA2.SetTitle(("100 #times N_{CE} / N_{neutrons} #times A_{y}^{2}(#theta) per #theta bin (0.05 deg), detector KE, N_{CE} = CE recon protons, " + setName.at(set) + ";" +
+                          std::string(set == "2_reconBlockTheta" ? "recon block #theta" : "recon #theta") + " (deg);A_{y}^{2} #times 100 #times N_{CE} / N_{neutrons} (%)").c_str());
+            gA2.SetMarkerStyle(20); gA2.SetMarkerSize(0.6); gA2.SetLineWidth(1);
+            gA2.Draw("APL");
+            gA2.GetXaxis()->SetLimits(0, thetaMax);
+            c.SaveAs((dir + "ke_all/4_ce_percent_x_A2_per_bin.pdf").c_str());
+
+            // Running integral up to each bin: sum of N_CE / N_neutrons * A_y^2(theta) * delta theta (0.05 deg)
+            TGraph gInt;
+            double integral = 0;
+            for (int b = 0; b < nBins; b++){
+                const double theta = (b + 0.5) * binW;
+                const double ap = APFromT(kBeamMomentum, TFromAngle(kBeamMomentum, theta * TMath::Pi() / 180), apScale);
+                integral += nCE[b] / nNeutrons * ap * ap * binW;
+                gInt.SetPoint(gInt.GetN(), (b + 1) * binW, integral);
+            }
+            c.Clear();
+            gInt.SetTitle(("#Sigma N_{CE} / N_{neutrons} #times A_{y}^{2}(#theta) #times #Delta#theta up to #theta (#Delta#theta = 0.05 deg), detector KE, N_{CE} = CE recon protons, " + setName.at(set) + ";" +
+                           std::string(set == "2_reconBlockTheta" ? "recon block #theta" : "recon #theta") + " (deg);#Sigma N_{CE} / N_{neutrons} #times A_{y}^{2} #times #Delta#theta (deg)").c_str());
+            gInt.SetMarkerStyle(20); gInt.SetMarkerSize(0.6); gInt.SetLineWidth(1);
+            gInt.Draw("APL");
+            gInt.GetXaxis()->SetLimits(0, thetaMax);
+            TPaveText finalValue(0.81, 0.78, 0.99, 0.88, "NDC"); // outside the graph, in the right margin: the integral up to the last bin
+            finalValue.SetFillColor(0); finalValue.SetBorderSize(0); finalValue.SetTextAlign(12); finalValue.SetTextSize(0.028);
+            finalValue.AddText("final value");
+            finalValue.AddText(Form("%.4g", integral));
+            finalValue.Draw();
+            c.SaveAs((dir + "ke_all/5_integral_ce_x_A2_dtheta.pdf").c_str());
+
+            // Per theta bin, the share of the reconstructed protons that are CE (8_) and not CE (9_): 100 * N_CE / N_recon and 100 * (N_recon - N_CE) / N_recon
+            for (const bool nonCE : {false, true}){
+                TGraph gShare;
+                for (int b = 0; b < nBins; b++){
+                    if (nRecon[b] <= 0) continue; // an empty bin has no share
+                    gShare.SetPoint(gShare.GetN(), (b + 0.5) * binW, 100.0 * (nonCE ? nRecon[b] - nCE[b] : nCE[b]) / nRecon[b]);
+                }
+                if (gShare.GetN() == 0) continue;
+                c.Clear();
+                gShare.SetTitle(std::string(nonCE ? "100 #times N_{non-CE} / N_{recon}" : "100 #times N_{CE} / N_{recon}").append(" per #theta bin (0.05 deg), N_{CE} = CE recon protons, N_{recon} = all recon protons, detector KE, ").append(setName.at(set)).append(";")
+                                .append(set == "2_reconBlockTheta" ? "recon block #theta" : "recon #theta").append(nonCE ? " (deg);100 #times N_{non-CE} / N_{recon protons} (%)" : " (deg);100 #times N_{CE} / N_{recon protons} (%)").c_str());
+                gShare.SetMarkerStyle(20); gShare.SetMarkerSize(0.6); gShare.SetLineWidth(1);
+                gShare.Draw("APL");
+                gShare.GetXaxis()->SetLimits(0, thetaMax);
+                c.SaveAs((dir + (nonCE ? "ke_all/2_nonce_percent_of_recon_per_bin.pdf" : "ke_all/1_ce_percent_of_recon_per_bin.pdf")).c_str());
+            }
         }
-        if (!mg.GetListOfGraphs() || mg.GetListOfGraphs()->IsEmpty()) continue;
-        c.Clear();
-        const std::string from = ci == 1 ? " from 0.3 to #theta" : " up to #theta";
-        mg.SetTitle(("Cumulative percent of CE protons" + from + ", " + energyName.at(en) + ", " + setName.at(set) + Form(" (starts at N #geq %g protons)", minCumN) +
-                     ";recon #theta (deg);cumulative 100 #times N_{CE} / N_{all protons} (%)").c_str());
-        mg.SetMinimum(0); mg.SetMaximum(100); // a percent cannot pass 100
-        mg.Draw("A");
-        mg.GetXaxis()->SetLimits(lo, hi);
-        leg.DrawClone();
-        const std::string cumStem = "_cumulative_ce_percent" + cumTags[ci];
-        SaveLogCopy(c, mg, dir + "2_plots/2_" + std::to_string(2 * ci + 2) + cumStem + "_log.pdf");
     }
 }

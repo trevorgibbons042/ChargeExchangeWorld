@@ -7,6 +7,7 @@
 #include <ROOT/RDataFrame.hxx>
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <iostream>
 #include <map>
@@ -14,10 +15,12 @@
 #include <tuple>
 #include <vector>
 
+#include "FitCore.h"
+
 void CountCE(){
     const TString filename = "output0_t*.root";
-    const TString outname = "cut_blocks.root";
-    const TString cut = "didChargeExchange>0 && fZ<7000";
+    const TString outname = "cuts/cut_blocks.root";
+    const TString cut = CarbonCeCut();
     const double gapMm = 300.0;
     const bool Verbose = false; // print the z bins, the density filter, the blocks found and per-block counts
 
@@ -88,24 +91,24 @@ void CountCE(){
     //  - tracker hits and detector entries (boundaryType 2) of CE protons only
     //    (event, parent track id) -> tracker z / detector (x, y)
     std::set<long> trackerZ;
-    std::map<std::tuple<long,long,long>, std::pair<double,double>> protonHits; // (event, parent, tracker z) -> (x, y)
-    std::map<std::pair<long,long>, std::pair<double,double>> protonDetectorHits;
+    std::map<std::tuple<long,long,long>, std::array<double,4>> protonHits; // (event, parent, tracker z) -> (x, y, block x, block y)
+    std::map<std::pair<long,long>, std::array<double,4>> protonDetectorHits;
     {
         // each thread fills its own containers (no lock per row), merged after the pass
         struct Local {
             std::set<long> trackerZ;
-            std::map<std::tuple<long,long,long>, std::pair<double,double>> protonHits; // (event, parent, tracker z) -> (x, y)
-            std::map<std::pair<long,long>, std::pair<double,double>> protonDetectorHits;
+            std::map<std::tuple<long,long,long>, std::array<double,4>> protonHits; // (event, parent, tracker z) -> (x, y, block x, block y)
+            std::map<std::pair<long,long>, std::array<double,4>> protonDetectorHits;
         };
         std::vector<Local> locals(std::max(1u, ROOT::GetThreadPoolSize()));
         ROOT::RDataFrame(*info).ForeachSlot([&](unsigned slot, Int_t ev, Int_t parent, Int_t pdg, Int_t bt,
-                                                Double_t fx, Double_t fy, Double_t fz){
+                                                Double_t fx, Double_t fy, Double_t fz, Double_t fdx, Double_t fdy){
             Local &l = locals[slot];
             if (bt == 1) l.trackerZ.insert(std::lround(fz));
             if (pdg != 2212 || !ceKeys.count({ev, parent})) return;
-            if (bt == 1) l.protonHits[{ev, parent, std::lround(fz)}] = {fx, fy};
-            else if (bt == 2) l.protonDetectorHits[{ev, parent}] = {fx, fy};
-        }, {"fEvent", "ParentID", "pdg", "boundaryType", "fX", "fY", "fZ"});
+            if (bt == 1) l.protonHits[{ev, parent, std::lround(fz)}] = {fx, fy, fdx, fdy};
+            else if (bt == 2) l.protonDetectorHits[{ev, parent}] = {fx, fy, fdx, fdy};
+        }, {"fEvent", "ParentID", "pdg", "boundaryType", "fX", "fY", "fZ", "fDx", "fDy"});
 
         for (auto &l : locals) {
             trackerZ.insert(l.trackerZ.begin(), l.trackerZ.end());
@@ -187,6 +190,12 @@ void CountCE(){
         Double_t trackerX = 0, trackerY = 0;   // proton position at the next tracker plane
         TBranch *bTrkX = t->Branch("trackerX", &trackerX, "trackerX/D");
         TBranch *bTrkY = t->Branch("trackerY", &trackerY, "trackerY/D");
+        Double_t trackerDX = 0, trackerDY = 0;   // the same positions as the detector (block cell center) records them
+        TBranch *bTrkDX = t->Branch("trackerDX", &trackerDX, "trackerDX/D");
+        TBranch *bTrkDY = t->Branch("trackerDY", &trackerDY, "trackerDY/D");
+        Double_t detectorDX = 0, detectorDY = 0;
+        TBranch *bDetDX = t->Branch("detectorDX", &detectorDX, "detectorDX/D");
+        TBranch *bDetDY = t->Branch("detectorDY", &detectorDY, "detectorDY/D");
         Double_t detectorX = 0, detectorY = 0;   // proton position entering the detector
         TBranch *bDetX = t->Branch("detectorX", &detectorX, "detectorX/D");
         TBranch *bDetY = t->Branch("detectorY", &detectorY, "detectorY/D");
@@ -199,17 +208,19 @@ void CountCE(){
             long ev = std::lround(t->GetLeaf("fEvent")->GetValue());
             long parent = std::lround(t->GetLeaf("TrackID")->GetValue());
             reachedNextTracker = 0;
-            trackerX = trackerY = 0;
+            trackerX = trackerY = trackerDX = trackerDY = 0;
             if (hasNext) {
                 auto hit = protonHits.lower_bound({ev, parent, next->first});
                 reachedNextTracker = hit != protonHits.end() && std::get<0>(hit->first) == ev &&
                                      std::get<1>(hit->first) == parent && std::get<2>(hit->first) <= next->second;
-                if (reachedNextTracker) { trackerX = hit->second.first; trackerY = hit->second.second; }
+                if (reachedNextTracker) { trackerX = hit->second[0]; trackerY = hit->second[1]; trackerDX = hit->second[2]; trackerDY = hit->second[3]; }
             }
             auto det = protonDetectorHits.find({ev, parent});
             reachedDetector = reachedNextTracker && det != protonDetectorHits.end();
-            detectorX = reachedDetector ? det->second.first : 0;
-            detectorY = reachedDetector ? det->second.second : 0;
+            detectorX = reachedDetector ? det->second[0] : 0;
+            detectorY = reachedDetector ? det->second[1] : 0;
+            detectorDX = reachedDetector ? det->second[2] : 0;
+            detectorDY = reachedDetector ? det->second[3] : 0;
             nReachedNext += reachedNextTracker;
             nReachedDet += reachedDetector;
             bZ->Fill();
@@ -219,6 +230,7 @@ void CountCE(){
             bDetector->Fill();
             bDetX->Fill();
             bDetY->Fill();
+            bTrkDX->Fill(); bTrkDY->Fill(); bDetDX->Fill(); bDetDY->Fill();
         }
         if (Verbose) {
             std::cout << "block " << b + 1 << " (z " << lo << " to " << hi << "): " << nCE << " CE in tree, next tracker z "
