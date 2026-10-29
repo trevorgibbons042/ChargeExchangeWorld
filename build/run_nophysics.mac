@@ -8,7 +8,7 @@
 /output/print false
 
 #Folder
-/output/folder noPhysics1m
+/output/folder noPhysics
 
 #Detector, 801x801 for astropix
 /detector/nCols_blocks 101
@@ -30,12 +30,13 @@
 #/zdc/resStochastic 0.30
 #/zdc/resConstant 0
 
+#Polarization
+/Polarization/PPValue 0.7
+#/Polarization/PPSigma 0
+
 #NP and AP scaling
 /CE/NPCrossSectionFactor 1
 /CE/APScale 1
-
-#Polarization
-/Polarization/PPValue 0.7
 
 #Physics
 /process/inactivate Electromagnetic

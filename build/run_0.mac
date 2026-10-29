@@ -3,7 +3,7 @@
 /event/verbose 0
 /tracking/verbose 0
 
-/run/numberOfThreads 128
+/run/numberOfThreads 8
 /run/initialize
 /output/print false
 
@@ -32,14 +32,17 @@
 
 #Polarization
 /Polarization/PPValue 0.7
+#/Polarization/PPSigma 0
 
 #NP and AP scaling
-#/CE/NPCrossSectionFactor 1
+/CE/NPCrossSectionFactor 1000
 #/CE/APScale 1
 
+#Turn off the neutron quark exchange (charge exchange) inside FTF, neutronChargeExNP stays on
 #Stacking (kill gamma/e+-/mu+-/neutrino) and Production cut (no secondaries with range below this)
+/CE/noFTFNeutronCE true
 /stack/killExtras true
 #/run/setCut 0.7 mm
 
 /run/printProgress 100000
-/run/beamOn 1000000
+/run/beamOn 100000
