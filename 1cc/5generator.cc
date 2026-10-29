@@ -3,6 +3,26 @@
 #include "G4PhysicalConstants.hh"
 #include "Randomize.hh"
 #include <algorithm>
+#include <cmath>
+#include <mutex>
+
+G4double MyPrimaryGenerator::PPValue = 0;
+G4double MyPrimaryGenerator::PPSigma = 0;
+
+namespace {
+    //sums over every primary of every worker thread: n, momentum, momentum^2, KE, KE^2 (MeV/c, MeV)
+    std::mutex beamMutex;
+    G4double beamN = 0, beamP = 0, beamP2 = 0, beamKE = 0, beamKE2 = 0;
+}
+
+void MyPrimaryGenerator::GetBeamStats(G4double& meanMomentum, G4double& sdMomentum, G4double& meanKE, G4double& sdKE)
+{
+    std::lock_guard<std::mutex> lock(beamMutex);
+    meanMomentum = beamN > 0 ? beamP/beamN : 0;
+    meanKE = beamN > 0 ? beamKE/beamN : 0;
+    sdMomentum = beamN > 0 ? std::sqrt(std::max(0.0, beamP2/beamN - meanMomentum*meanMomentum)) : 0;
+    sdKE = beamN > 0 ? std::sqrt(std::max(0.0, beamKE2/beamN - meanKE*meanKE)) : 0;
+}
 
 MyPrimaryGenerator::MyPrimaryGenerator()
 {
@@ -63,12 +83,20 @@ void MyPrimaryGenerator::GeneratePrimaries(G4Event *anEvent)
 
     G4ThreeVector pos(randX, randY, randZ);
 
-    G4double Energy = 25*GeV;
+    G4double Momentum = 25*GeV;
 
     if (EnergySD > 0){
-        Energy = 25*GeV*G4RandGauss::shoot(1,EnergySD);
+        Momentum = 25*GeV*G4RandGauss::shoot(1,EnergySD);
     }
-    fParticleGun->SetParticleMomentum(Energy);
+    //SetParticleMomentum prints a message on every call after the first, so convert the momentum to kinetic energy here.
+    G4double mass = fParticleGun->GetParticleDefinition()->GetPDGMass();
+    const G4double kineticEnergy = std::sqrt(Momentum*Momentum + mass*mass) - mass;
+    fParticleGun->SetParticleEnergy(kineticEnergy);
+    {
+        std::lock_guard<std::mutex> lock(beamMutex);
+        const G4double p = Momentum/MeV, ke = kineticEnergy/MeV;
+        beamN++; beamP += p; beamP2 += p*p; beamKE += ke; beamKE2 += ke*ke;
+    }
 
     fParticleGun->SetParticlePosition(pos);
     fParticleGun->SetParticleMomentumDirection(mom);

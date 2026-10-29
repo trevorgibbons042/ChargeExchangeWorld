@@ -54,6 +54,16 @@ public:
     G4ThreeVector GetDetectorPosition() const{return detectorPosition;}
     const G4LogicalVolume *GetTrackVolume() const {return logicTrack;} //read per call, geometry rebuilds change the pointer
 
+    //geometry values for settings.csv, names match the /detector/ commands
+    std::vector<std::pair<std::string, double>> GetSettings() const
+    {
+        return {{"nBlocks", nBlocks}, {"nBlocksTracking", nBlocksTracking},
+                {"nCols_blocks", nCols}, {"nRows_blocks", nRows},
+                {"nCols_detector", nCols_detector}, {"nRows_detector", nRows_detector},
+                {"dz", dz}, {"CarbonThickness", CarbonThickness},
+                {"randPosDetector", randPosDetector}, {"randPosScaling", randPosScaling}};
+    }
+
     ////Needs to be accessed by 9stepping.cc
     //G4LogicalVolume *GetScoringVolume() const {return fScoringVolume;}
 

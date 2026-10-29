@@ -5,7 +5,14 @@
 #include "G4CrossSectionDataStore.hh"
 #include "G4ChargeExchangeNP.hh"
 #include "G4ChargeExchange.hh"
+#include "2construction.hh"
+#include "5generator.hh"
+#include "9stepping.hh"
+#include "G4RunManager.hh"
+#include "G4Neutron.hh"
+#include "G4ProcessManager.hh"
 #include <filesystem>
+#include <fstream>
 #include <sstream>
 
 MyRunAction::MyRunAction()
@@ -51,6 +58,24 @@ MyRunAction::MyRunAction()
     man->CreateNtupleDColumn("LastMomentum");
     man->CreateNtupleDColumn("LastT");
     man->CreateNtupleDColumn("LastAP");
+    man->CreateNtupleDColumn("LastPhiLab");
+    man->CreateNtupleDColumn("LastThetaModel");
+    man->CreateNtupleDColumn("nProtonSec");
+    man->CreateNtupleDColumn("PinTheta");
+    man->CreateNtupleDColumn("ModelTheta");
+    man->CreateNtupleDColumn("CMTheta");
+    man->CreateNtupleSColumn("CEVolume"); // physical volume of the post-step point of the CE step (physMat carbon, physTrackSlab silicon, physWorld vacuum)
+    man->CreateNtupleSColumn("CEPreVolume");
+    man->CreateNtupleSColumn("CECreator"); // process that created the CE track ("primary" for the beam neutron)
+    man->CreateNtupleDColumn("CEPolX"); // polarization of the CE track in the world frame
+    man->CreateNtupleDColumn("CEPolY");
+    man->CreateNtupleDColumn("CEPolZ");
+    man->CreateNtupleDColumn("CEVertexX"); // where the CE neutron was made (track->GetVertexPosition(), the gun position for the beam neutron)
+    man->CreateNtupleDColumn("CEVertexY");
+    man->CreateNtupleDColumn("CEVertexZ");
+    man->CreateNtupleDColumn("CENDirX"); // direction of the CE neutron going into the CE (pre-step momentum direction, world frame)
+    man->CreateNtupleDColumn("CENDirY");
+    man->CreateNtupleDColumn("CENDirZ");
     man->FinishNtuple(1);
 
 };
@@ -86,9 +111,42 @@ void MyRunAction::BeginOfRunAction(const G4Run* run)
     if (printStatus){G4cout << "Past open: " << G4endl;}
 };
 
-void MyRunAction::EndOfRunAction(const G4Run*)
+void MyRunAction::EndOfRunAction(const G4Run* run)
 {
-    
+    //settings the analysis macros read (5rootMacros/FitCore.h ReadSettings), written once from the master
+    if (IsMaster()){
+        std::vector<std::pair<std::string, double>> values = {
+            {"APScale", MyPhysicsList::GetAPScale()}, {"NPCrossSectionFactor", NPCrossSectionFactor},
+            {"TotalNeutrons", run->GetNumberOfEventToBeProcessed()},
+            {"PPValue", MyPrimaryGenerator::GetPPValue()}, {"PPSigma", MyPrimaryGenerator::GetPPSigma()},
+            {"resStochastic", MySteppingAction::GetResStochastic()}, {"resConstant", MySteppingAction::GetResConstant()}};
+        auto* detector = static_cast<const MyDetectorConstruction*>(G4RunManager::GetRunManager()->GetUserDetectorConstruction());
+        for (const auto& value : detector->GetSettings()){values.push_back(value);}
+        //incident neutron momentum (MeV/c) and kinetic energy (MeV), mean and standard deviation over the primaries, the analysis macros take the beam from here (FitCore.h)
+        G4double meanMomentum, sdMomentum, meanKE, sdKE;
+        MyPrimaryGenerator::GetBeamStats(meanMomentum, sdMomentum, meanKE, sdKE);
+        values.push_back({"BeamMomentum", meanMomentum}); values.push_back({"BeamMomentumSD", sdMomentum});
+        values.push_back({"BeamKE", meanKE}); values.push_back({"BeamKESD", sdKE});
+        //the nophysics macros inactivate neutronInelastic with the rest of the hadronic physics
+        auto* neutronInelastic = G4ProcessTable::GetProcessTable()->FindProcess("neutronInelastic", "neutron");
+        values.push_back({"NoPhysics", neutronInelastic != nullptr && !G4Neutron::Neutron()->GetProcessManager()->GetProcessActivation(neutronInelastic)});
+
+        //a name starting with # still has its built-in default value (keep in sync with the defaults in the classes above)
+        const std::map<std::string, double> defaults = {
+            {"APScale", 1}, {"NPCrossSectionFactor", 1}, {"PPValue", 0}, {"PPSigma", 0}, {"resStochastic", 0.30}, {"resConstant", 0},
+            {"nBlocks", 4}, {"nBlocksTracking", 2}, {"nCols_blocks", 11}, {"nRows_blocks", 11}, {"nCols_detector", 11}, {"nRows_detector", 11},
+            {"dz", 0.25}, {"CarbonThickness", 0.2}, {"randPosDetector", -1}, {"randPosScaling", 1}, {"NoPhysics", 0}};
+
+        std::string names, row;
+        for (const auto& [name, value] : values){
+            auto defaultValue = defaults.find(name);
+            names += (names.empty() ? "" : ",") + std::string(defaultValue != defaults.end() && defaultValue->second == value ? "#" : "") + name;
+            row += (row.empty() ? "" : ",") + std::to_string(value);
+        }
+        std::filesystem::create_directories("root/" + outputFolder);
+        std::ofstream("root/" + outputFolder + "/settings.csv") << names << "\n" << row << "\n";
+    }
+
     ////Writes into root file
     G4AnalysisManager *man = G4AnalysisManager::Instance();
     if (printStatus){G4cout << "writing: " << G4endl;}

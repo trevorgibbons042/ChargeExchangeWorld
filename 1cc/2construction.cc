@@ -75,7 +75,7 @@ G4VPhysicalVolume *MyDetectorConstruction::Construct() //defines volume and mate
     G4double totalY = 0.4 * m;
     G4double cellX = totalX / nCols;
     G4double cellY = totalY / nRows;
-    G4double detectorThickness = 0.03 * m;
+    G4double detectorThickness = 500 * um;
 
     //each grid of cells is one parameterised volume inside a slab, so a plane costs one volume, not nCols*nRows
     solidTrack = new G4Box("solidTrack",cellX / 2.0,cellY / 2.0,detectorThickness / 2.0);
@@ -94,7 +94,8 @@ G4VPhysicalVolume *MyDetectorConstruction::Construct() //defines volume and mate
     G4int elementIndex = 0;
     G4int trackerIndex = 0;
 
-    for (G4int i = 0; i < nBlocks; i++) {
+    //nBlocksTracking trackers before each block and after the last one
+    for (G4int i = 0; i <= nBlocks; i++) {
         for (G4int j = 0; j < nBlocksTracking; j++) {
             G4double zTracker = zStart + elementIndex * (dz * m);
             new G4PVPlacement(nullptr, G4ThreeVector(0, 0, zTracker), logicTrackSlab, "physTrackSlab",
@@ -102,19 +103,13 @@ G4VPhysicalVolume *MyDetectorConstruction::Construct() //defines volume and mate
             trackerIndex++;
             elementIndex++;
         }
+        if (i == nBlocks) {break;}
+
         G4double zCarbon = zStart + elementIndex * (dz * m);
         physMat = new G4PVPlacement(nullptr,
             G4ThreeVector(0, 0, zCarbon), logicMat, "physMat",
             logicWorld,false,i,false);
 
-        elementIndex++;
-    }
-
-    for (G4int j = 0; j < nBlocksTracking; j++) {
-        G4double zTracker = zStart + elementIndex * (dz * m);
-        new G4PVPlacement(nullptr, G4ThreeVector(0, 0, zTracker), logicTrackSlab, "physTrackSlab",
-                    logicWorld, false, trackerIndex, false);
-        trackerIndex++;
         elementIndex++;
     }
 
