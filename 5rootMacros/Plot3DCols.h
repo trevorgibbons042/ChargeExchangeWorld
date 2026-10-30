@@ -1,6 +1,7 @@
 #pragma once
-// The Plot3D maps and the cached "p3d_v1" columns (CutCache.h tag) that replace the per-entry isReco/rawVal/rawOk/thetaOk calls of the TTree::Draw cuts.
-// Shared by Plot3D.cpp and BuildCaches.cpp.
+// The Plot3D maps, the columns that replace the per-entry isReco/rawVal/rawOk/thetaOk calls of the TTree::Draw cuts (P3), and where each tree of Plot3D gets them:
+// the ZDC proton cut files cut_ZdcCE.root / cut_ZdcAllEv.root hold them as columns (ZdcColumns.cpp), AnglesRaw gets them as TTree aliases of its own branches (Plot3DRawAliases).
+// Shared by Plot3D.cpp and ZdcColumns.cpp.
 #include <TFile.h>
 #include <TError.h>
 #include <TMath.h>
@@ -8,6 +9,7 @@
 #include <ROOT/RDataFrame.hxx>
 
 #include <algorithm>
+#include <functional>
 #include <array>
 #include <cmath>
 #include <limits>
@@ -18,9 +20,10 @@
 #include <utility>
 
 #include "BlockLimits.h"
-#include "CutCache.h"
 #include "FitCore.h"
 #include "QualityCut.h"
+
+using ColumnAdder = std::function<ROOT::RDF::RNode(ROOT::RDF::RNode)>; // adds the Plot3D columns to a dataframe node (Define with compiled lambdas)
 
 // (fEvent, TrackID) of every proton with a reconstructed track (cut_angles_all.root, Angles). The position plots only show these protons,
 // the ones that can actually be drawn on the ZDC.
@@ -88,10 +91,6 @@ inline bool LoadPlot3DMaps(){
     return true;
 }
 
-inline const char* kPlot3DTag = "p3d_v1"; // bump when the column logic below changes
-// A change to the cuts or limits the columns are built from makes the caches stale: the macros are rsynced into the run folder, which updates their mtime.
-inline const std::vector<std::string> kPlot3DTagDeps = {"cuts/cut_angles_all.root", "QualityCut.h", "BlockLimits.h", "Plot3DCols.h"};
-
 // One map lookup per row and thread: the 40 columns below are defined in a row and all ask for the same (fEvent, TrackID).
 inline const std::array<double, 17>* P3Row(int ev, int tid){
     thread_local int lastEv = 0, lastTid = 0; thread_local const std::array<double, 17>* lastRow = nullptr; thread_local bool valid = false;
@@ -105,7 +104,7 @@ inline const std::array<double, 17>* P3Row(int ev, int tid){
 // The maps are read only while the event loop runs, so the lambdas are safe on several threads.
 inline ColumnAdder Plot3DColumns(){
     return [](ROOT::RDF::RNode n){
-        static const bool mapsLoaded = LoadPlot3DMaps(); // only when a cache is built: a cache hit never reads the 213M rows
+        static const bool mapsLoaded = LoadPlot3DMaps(); // the 213M rows of AnglesRaw are read once, when ZdcColumns.cpp builds the columns
         if (!mapsLoaded) throw std::runtime_error("Plot3DColumns: the maps could not be loaded (cuts/cut_angles_all.root)");
         n = n.Define("isReco", [](int ev, int tid){return (Int_t)isReco(ev, tid);}, {"fEvent", "TrackID"})
              .Define("isRecoD", [](int ev, int tid){return (Int_t)isRecoD(ev, tid);}, {"fEvent", "TrackID"})
@@ -128,7 +127,7 @@ inline ColumnAdder Plot3DColumns(){
     };
 }
 
-// Rewrites the isReco/isRecoD/isRes2/thetaOk/rawVal/rawOk calls of a TTree::Draw expression or cut into the cached columns.
+// Rewrites the isReco/isRecoD/isRes2/thetaOk/rawVal/rawOk calls of a TTree::Draw expression or cut into the columns (or, on AnglesRaw, the aliases).
 inline std::string P3(const std::string& s){
     static const std::regex fn(R"(\b(isRecoD|isReco|isRes2|thetaOk)\s*\(\s*fEvent\s*,\s*TrackID\s*\))");
     static const std::regex val(R"(\brawVal\s*\(\s*fEvent\s*,\s*TrackID\s*,\s*(\d+)\s*\))");
@@ -139,14 +138,17 @@ inline std::string P3(const std::string& s){
     return o;
 }
 
-// The cached trees of Plot3D (spec A.7 C7 to C9), see BuildCaches.cpp. The C7/C8 sets are the ZDC protons of the CE children and of every event.
-inline const std::vector<std::string> kZdcProtonAtoms = {"boundaryType == 2 && pdg == 2212"};
-inline CacheTree Plot3DCE(){ // C7: CE protons at the ZDC (cut_ParentID) + columns
-    return GetCutTree("output0_t*.root", "ParticleInfo", {"@isParentCE", kZdcProtonAtoms[0]}, kPlot3DTag, Plot3DColumns(), kPlot3DTagDeps);
-}
-inline CacheTree Plot3DAllEv(){ // C8: ZDC protons of every event (cut_AllEvProtons) + columns
-    return GetCutTree("output0_t*.root", "ParticleInfo", {kZdcProtonAtoms[0]}, kPlot3DTag, Plot3DColumns(), kPlot3DTagDeps);
-}
-inline CacheTree Plot3DRaw(){ // C9: AnglesRaw + columns
-    return GetCutTree("cuts/cut_angles_all.root", "AnglesRaw", {}, kPlot3DTag, Plot3DColumns(), kPlot3DTagDeps);
+// The same names on AnglesRaw, as TTree aliases of its own branches (no extra columns in the file): a row of AnglesRaw is one fitted proton, so isReco is its passQuality,
+// raw_k its k-th value of gRawVals (LoadPlot3DMaps) and ok_k whether that value is finite. P3() rewrites the Draw strings to these names for every tree.
+inline void Plot3DRawAliases(TTree* raw){
+    const char* val[17] = {"resRms", "resDRms", "impact", "impactD", "r2", "r2D", "nProtonsEv", "zOrderOK", "resHalfRatioD", "outTheta*TMath::RadToDeg()", "nHits",
+                           "outDTheta*TMath::RadToDeg()", "firstXD", "firstYD", "outPhi*TMath::RadToDeg()", "outDPhi*TMath::RadToDeg()", "z_bx_reconVertexOut"}; // phi in 0 to 360 (ReconAngleAll.cpp)
+    for (int k = 0; k < 17; k++){
+        raw->SetAlias(Form("raw_%d", k), val[k]);
+        raw->SetAlias(Form("ok_%d", k), Form("TMath::Finite(raw_%d)", k));
+    }
+    raw->SetAlias("isReco", "passQuality");
+    raw->SetAlias("isRecoD", ("(passQuality==1 && (" + std::string(kBlockCut) + "))").c_str());
+    raw->SetAlias("isRes2", Form("(passQuality==1 && resDRms < %g)", kRes2Mm));
+    raw->SetAlias("thetaOk", "BlockThetaOk(raw_11, raw_16)");
 }

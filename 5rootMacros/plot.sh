@@ -20,12 +20,12 @@ run 'CutTrees.cpp' # cuts/<ke>.root: the shared KE cuts the plot macros read (Cu
 
 # Compile every macro once, at the same time, before the lanes (ACLiC): two lanes never build the same .so, and the lanes skip the dependency check. Not with ACLIC= (interpreted).
 if [ "${ACLIC-+O}" != "" ]; then
-    for m in BuildCaches Plot3D QualityStudy PlotAngle PlotCEFraction PlotPolarization PlotFomPolarization PlotDiffPhiCuts GraphBlocks CETCompare SecondaryCE; do
+    for m in ZdcColumns Plot3D QualityStudy PlotAngle PlotCEFraction PlotPolarization PlotFomPolarization PlotDiffPhiCuts GraphBlocks CETCompare SecondaryCE; do
         root -l -b -q -e ".L $m.cpp${ACLIC-+O}" > /dev/null 2>&1 &
     done
     wait
 fi
-run 'BuildCaches.cpp' # the cut caches (CutCache.h, cuts/cache/) every lane reads, built once with all the threads
+run 'ZdcColumns.cpp' # cuts/cut_ZdcCE.root and cut_ZdcAllEv.root (the ZDC protons with the Plot3D columns) that Plot3D reads, with all the threads
 
 export ANA_NTHREADS=$(( NCPU / 4 > 0 ? NCPU / 4 : 1 ))
 

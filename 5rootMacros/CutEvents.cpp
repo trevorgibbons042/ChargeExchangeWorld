@@ -13,7 +13,6 @@
 
 #include <ROOT/RDataFrame.hxx>
 #include "FitCore.h"
-#include "CutCache.h"
 #include <ROOT/RSnapshotOptions.hxx>
 #include <ROOT/RDFHelpers.hxx> // RunGraphs, RResultHandle
 
@@ -77,8 +76,12 @@ void CutEvents(){
     };
     queue(selectedEvent, 0, 0);   queue(selectedParent, 0, 1);   queue(selectedFake, 0, 2);
     queue(dfCE, 1, 0);            queue(dfCE, 1, 1);             queue(dfCE, 1, 2);
-    // ZDC protons of every event, the only rows Plot3D.cpp draws from the all-events set (one tree, so no merge step)
+    // Single-tree cut files (no merge step), see CutOpen.h: ZDC protons of every event, the ZDC and first tracker protons of the CE children, and the CE outside the carbon blocks.
     handles.emplace_back(df.Filter("boundaryType == 2 && pdg == 2212").Snapshot(treeNames[0], "cuts/cut_AllEvProtons.root", "", lazy));
+    handles.emplace_back(selectedParent.Filter("boundaryType == 2 && pdg == 2212").Snapshot(treeNames[0], "cuts/cut_ParentZdc.root", "", lazy));
+    handles.emplace_back(selectedParent.Filter("boundaryType == 0 && pdg == 2212").Snapshot(treeNames[0], "cuts/cut_ParentTracker.root", "", lazy));
+    handles.emplace_back(dfCEAll.Filter("!(" + CarbonCeCut() + ")").Snapshot(treeNames[1], "cuts/cut_CEtracker.root", "", lazy));
+    handles.emplace_back(dfCEAll.Snapshot(treeNames[1], "cuts/cut_CEall.root", "", lazy)); // every CE of the sim (the whole ChargeExchange_values tree, one row per CE)
     ROOT::RDF::RunGraphs(handles);
     ROOT::DisableImplicitMT(); // merging with implicit MT on crashed in TTree::FlushBasketsImpl
 
@@ -91,5 +94,4 @@ void CutEvents(){
         }
         for (const auto& tree : treeNames) std::remove(tmpName(tree, cutFiles[cut]).c_str());
     }
-    SeedCutCaches(); // the cut_*.root files just written become cut caches (CutCache.h)
 }

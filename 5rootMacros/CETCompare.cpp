@@ -9,20 +9,18 @@
 
 #include <TROOT.h>
 
-#include "CutCache.h"
+#include "CutOpen.h"
 #include "DrawPlan.h"
 #include "FitCore.h"
 
 // t of the charge exchange (LastT) for the CE in the carbon blocks (CarbonCeCut) and for the CE in the silicon tracker planes (every other CE),
 // ChargeExchange_values of the sim. Normalized to unit area in a second plot to compare the shapes. plots/4_CEblock/1_CarbonVsSi/t_carbon_vs_tracker*.pdf
 void CETCompare(){
-    const std::string carbon = CarbonCeCut(), tracker = "didChargeExchange>0 && !(" + carbon + ")";
-    // the three selections come from the cut cache (CutCache.h): every row of the tree passes, so the draws need no selection
-    const CacheTree cAll = GetCutTree("output0_t*.root", "ChargeExchange_values", {"didChargeExchange>0"}); // all CE
-    const CacheTree cCarbon = GetCutTree("output0_t*.root", "ChargeExchange_values", {carbon});             // CE in the carbon blocks (seed cut_CE.root)
-    const CacheTree cTracker = GetCutTree("output0_t*.root", "ChargeExchange_values", {"didChargeExchange>0", "!(" + carbon + ")"}); // CE in the silicon trackers, from the all-CE cache
-    TTree *tAll = cAll.tree, *tCarbon = cCarbon.tree, *tTracker = cTracker.tree;
-    if (!tAll || !tCarbon || !tTracker){Error("CETCompare", "cut caches missing (run CutEvents.cpp first)"); return;}
+    // the three selections are cut files (CutOpen.h): every row of the tree passes, so the draws need no selection
+    TTree *tAll = OpenCut("cuts/cut_CEall.root", "ChargeExchange_values");              // all CE
+    TTree *tCarbon = OpenCut("cuts/cut_CE.root", "ChargeExchange_values");              // CE in the carbon blocks
+    TTree *tTracker = OpenCut("cuts/cut_CEtracker.root", "ChargeExchange_values");      // CE in the silicon trackers
+    if (!tAll || !tCarbon || !tTracker){Error("CETCompare", "cut files missing (run CutEvents.cpp first)"); return;}
     gROOT->cd();
     ROOT::EnableImplicitMT(NThreads());
     TH1D hC("hTCarbon", "", 100, 0, 0.05), hT("hTTracker", "", 100, 0, 0.05);

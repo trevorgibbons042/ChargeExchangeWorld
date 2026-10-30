@@ -19,7 +19,7 @@
 #include "TSystem.h"
 
 #include "BlockLimits.h"
-#include "CutCache.h"
+#include "CutOpen.h"
 #include "FitCore.h"
 #include "QualityCut.h"
 
@@ -30,11 +30,11 @@
 void SecondaryCE(){
     ROOT::EnableImplicitMT(NThreads()); // implicit MT for the file reads (NThreads: ANA_NTHREADS, FitCore.h)
     gStyle->SetOptStat(0);
-    // the carbon-block CE (CarbonCeCut) come from the cut cache (CutCache.h, the seed cut_CE.root), so every row passes; the ZDC protons of their children and the first tracker protons likewise
-    // (@isParentCE rows: only those match a groupOf key below)
-    const CacheTree cacheCE = GetCutTree("output0_t*.root", "ChargeExchange_values", {CarbonCeCut()});
-    if (!cacheCE.tree){Error("SecondaryCE", "no ChargeExchange_values cache (run CutEvents.cpp)"); return;}
-    TTree& ce = *cacheCE.tree;
+    // the carbon-block CE (CarbonCeCut) come from cuts/cut_CE.root (CutOpen.h), so every row passes; the ZDC protons of their children and the first tracker protons likewise
+    // (children of a CE track: only those match a groupOf key below)
+    TTree* cePtr = OpenCut("cuts/cut_CE.root", "ChargeExchange_values");
+    if (!cePtr){Error("SecondaryCE", "no cuts/cut_CE.root (run CutEvents.cpp)"); return;}
+    TTree& ce = *cePtr;
     gROOT->cd();
     if (!ce.GetBranch("CECreator") || !ce.GetBranch("CEPolX")){Error("SecondaryCE", "CECreator/CEPolX missing in ChargeExchange_values (rerun the sim)"); return;}
     const std::string outDir = "plots/7_secondaryCE/";
@@ -150,9 +150,9 @@ void SecondaryCE(){
     const int gColor[4] = {kBlack, kRed, kBlue, kGreen + 2};
     TH1D hKE[2][4]; // [0] true KE, [1] smeared KE
     for (int q = 0; q < 2; q++) for (int g = 0; g < 4; g++) hKE[q][g] = TH1D(Form("hKE%d_%d", q, g), "", 100, 0, 30000);
-    const CacheTree cacheZdc = GetCutTree("output0_t*.root", "ParticleInfo", {"@isParentCE", "boundaryType == 2 && pdg == 2212"});
-    if (!cacheZdc.tree){Error("SecondaryCE", "no ParticleInfo cache (run CutEvents.cpp)"); return;}
-    TTree& pi = *cacheZdc.tree;
+    TTree* piPtr = OpenCut("cuts/cut_ParentZdc.root", "ParticleInfo");
+    if (!piPtr){Error("SecondaryCE", "no cuts/cut_ParentZdc.root (run CutEvents.cpp)"); return;}
+    TTree& pi = *piPtr;
     gROOT->cd();
     int piEvent = 0, piParent = 0; double piKE = 0, piDE = 0;
     pi.SetBranchAddress("fEvent", &piEvent); pi.SetBranchAddress("ParentID", &piParent); pi.SetBranchAddress("fKEnergy", &piKE); pi.SetBranchAddress("fDEnergy", &piDE);
@@ -335,9 +335,9 @@ void SecondaryCE(){
     for (Long64_t k = 0; k < zdcList->GetN(); k++){pi.GetEntry(zdcList->GetEntry(k)); zdcDE[{piEvent, piTrack}] = piDE;}
     struct FirstHit {double z, x, y; int group;};
     std::map<std::pair<int, int>, FirstHit> firstHit;
-    const CacheTree cacheTrk = GetCutTree("output0_t*.root", "ParticleInfo", {"@isParentCE", "boundaryType == 0 && pdg == 2212"}); // first tracker protons of the CE children
-    if (!cacheTrk.tree){Error("SecondaryCE", "no ParticleInfo first tracker cache (run CutEvents.cpp)"); return;}
-    TTree& pt = *cacheTrk.tree;
+    TTree* ptPtr = OpenCut("cuts/cut_ParentTracker.root", "ParticleInfo"); // first tracker protons of the CE children
+    if (!ptPtr){Error("SecondaryCE", "no cuts/cut_ParentTracker.root (run CutEvents.cpp)"); return;}
+    TTree& pt = *ptPtr;
     gROOT->cd();
     pt.SetBranchAddress("fEvent", &piEvent); pt.SetBranchAddress("ParentID", &piParent); pt.SetBranchAddress("TrackID", &piTrack);
     pt.SetBranchAddress("fX", &piX); pt.SetBranchAddress("fY", &piY); pt.SetBranchAddress("fZ", &piZ);

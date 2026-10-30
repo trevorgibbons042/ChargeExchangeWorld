@@ -16,14 +16,14 @@ submit() {
     qsub -N "$name" -v RUN=$RUN,STEP=$step "${dep[@]}" "${res[@]}" Plot.pbs
 }
 
-# CutTrees and the caches are on the critical path, ahead of every lane: all the cores
+# CutTrees and ZdcColumns are on the critical path, ahead of every lane: all the cores
 cut=$(submit CutTrees cuttrees "" 128)
-# the cut caches, after CutTrees (a lane that asked for one that is missing would build it itself, under a lock)
-caches=$(submit Caches caches "$cut" 128)
-# the lanes, after CutTrees writes cuts/<ke>.root and the caches are built
-cuts=$(submit Cuts cuts "$caches")
-fom=$(submit Fom fom "$caches")
-ce=$(submit CEblock ceblock "$caches")
-sec=$(submit SecCE secce "$caches")
+# the ZDC proton cut files with the Plot3D columns (cut_ZdcCE.root, cut_ZdcAllEv.root), after CutTrees
+zdc=$(submit ZdcCols zdc "$cut" 128)
+# the lanes, after CutTrees writes cuts/<ke>.root and ZdcColumns writes its cut files
+cuts=$(submit Cuts cuts "$zdc")
+fom=$(submit Fom fom "$zdc")
+ce=$(submit CEblock ceblock "$zdc")
+sec=$(submit SecCE secce "$zdc")
 # tidy, side box and crop once every lane is done
 submit Pdfs pdfs "$cuts:$fom:$ce:$sec"
