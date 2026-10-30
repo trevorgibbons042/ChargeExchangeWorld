@@ -4,7 +4,7 @@
 submit() {
     local name=$1 step=$2 after=$3 ncpus=$4
     local dep=() res=()
-    [ -n "$after" ] && dep=(-W depend=afterok:$after)
+    [ -n "$after" ] && dep=(-W depend=${DEPKIND:-afterok}:$after) # DEPKIND=afterany: start when the jobs ended, whatever their exit code
     [ -n "$ncpus" ] && res=(-l select=1:ncpus=$ncpus)
     qsub -N "$name" -v RUN=$RUN,STEP=$step,NCPUS=${ncpus:-16} "${dep[@]}" "${res[@]}" Plot.pbs
 }
