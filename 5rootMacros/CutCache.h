@@ -24,7 +24,6 @@
 #include <cstdlib>
 #include <ctime>
 #include <fcntl.h>
-#include <filesystem>
 #include <fstream>
 #include <functional>
 #include <glob.h>
@@ -50,6 +49,30 @@ struct CacheTree {
 using ColumnAdder = std::function<ROOT::RDF::RNode(ROOT::RDF::RNode)>; // adds the tag columns (Define with compiled lambdas)
 
 namespace CutCacheImpl {
+
+// Directory helpers on TSystem: std::filesystem needs libstdc++fs on old GCC, which cling does not load (JIT "Failed to materialize symbols").
+inline bool IsDir(const std::string& p){
+    FileStat_t st;
+    return gSystem->GetPathInfo(p.c_str(), st) == 0 && R_ISDIR(st.fMode);
+}
+inline std::vector<std::string> ListDir(const std::string& p){
+    std::vector<std::string> o;
+    void* d = gSystem->OpenDirectory(p.c_str());
+    if (!d) return o;
+    while (const char* e = gSystem->GetDirEntry(d)){
+        const std::string n = e;
+        if (n != "." && n != "..") o.push_back(p + "/" + n);
+    }
+    gSystem->FreeDirectory(d);
+    return o;
+}
+inline void MakeDirs(const std::string& p){ gSystem->mkdir(p.c_str(), kTRUE); }
+inline void RemoveAll(const std::string& p){
+    if (IsDir(p)){
+        for (const auto& c : ListDir(p)) RemoveAll(c);
+        gSystem->Unlink(p.c_str());
+    } else gSystem->Unlink(p.c_str());
+}
 
 inline std::string Trim(const std::string& s){
     size_t a = 0, b = s.size();
@@ -233,14 +256,11 @@ inline TFile* OpenRead(const std::string& path){
 
 inline std::vector<Sidecar> ScanSidecars(const std::string& tree){
     std::vector<Sidecar> o;
-    namespace fs = std::filesystem;
-    std::error_code ec;
-    const fs::path root = "cuts/cache/" + tree;
-    if (!fs::is_directory(root, ec)) return o;
-    for (const auto& sub : fs::directory_iterator(root, ec)){
-        if (!sub.is_directory(ec)) continue;
-        for (const auto& f : fs::directory_iterator(sub.path(), ec)){
-            const std::string p = f.path().string();
+    const std::string root = "cuts/cache/" + tree;
+    if (!IsDir(root)) return o;
+    for (const auto& sub : ListDir(root)){
+        if (!IsDir(sub)) continue;
+        for (const auto& p : ListDir(sub)){
             if (p.size() > 5 && p.compare(p.size() - 5, 5, ".cuts") == 0){
                 Sidecar sc = ParseSidecar(p);
                 if (sc.ok) o.push_back(sc);
@@ -358,14 +378,14 @@ inline void SeedCutCaches(){
         TFile* f = OpenRead(s.file);
         TTree* t = f ? (TTree*)f->Get(s.tree.c_str()) : nullptr;
         if (!t) continue;
-        std::error_code ec; std::filesystem::create_directories(dir, ec);
+        MakeDirs(dir);
         std::vector<std::string> files = raw; files.push_back("settings.csv"); files.push_back(s.file);
         WriteSidecar(cuts, s.file, kRawSource, s.tree, "", t->GetEntries(), StampOf(files), byKey);
     }
 }
 
 inline void ClearCutCache(){
-    std::error_code ec; std::filesystem::remove_all("cuts/cache", ec);
+    CutCacheImpl::RemoveAll("cuts/cache");
 }
 
 // Rows of source/tree that pass every atom of `cuts` (+ opaque atoms), with the tag columns if tag is non-empty. See spec A.4 for the lookup rules.
@@ -452,7 +472,7 @@ inline CacheTree GetCutTree(const std::string& source, const std::string& tree, 
         for (const auto& a : missingAtoms) if (IsOpaque(a)) Fatal("GetCutTree", "opaque atom %s is in no cache or seed of tree %s (run CutEvents.cpp)", a.c_str(), tree.c_str());
 
         // build under the lock
-        std::error_code ec; std::filesystem::create_directories(dir, ec);
+        MakeDirs(dir);
         const std::string lockPath = dir + "/" + sig + ".lock", outPath = dir + "/" + sig + ".root", cutsPath = dir + "/" + sig + ".cuts";
         if (!TryLock(lockPath)){ // someone else builds it: wait for the sidecar (or for the lock to vanish), then look up again
             long long waitedS = 0; bool skewWarned = false;
