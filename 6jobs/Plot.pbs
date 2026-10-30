@@ -1,4 +1,5 @@
 #!/bin/bash -l
+#PBS -q backfill
 #PBS -A eic
 #PBS -N Plot
 
