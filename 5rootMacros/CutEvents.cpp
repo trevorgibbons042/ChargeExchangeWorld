@@ -13,11 +13,12 @@
 
 #include <ROOT/RDataFrame.hxx>
 #include "FitCore.h"
+#include "CutCache.h"
 #include <ROOT/RSnapshotOptions.hxx>
 #include <ROOT/RDFHelpers.hxx> // RunGraphs, RResultHandle
 
 void CutEvents(){
-    ROOT::EnableImplicitMT(128);
+    ROOT::EnableImplicitMT(NThreads());
     
     TChain *events = new TChain("ParticleInfo");
     TChain *ChargeExchange = new TChain("ChargeExchange_values");
@@ -90,4 +91,5 @@ void CutEvents(){
         }
         for (const auto& tree : treeNames) std::remove(tmpName(tree, cutFiles[cut]).c_str());
     }
+    SeedCutCaches(); // the cut_*.root files just written become cut caches (CutCache.h)
 }

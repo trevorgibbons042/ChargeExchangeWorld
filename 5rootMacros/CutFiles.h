@@ -50,3 +50,11 @@ static TEntryList* CutList(const std::string& dir, TTree* t, bool block = false)
 // From here on Draw, GetEntries(selection) and Process on t (friends follow) only see the entries of the cut; t->SetEntryList(nullptr) clears it.
 // GetEntries() without a selection still counts every entry.
 static void ApplyCut(TTree* t, const std::string& dir, bool block = false){t->SetEntryList(CutList(dir, t, block));}
+
+// The selection string CutTrees.cpp built the list of (dir, block) from: DrawPlan's listCut for a tree that has that list set. dir is a KeCuts() dir ("ke_all", ...).
+static std::string ListCut(const std::string& dir, bool block){
+    std::string cut;
+    for (const auto& ke : KeCuts()) if (ke.dir == dir) cut = ke.cut;
+    if (block) cut = cut.empty() ? std::string(kBlockCut) : cut + " && " + kBlockCut;
+    return cut;
+}

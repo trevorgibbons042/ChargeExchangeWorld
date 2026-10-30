@@ -7,13 +7,26 @@
 
 #include <string>
 
+#include <TROOT.h>
+
+#include "CutCache.h"
+#include "DrawPlan.h"
 #include "FitCore.h"
 
 // t of the charge exchange (LastT) for the CE in the carbon blocks (CarbonCeCut) and for the CE in the silicon tracker planes (every other CE),
 // ChargeExchange_values of the sim. Normalized to unit area in a second plot to compare the shapes. plots/4_CEblock/1_CarbonVsSi/t_carbon_vs_tracker*.pdf
 void CETCompare(){
-    TChain ce("ChargeExchange_values"); ce.Add("output0_t*.root");
     const std::string carbon = CarbonCeCut(), tracker = "didChargeExchange>0 && !(" + carbon + ")";
+    // the three selections come from the cut cache (CutCache.h): every row of the tree passes, so the draws need no selection
+    const CacheTree cAll = GetCutTree("output0_t*.root", "ChargeExchange_values", {"didChargeExchange>0"}); // all CE
+    const CacheTree cCarbon = GetCutTree("output0_t*.root", "ChargeExchange_values", {carbon});             // CE in the carbon blocks (seed cut_CE.root)
+    const CacheTree cTracker = GetCutTree("output0_t*.root", "ChargeExchange_values", {"didChargeExchange>0", "!(" + carbon + ")"}); // CE in the silicon trackers, from the all-CE cache
+    TTree *tAll = cAll.tree, *tCarbon = cCarbon.tree, *tTracker = cTracker.tree;
+    if (!tAll || !tCarbon || !tTracker){Error("CETCompare", "cut caches missing (run CutEvents.cpp first)"); return;}
+    gROOT->cd();
+    ROOT::EnableImplicitMT(NThreads());
+    TH1D hC("hTCarbon", "", 100, 0, 0.05), hT("hTTracker", "", 100, 0, 0.05);
+    DrawPlan plan; // the five fills (z all/carbon/tracker, t carbon/tracker) are collected in one multithreaded pass per tree, then filled here in entry order
     gSystem->mkdir("plots/4_CEblock/1_CarbonVsSi", true);
     gStyle->SetOptStat(0);
     TCanvas c("cT", "", 1500, 1200); c.SetLeftMargin(0.14); c.SetBottomMargin(0.13); c.SetRightMargin(0.05);
@@ -25,8 +38,10 @@ void CETCompare(){
         const double halfSpan = (nElements - 1) * st.at("dz") * 1000.0 / 2.0;
         const double z0 = 4000 - halfSpan - 200, z1 = 4000 + halfSpan + 200; const int nz = (int)((z1 - z0) / 5.0);
         TH1D hAll("hZAll", "", nz, z0, z1), hZC("hZCarbon", "", nz, z0, z1), hZT("hZTracker", "", nz, z0, z1);
-        ce.Draw("fZ>>hZAll", "didChargeExchange>0", "goff"); ce.Draw("fZ>>hZCarbon", carbon.c_str(), "goff"); ce.Draw("fZ>>hZTracker", tracker.c_str(), "goff");
-        const long long nC = ce.GetEntries(carbon.c_str()), nT = ce.GetEntries(tracker.c_str()), nA = ce.GetEntries("didChargeExchange>0");
+        plan.H(tAll, "fZ>>hZAll", "", "", &hAll); plan.H(tCarbon, "fZ>>hZCarbon", "", "", &hZC); plan.H(tTracker, "fZ>>hZTracker", "", "", &hZT);
+        plan.H(tCarbon, "LastT>>hTCarbon", "", "", &hC); plan.H(tTracker, "LastT>>hTTracker", "", "", &hT);
+        plan.Run();
+        const long long nC = tCarbon->GetEntries(), nT = tTracker->GetEntries(), nA = tAll->GetEntries();
         hAll.SetLineColor(kBlack); hZC.SetLineColor(kBlue); hZT.SetLineColor(kRed);
         for (TH1D* h : {&hAll, &hZC, &hZT}) h->SetLineWidth(2);
         hAll.SetTitle("Z position where Charge Exchange happens, all CE protons (sim);Z Position (mm);Count");
@@ -39,8 +54,6 @@ void CETCompare(){
         lz.Draw();
         c.SaveAs("plots/4_CEblock/1_CarbonVsSi/z_CE_blocks_vs_trackers.pdf");
     }
-    TH1D hC("hTCarbon", "", 100, 0, 0.05), hT("hTTracker", "", 100, 0, 0.05);
-    ce.Draw("LastT>>hTCarbon", carbon.c_str(), "goff"); ce.Draw("LastT>>hTTracker", tracker.c_str(), "goff");
     printf("carbon CE: N=%.0f mean t=%.5g | tracker CE: N=%.0f mean t=%.5g\n", hC.GetEntries(), hC.GetMean(), hT.GetEntries(), hT.GetMean());
     for (const bool norm : {false, true}){
         TH1D* a = (TH1D*)hC.Clone(), *b = (TH1D*)hT.Clone();

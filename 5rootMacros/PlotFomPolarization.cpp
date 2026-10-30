@@ -24,6 +24,7 @@
 #include <string>
 #include <vector>
 
+#include <TROOT.h>
 #include "FitCore.h"
 #include "CutFiles.h"
 #include "FomCommon.h"
@@ -182,6 +183,7 @@ static void AddProton(PhiAP& d, double theta, double phi, double apScale){
 }
 
 void PlotFomPolarization(std::string energy = "fKEnergy"){ // energy: "fKEnergy" (true KE) or "fDEnergy" (detector energy), picks the input trees and plot folder
+    ROOT::EnableImplicitMT(NThreads()); // implicit MT for the file reads (NThreads: ANA_NTHREADS, FitCore.h)
     gStyle->SetOptStat(0);
     gStyle->SetPalette(kViridis); gStyle->SetNumberContours(255); // colorblind-friendly, many steps so 10% and 100% differ clearly
     const std::string suffix = (energy == "fDEnergy") ? "_DE" : "";

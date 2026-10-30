@@ -11,6 +11,7 @@ import io
 import os
 import subprocess
 import sys
+from concurrent.futures import ProcessPoolExecutor
 
 from PIL import Image
 from pypdf import PageObject, PdfReader, PdfWriter
@@ -201,10 +202,17 @@ def stamp(path, lines, title):
     return True
 
 
+def unbox_and_stamp(job):
+    path, lines, title = job
+    unbox(path) # always redone: a boxed pdf from an earlier run gets the current numbers and place
+    return stamp(path, lines, title)
+
+
 def main(plots):
     cuts_dir = os.path.join(plots, "6_cuts")
     rows = load_rows(cuts_dir)
-    done = skipped = 0
+    skipped = 0
+    jobs = [] # (path, lines, title): collected first, then run in parallel, one worker per pdf
     for d, _, files in os.walk(cuts_dir):
         rel = os.path.relpath(d, cuts_dir)
         for f in sorted(files):
@@ -217,16 +225,17 @@ def main(plots):
                 skipped += 1
                 continue
             title = f"{cut if cut != '1_hitZDC' else '1_hitZDC (no cut)'}, {'ZDC KE > 80%' if ke80 else 'no KE cut'}"
-            path = os.path.join(d, f)
-            unbox(path) # always redone: a boxed pdf from an earlier run gets the current numbers and place
-            done += stamp(path, lines_for(row), title)
+            jobs.append((os.path.join(d, f), lines_for(row), title))
     for sub, cut in FOM_CUTS.items(): # 5_fomCalc samples (ke_all, PlotFomPolarization.cpp): recon theta has no cut, recon block theta the block residual cut (kBlockCut, QualityCut.h)
         for d, _, files in os.walk(os.path.join(plots, "5_fomCalc", sub)):
             for f in sorted(files):
                 if f.endswith(".pdf"):
-                    path = os.path.join(d, f)
-                    unbox(path)
-                    done += stamp(path, lines_for(rows[(cut, "cut")]), f"{cut if cut != '1_hitZDC' else '1_hitZDC (no cut)'}, no KE cut")
+                    jobs.append((os.path.join(d, f), lines_for(rows[(cut, "cut")]), f"{cut if cut != '1_hitZDC' else '1_hitZDC (no cut)'}, no KE cut"))
+    if len(jobs) > 1:
+        with ProcessPoolExecutor(max_workers=os.cpu_count()) as ex:
+            done = sum(ex.map(unbox_and_stamp, jobs, chunksize=4))
+    else:
+        done = sum(unbox_and_stamp(j) for j in jobs)
     print(f"cut side box: {done} pdfs boxed, {skipped} without a single owning cut")
 
 

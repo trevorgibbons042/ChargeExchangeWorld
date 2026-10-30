@@ -22,6 +22,9 @@
 #include <cmath>
 #include <string>
 #include <vector>
+#include <thread>
+#include <cstdlib>
+#include <sys/stat.h>
 #include <TStyle.h>
 
 // Every plotting macro includes this header: plain (not bold) Helvetica for every title, label, stats box, legend and text box.
@@ -53,6 +56,15 @@ inline double APFromT(double pbeam, double t, double apScale){
 // Run settings the sim wrote to settings.csv (a row of names, a row of values), as name -> value (.at("APScale"), ...).
 // Throws if the file is missing or the two rows do not match.
 inline std::map<std::string, double> ReadSettings(const std::string& path = "settings.csv"){
+    // memoised by path and mtime+size (called per plot): returns a copy, so callers see no difference
+    static std::map<std::string, std::pair<std::pair<long long, long long>, std::map<std::string, double>>> memo;
+    struct stat st;
+    const bool haveStat = (::stat(path.c_str(), &st) == 0);
+    const std::pair<long long, long long> stamp = haveStat ? std::make_pair((long long)st.st_mtime, (long long)st.st_size) : std::make_pair(-1LL, -1LL);
+    if (haveStat){
+        auto it = memo.find(path);
+        if (it != memo.end() && it->second.first == stamp) return it->second.second;
+    }
     std::ifstream in(path);
     std::string names, values;
     if (!std::getline(in, names) || !std::getline(in, values))
@@ -65,13 +77,27 @@ inline std::map<std::string, double> ReadSettings(const std::string& path = "set
         settings[name] = std::stod(value);
     }
     if (settings.empty()) throw std::runtime_error(path + " has no settings");
+    if (haveStat) memo[path] = {stamp, settings};
     return settings;
+}
+
+// Threads for ROOT::EnableImplicitMT: env ANA_NTHREADS, else the hardware thread count (plot.sh splits the cores between its lanes).
+inline unsigned NThreads(){
+    if (const char* e = std::getenv("ANA_NTHREADS")){
+        const long v = std::atol(e);
+        if (v > 0) return (unsigned)v;
+    }
+    const unsigned h = std::thread::hardware_concurrency();
+    return h ? h : 1;
 }
 
 // The charge exchange selection of every stage: a CE with its vertex inside one of the carbon blocks (CE in the tracker silicon is left out).
 // The block z positions mirror MyDetectorConstruction (2construction.cc): centre of the stack at 4 m, a block after each group of nBlocksTracking tracker planes, dz apart.
 inline std::string CarbonCeCut(){
+    static std::string memo; static std::map<std::string, double> memoSettings;
     const auto s = ReadSettings();
+    if (!memo.empty() && s == memoSettings) return memo;
+    memoSettings = s;
     const int nBlocks = (int)std::lround(s.at("nBlocks")), nTracking = (int)std::lround(s.at("nBlocksTracking"));
     const double dzMm = s.at("dz") * 1000.0, halfMm = s.at("CarbonThickness") * 1000.0 / 2.0;
     const int nElements = (nBlocks + 1) * nTracking + nBlocks;
@@ -82,7 +108,8 @@ inline std::string CarbonCeCut(){
         char w[96]; std::snprintf(w, sizeof w, "%s(fZ>%.3f && fZ<%.3f)", windows.empty() ? "" : " || ", zc - halfMm, zc + halfMm);
         windows += w;
     }
-    return "didChargeExchange>0 && fZ<7000 && (" + windows + ")";
+    memo = "didChargeExchange>0 && fZ<7000 && (" + windows + ")";
+    return memo;
 }
 
 // Plot title in the shared "N. Quantity, Label" format. title is "title;xaxis;yaxis". N is the leading digit groups of the
@@ -364,6 +391,7 @@ inline void WritePlotNumbers(TH1* h, const std::string& plotPath, std::set<std::
 // The side box with the cut numbers on every 6_cuts pdf and the crop of every pdf to its content (cut_side_box.py, crop_pdfs.py in the run folder, plot.sh runs them last
 // too): called at the end of the macros that write 6_cuts plots, so a single macro run leaves finished plots.
 inline void BoxAndCropPlots(){
+    if (std::getenv("PLOT_PIPELINE")) return; // plot.sh / Plot.pbs run both scripts after all lanes finished; running them here races with other lanes
     for (const char* script : {"cut_side_box.py", "crop_pdfs.py"})
         if (!gSystem->AccessPathName(script)) gSystem->Exec((std::string("python3 -I ") + script + " plots").c_str());
 }

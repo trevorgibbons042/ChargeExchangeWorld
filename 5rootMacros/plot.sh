@@ -8,8 +8,26 @@ run(){
     echo ">>> $1 took $((SECONDS - start)) s"
 }
 
+sh preflight.sh || exit 1 # skipped when run.sh already ran it (PREFLIGHT_DONE) or with PREFLIGHT=0
+# Cores: CutTrees runs with all of them, each of the 4 lanes with a quarter (the macros read ANA_NTHREADS through NThreads(), FitCore.h).
+# PLOT_PIPELINE=1: the macros skip BoxAndCropPlots (FitCore.h), the python steps below run once after every lane.
+export PLOT_PIPELINE=1
+NCPU=${NCPUS:-$(nproc 2>/dev/null || sysctl -n hw.ncpu)}
+export ANA_NTHREADS=$NCPU
+
 total=$SECONDS
-run 'CutTrees.cpp' # cuts/<ke>.root: the shared KE and block residual cuts the plot macros read (CutFiles.h)
+run 'CutTrees.cpp' # cuts/<ke>.root: the shared KE cuts the plot macros read (CutFiles.h); only ke_all unless CUTTREES_ALL=1
+
+# Compile every macro once, at the same time, before the lanes (ACLiC): two lanes never build the same .so, and the lanes skip the dependency check. Not with ACLIC= (interpreted).
+if [ "${ACLIC-+O}" != "" ]; then
+    for m in BuildCaches Plot3D QualityStudy PlotAngle PlotCEFraction PlotPolarization PlotFomPolarization PlotDiffPhiCuts GraphBlocks CETCompare SecondaryCE; do
+        root -l -b -q -e ".L $m.cpp${ACLIC-+O}" > /dev/null 2>&1 &
+    done
+    wait
+fi
+run 'BuildCaches.cpp' # the cut caches (CutCache.h, cuts/cache/) every lane reads, built once with all the threads
+
+export ANA_NTHREADS=$(( NCPU / 4 > 0 ? NCPU / 4 : 1 ))
 
 # Lanes run at the same time. A lane holds the macros that write into the same plots/ folders (stats.csv and fit_values.csv are
 # truncated per folder) or read another's csv files, in order; no two lanes share a folder.

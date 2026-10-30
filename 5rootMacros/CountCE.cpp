@@ -15,6 +15,7 @@
 #include <tuple>
 #include <vector>
 
+#include "CutCache.h"
 #include "FitCore.h"
 
 void CountCE(){
@@ -30,17 +31,21 @@ void CountCE(){
     info->Add(filename);
     if (ce->GetEntries() == 0 || info->GetEntries() == 0) return;
 
-    ROOT::EnableImplicitMT(128);
+    ROOT::EnableImplicitMT(NThreads());
+
+    // every carbon-block CE: the cut cache of CarbonCeCut (the seed cut_CE.root, CutCache.h), so every row passes. Pass 1 needs no filter, the block copies below only the z window.
+    const CacheTree ceCarbon = GetCutTree(filename.Data(), "ChargeExchange_values", {cut.Data()});
+    if (!ceCarbon.tree){Error("CountCE", "no cut cache for the carbon CE (run CutEvents.cpp)"); return;}
 
     // CE z positions and (event, track id) of every CE
     std::vector<double> z;
     std::set<std::pair<long,long>> ceKeys;
     {
         // per-thread-slot containers merged afterwards, so no global lock; z is sorted below
-        ROOT::RDataFrame dfCE(*ce);
+        ROOT::RDataFrame dfCE(*ceCarbon.tree);
         std::vector<std::vector<double>> slotZ(dfCE.GetNSlots());
         std::vector<std::set<std::pair<long,long>>> slotKeys(dfCE.GetNSlots());
-        dfCE.Filter(cut.Data()).ForeachSlot([&](unsigned slot, Int_t ev, Int_t trk, Double_t fz){
+        dfCE.ForeachSlot([&](unsigned slot, Int_t ev, Int_t trk, Double_t fz){
             slotZ[slot].push_back(fz);
             slotKeys[slot].insert({ev, trk});
         }, {"fEvent", "TrackID", "fZ"});
@@ -169,10 +174,10 @@ void CountCE(){
     for (size_t b = 0; b < blocks.size(); b++) {
         double lo = z[blocks[b].first];
         double hi = z[blocks[b].second];
-        TString sel = Form("(%s) && fZ>=%.6f && fZ<=%.6f", cut.Data(), lo - 1.0, hi + 1.0);
+        TString sel = Form("fZ>=%.6f && fZ<=%.6f", lo - 1.0, hi + 1.0); // the carbon atoms of CarbonCeCut are already applied (cache)
 
         out->cd();
-        TTree *t = ce->CopyTree(sel);
+        TTree *t = ceCarbon.tree->CopyTree(sel);
         t->SetName(Form("Block%zu", b + 1));
         t->SetTitle(Form("CE in block %zu, z %.0f to %.0f mm", b + 1, lo, hi));
         

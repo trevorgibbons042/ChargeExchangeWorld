@@ -30,36 +30,17 @@
 #include <TStyle.h>
 
 #include "BlockLimits.h"
+#include "CutCache.h"
 #include "FitCore.h"
+#include "Plot3DCols.h"
 #include "QualityCut.h"
 
-// (fEvent, TrackID) of every proton with a reconstructed track (cut_angles_all.root, Angles). The position plots only show these protons,
-// the ones that can actually be drawn on the ZDC. isReco is called from the TTree::Draw cuts.
-// gRecoTracksD: the ones that also pass the block residual cut (PassesBlockResidual, QualityCut.h), for the block position plots only.
-// gRes2Tracks: block residual under 2 mm, the _res2mm twin of every KE cut (kRes2Mm, QualityCut.h).
-std::set<std::pair<int, int>> gRecoTracks, gRecoTracksD, gRes2Tracks;
-bool isReco(int fEvent, int trackID){return gRecoTracks.count({fEvent, trackID}) > 0;}
-bool isRes2(int fEvent, int trackID){return gRes2Tracks.count({fEvent, trackID}) > 0;}
-bool isRecoD(int fEvent, int trackID){return gRecoTracksD.count({fEvent, trackID}) > 0;}
-
-// Cut candidates of every fitted proton (cut_angles_all.root, AnglesRaw, before any cut) by (fEvent, TrackID), for the 1_additionalinfo plots of the KE cut folders.
-// Index: see kInfoVars in Plot3D (14, 15: recon phi and recon block phi in degrees, 0 to 360). rawOk is the Draw cut that keeps the protons that have a finite value.
-std::map<std::pair<int, int>, std::array<double, 17>> gRawVals; // 16: recon vertex z (mm), from the block position line fit
-bool rawOk(int fEvent, int trackID, int k){
-    auto it = gRawVals.find({fEvent, trackID});
-    return it != gRawVals.end() && std::isfinite(it->second[k]);
-}
-double rawVal(int fEvent, int trackID, int k){return gRawVals.at({fEvent, trackID})[k];}
-
-// True if the recon block theta (k 11) is within the limit of the block nearest the recon vertex z (k 16), BlockLimits.h.
-bool thetaOk(int fEvent, int trackID){
-    const auto it = gRawVals.find({fEvent, trackID});
-    return it != gRawVals.end() && BlockThetaOk(it->second[11], it->second[16]);
-}
+// The maps (gRecoTracks, gRawVals, ...), isReco/rawVal/rawOk/thetaOk and the cached p3d_v1 columns that replace them in the Draw cuts (P3) are in Plot3DCols.h.
 
 struct SampleCut {std::string dir, expr, label, onFolder;}; // see sampleCuts in Plot3D
 
 void Plot3D(){
+    ROOT::EnableImplicitMT(NThreads()); // implicit MT for the file reads (NThreads: ANA_NTHREADS, FitCore.h)
     std::string folder = "plots";
 
     // step folders only; CE and recon proton plots share a folder, file names end in _CE or _recon
@@ -73,60 +54,25 @@ void Plot3D(){
 
     double Graph = 1;
 
-    {
-        TFile* fReco = TFile::Open("cuts/cut_angles_all.root", "READ");
-        TTree* reco = fReco ? (TTree*)fReco->Get("Angles") : nullptr;
-        if (!reco){Error("Plot3D", "missing Angles tree in cut_angles_all.root (run ReconAngleAll.cpp first)"); return;}
-        int ev, tid;
-        double resDRms = 0;
-        reco->SetBranchAddress("fEvent", &ev); reco->SetBranchAddress("TrackID", &tid);
-        reco->SetBranchAddress("resDRms", &resDRms);
-        for (Long64_t i = 0; i < reco->GetEntries(); i++){
-            reco->GetEntry(i);
-            gRecoTracks.insert({ev, tid});
-            if (PassesBlockResidual(resDRms)) gRecoTracksD.insert({ev, tid});
-            if (resDRms < kRes2Mm) gRes2Tracks.insert({ev, tid});
-        }
-        TTree* raw = (TTree*)fReco->Get("AnglesRaw");
-        if (raw && raw->GetBranch("nProtonsEv")){
-            double v[17]; double thetaRad, thetaBlockRad, phiRad, phiBlockRad; int nP, zOk, nH;
-            raw->SetBranchAddress("fEvent", &ev); raw->SetBranchAddress("TrackID", &tid);
-            const char* dn[6] = {"resRms", "resDRms", "impact", "impactD", "r2", "r2D"};
-            for (int i = 0; i < 6; i++) raw->SetBranchAddress(dn[i], &v[i]);
-            raw->SetBranchAddress("nProtonsEv", &nP); raw->SetBranchAddress("zOrderOK", &zOk); raw->SetBranchAddress("nHits", &nH);
-            raw->SetBranchAddress("outPhi", &phiRad); raw->SetBranchAddress("outDPhi", &phiBlockRad);
-            raw->SetBranchAddress("firstXD", &v[12]); raw->SetBranchAddress("firstYD", &v[13]);
-            raw->SetBranchAddress("z_bx_reconVertexOut", &v[16]); raw->SetBranchAddress("resHalfRatioD", &v[8]); raw->SetBranchAddress("outTheta", &thetaRad); raw->SetBranchAddress("outDTheta", &thetaBlockRad);
-            for (Long64_t i = 0; i < raw->GetEntries(); i++){
-                raw->GetEntry(i);
-                v[14] = (phiRad < 0 ? phiRad + 2 * TMath::Pi() : phiRad) * TMath::RadToDeg(); v[15] = (phiBlockRad < 0 ? phiBlockRad + 2 * TMath::Pi() : phiBlockRad) * TMath::RadToDeg();
-                v[6] = nP; v[7] = zOk; v[9] = thetaRad * TMath::RadToDeg(); v[10] = nH; v[11] = thetaBlockRad * TMath::RadToDeg();
-                std::array<double, 17> a; std::copy(v, v + 17, a.begin());
-                gRawVals[{ev, tid}] = a;
-            }
-        }
-        fReco->Close();
-    }
+    FillBlockLimits(ReadSettings()); // the maps are loaded only when a cache is built (Plot3DColumns), not on a cache hit
 
-    FillBlockLimits(ReadSettings());
 
     TFile* File = TFile::Open("cuts/cut_CE.root", "READ");
-    TFile* File2 = TFile::Open("cuts/cut_ParentID.root", "READ");
     TFile* FileFake = TFile::Open("cuts/cut_FakeID.root", "READ");
 
     TTree *events = (TTree*)File->Get("ParticleInfo");
     TTree *ChargeExchange = (TTree*)File->Get("ChargeExchange_values");
 
-    TTree *events2 = (TTree*)File2->Get("ParticleInfo");
-    TTree *ChargeExchange2 = (TTree*)File2->Get("ChargeExchange_values");
-
+    // events2: ZDC protons of the CE children (cut_ParentID.root) and eventsAllEv: ZDC protons of every event (cut_AllEvProtons.root), both from the cut cache with the p3d_v1 columns (Plot3DCols.h);
+    // every Draw cut goes through P3() so isReco(fEvent, TrackID) etc. read those columns
+    CacheTree cacheCE = Plot3DCE(), cacheAllEv = Plot3DAllEv();
+    TTree *events2 = cacheCE.tree;
     TTree *eventsFake = (TTree*)FileFake->Get("ParticleInfo");
     TTree *ChargeExchangeFake = (TTree*)FileFake->Get("ChargeExchange_values");
 
     // every event, not only the CE events kept in cut_CE.root: third "all protons in all events" set next to CE protons and all protons in CE events
-    TFile* FileAllEv = TFile::Open("cuts/cut_AllEvProtons.root", "READ"); // ZDC protons of every event, written by CutEvents.cpp (every plot below cuts on them anyway)
-    TTree* eventsAllEv = FileAllEv ? (TTree*)FileAllEv->Get("ParticleInfo") : nullptr;
-    if (!eventsAllEv){Error("Plot3D", "missing cut_AllEvProtons.root (run CutEvents.cpp first)"); return;}
+    TTree* eventsAllEv = cacheAllEv.tree;
+    if (!events2 || !eventsAllEv){Error("Plot3D", "missing cut caches (run CutEvents.cpp first)"); return;}
 
 
     if (Graph == 1){
@@ -145,7 +91,7 @@ void Plot3D(){
                             const std::string& path, const char* opt = "", const std::function<void(TH1*)>& tweak = nullptr){
             gSystem->mkdir(gSystem->GetDirName(path.c_str()), true);
             canvas->Clear();
-            t->Draw(expr.c_str(), cut.c_str(), opt);
+            t->Draw(P3(expr).c_str(), P3(cut).c_str(), opt);
             TH1* h = t->GetHistogram();
             const size_t axes = title.find(';');
             h->SetTitle(PlotTitle(path, title.substr(0, axes) + titleSuffix + (axes == std::string::npos ? "" : title.substr(axes))).c_str());
@@ -154,9 +100,9 @@ void Plot3D(){
             h->SetName(StatsTitle(h, title.substr(0, std::min(title.find(','), axes)) + (t == events2 ? ", CE protons" : t == eventsAllEv ? ", all recon protons" : "")).c_str()); // quantity: the title up to its first comma
             if (t == eventsAllEv){ // all recon protons: the CE ones (cut_ParentID.root) under the same cut
                 canvas->cd();
-                DrawCEPercent(events2->GetEntries(cut.c_str()), h->GetEntries(), nCERecoAll, nRecoAll); // lost: vs every reco CE proton at the ZDC
+                DrawCEPercent(events2->GetEntries(P3(cut).c_str()), h->GetEntries(), nCERecoAll, nRecoAll); // lost: vs every reco CE proton at the ZDC
             } else if (t == events2 && nCERecoAll > 0){ // CE protons only: the share the cuts lose, vs every CE proton at the ZDC (reco or not, as the cut asks)
-                const double nCE = events2->GetEntries(cut.c_str());
+                const double nCE = events2->GetEntries(P3(cut).c_str());
                 const double nBase = cut.find("isReco") != std::string::npos ? nCERecoAll : nCEZdcAll;
                 canvas->cd();
                 if (nCE < nBase) DrawCEPercent(nCE, -1, nBase);
@@ -176,7 +122,7 @@ void Plot3D(){
         const std::string zdcProtons = "boundaryType == 2 && pdg == 2212";
         // position plots: only protons with a reconstructed track
         const std::string zdcReco = zdcProtons + " && isReco(fEvent, TrackID)", zdcRecoAll = zdcReco;
-        nCERecoAll = events2->GetEntries(zdcRecoAll.c_str()); nCEZdcAll = events2->GetEntries(zdcProtons.c_str()); nRecoAll = eventsAllEv->GetEntries(zdcRecoAll.c_str());
+        nCERecoAll = events2->GetEntries(P3(zdcRecoAll).c_str()); nCEZdcAll = events2->GetEntries(P3(zdcProtons).c_str()); nRecoAll = eventsAllEv->GetEntries(P3(zdcRecoAll).c_str());
         const std::string zdcRecoDAll = zdcProtons + " && isRecoD(fEvent, TrackID)"; // block position plots: also the block residual cut
 
         // Position plots have no KE cut: 1_position/1_true/ and 1_position/2_block/
@@ -236,7 +182,7 @@ void Plot3D(){
                 for (const auto& r : energyRanges){
                     drawPlot(eventsAllEv, q.branch + ">>hKE" + binSpec(r), zdcRecoE, q.title + ", all recon protons that hit ZDC and CE protons that hit ZDC (reconstructed or not);" + q.axis + ";Count",
                              folder_smear + std::to_string(&q - &keQtys[0] + 1) + "_" + q.file + r.tag + ".pdf", "", [&](TH1* h){
-                        events2->Draw((q.branch + ">>hKECE" + binSpec(r)).c_str(), zdcProtonsE.c_str(), "same");
+                        events2->Draw((q.branch + ">>hKECE" + binSpec(r)).c_str(), P3(zdcProtonsE).c_str(), "same");
                         TH1* hCE = static_cast<TH1*>(gDirectory->Get("hKECE"));
                         hCE->SetLineColor(kRed); hCE->SetStats(0);
                         h->SetMinimum(0.5); canvas->SetLogy(1);
@@ -285,15 +231,15 @@ void Plot3D(){
                 const std::string realOutCut = zdcReco + " && " + e.branch + " < " + cut;
                 const std::string fakeKeptCut = zdcReco + " && " + e.branch + " > " + cut;
                 // counts over all KE (not only the plotted range): CE protons left out of the cut out of all CE protons, all recon protons kept in out of all recon protons
-                const long long nRealOut = events2->GetEntries(realOutCut.c_str()), nRealTotal = events2->GetEntries(zdcReco.c_str());
-                const long long nFakeKept = eventsAllEv->GetEntries(fakeKeptCut.c_str()), nFakeTotal = eventsAllEv->GetEntries(zdcReco.c_str());
+                const long long nRealOut = events2->GetEntries(P3(realOutCut).c_str()), nRealTotal = events2->GetEntries(P3(zdcReco).c_str());
+                const long long nFakeKept = eventsAllEv->GetEntries(P3(fakeKeptCut).c_str()), nFakeTotal = eventsAllEv->GetEntries(P3(zdcReco).c_str());
                 const double realOutPct = 100.0 * nRealOut / std::max<long long>(1, nRealTotal);
                 const double fakeKeptPct = 100.0 * nFakeKept / std::max<long long>(1, nFakeTotal);
                 for (const auto& r : keRanges){
                 // real (reconstructed CE protons) and all reconstructed protons of all events on one plot, with the cut and what it does to each
                 drawPlot(events2, e.branch + ">>hCutRealOv" + binSpec(r), zdcReco, e.label + " of Protons, CE recon protons vs all recon protons, both hit ZDC, " + pctStr + " cut" + axis, folder_cut + "3_real_vs_recon_" + e.dir + r.tag + ".pdf", "", [&](TH1* h){
                     h->SetLineColor(kBlue);
-                    eventsAllEv->Draw((e.branch + ">>hCutFakeOv" + binSpec(r)).c_str(), zdcReco.c_str(), "same");
+                    eventsAllEv->Draw((e.branch + ">>hCutFakeOv" + binSpec(r)).c_str(), P3(zdcReco).c_str(), "same");
                     TH1* hf = static_cast<TH1*>(gDirectory->Get("hCutFakeOv"));
                     hf->SetLineColor(kRed);
                     h->SetMinimum(0.5); h->SetMaximum(2.0 * std::max(h->GetMaximum(), hf->GetMaximum())); canvas->SetLogy(1); // log y, full x range of the file name, the cut is the dashed line
@@ -329,8 +275,8 @@ void Plot3D(){
         struct RankRow {std::string cut, sample; double nCEin, nAllIn, nCEtotal, nCEreconBefore, fom[2], pol[2], polErr[2];}; // fom, pol (fitted P), polErr: [0] recon theta / phi, [1] recon block theta / phi
         double nCEreconTotal = 0; // every CE proton with a fitted track (AnglesRaw, isFromCE), no ZDC requirement: CE_before of the QualityStudy csv files, the CE_recon_before_cut of the csv files
         // AnglesRaw: every proton with a fitted track, ZDC hit or not. The cut folders count, fit and plot these (no ZDC requirement), except with the 80% ZDC KE cut.
-        TFile* fRaw = TFile::Open("cuts/cut_angles_all.root", "READ");
-        TTree* rawT = fRaw ? (TTree*)fRaw->Get("AnglesRaw") : nullptr;
+        CacheTree cacheRaw = Plot3DRaw(); // AnglesRaw + the p3d_v1 columns
+        TTree* rawT = cacheRaw.tree;
         gROOT->cd();
         if (rawT) nCEreconTotal = rawT->GetEntries("isFromCE==1");
         const std::string rawCE = "isFromCE==1";
@@ -342,7 +288,7 @@ void Plot3D(){
             const int ks[2] = {9, 11};
             for (int j = 0; j < 2; j++){
                 t->SetEstimate(t->GetEntries() + 1);
-                const Long64_t n = t->Draw(Form("rawVal(fEvent, TrackID, %d)", ks[j]), (q + Form(" && rawOk(fEvent, TrackID, %d)", ks[j])).c_str(), "goff");
+                const Long64_t n = t->Draw(P3(Form("rawVal(fEvent, TrackID, %d)", ks[j])).c_str(), P3(q + Form(" && rawOk(fEvent, TrackID, %d)", ks[j])).c_str(), "goff");
                 double sum = 0;
                 for (Long64_t i = 0; i < n; i++){
                     const double th = t->GetV1()[i];
@@ -361,14 +307,14 @@ void Plot3D(){
             const std::string q = qIn + Form(" && rawOk(fEvent, TrackID, %d) && rawOk(fEvent, TrackID, %d)", kPhi, kTheta);
             *pol = 0; *polErr = 0;
             t->SetEstimate(t->GetEntries() + 1);
-            const Long64_t n = t->Draw(Form("rawVal(fEvent, TrackID, %d)", kTheta), q.c_str(), "goff");
+            const Long64_t n = t->Draw(P3(Form("rawVal(fEvent, TrackID, %d)", kTheta)).c_str(), P3(q).c_str(), "goff");
             double aMean = 0;
             const double apScalePhi = ReadSettings().at("APScale"); // settings.csv is read from disk on every call, keep it out of the event loop
             for (Long64_t i = 0; i < n; i++)
                 aMean += APFromT(kBeamMomentum, TFromAngle(kBeamMomentum, (std::floor(t->GetV1()[i] / 0.05) + 0.5) * 0.05 * TMath::Pi() / 180), apScalePhi) / std::max<Long64_t>(1, n);
             canvas->Clear(); canvas->SetRightMargin(0.25); canvas->SetTopMargin(0.17);
             const std::string hn = j ? "hPhiReDfit" : "hPhiRefit";
-            t->Draw(Form("rawVal(fEvent, TrackID, %d)>>%s(50,0,360)", kPhi, hn.c_str()), q.c_str(), path.empty() ? "goff" : "");
+            t->Draw(P3(Form("rawVal(fEvent, TrackID, %d)>>%s(50,0,360)", kPhi, hn.c_str())).c_str(), P3(q).c_str(), path.empty() ? "goff" : "");
             TH1* h = static_cast<TH1*>(gDirectory->Get(hn.c_str()));
             if (h && h->GetEntries() >= 10){
                 h->SetTitle((title + ";Angle (degrees);Count").c_str());
@@ -393,30 +339,30 @@ void Plot3D(){
             if (h) delete h;
             canvas->SetRightMargin(0.30); canvas->SetTopMargin(0.1);
         };
+        TChain ceAllChain("ChargeExchange_values"); ceAllChain.Add("output0_t*.root"); // every charge exchange the sim made (all rows of every raw file), counted once
+        const Long64_t nCEallZdcAll = ceAllChain.GetEntries();
         for (const auto& e : cutEnergies) for (const bool ke80 : {false, true}){ // the uncut sample (1_hitZDC) is in every ranking as the baseline
             const std::string q = zdcRecoAll + (ke80 ? " && " + e.branch + " > " + std::to_string(initialKE * 0.80) : "");
-            TChain ceAll("ChargeExchange_values"); ceAll.Add("output0_t*.root");
             double fom[2], pol[2], polErr[2]; fomStats(events2, q, fom);
             for (int j = 0; j < 2; j++) phiFit(events2, q, j, "", "", &pol[j], &polErr[j]);
-            rankRows.push_back({"1_hitZDC (no cut)", ke80 ? "cut and ZDC KE > 80%" : "cut", double(events2->GetEntries(q.c_str())), double(eventsAllEv->GetEntries(q.c_str())), double(ceAll.GetEntries()),
+            rankRows.push_back({"1_hitZDC (no cut)", ke80 ? "cut and ZDC KE > 80%" : "cut", double(events2->GetEntries(P3(q).c_str())), double(eventsAllEv->GetEntries(P3(q).c_str())), double(nCEallZdcAll),
                                 nCEreconTotal, {fom[0], fom[1]}, {pol[0], pol[1]}, {polErr[0], polErr[1]}});
         }
         for (const auto& sc : sampleCuts) for (const auto& e : cutEnergies) for (const bool ke80 : {false, true}){ // 0_KE_hitZDC (the cut and hitting the ZDC) and 0_KE_KECUT80 (also the 80% KE cut)
             const std::string folder_res = folder_KEcuts + sc.dir + "/1_additionalinfo/";
             const double cutVal = initialKE * 0.80; // the 80% KE cut of 2_KECUT80
             const std::string qCut = zdcRecoAll + " && " + sc.expr + (ke80 ? " && " + e.branch + " > " + std::to_string(cutVal) : "");
-            const long long nCEq = events2->GetEntries(qCut.c_str()), nAllq = eventsAllEv->GetEntries(qCut.c_str());
+            const long long nCEq = events2->GetEntries(P3(qCut).c_str()), nAllq = eventsAllEv->GetEntries(P3(qCut).c_str());
             { // cut_ratios.csv in the cut folder, one row without and one with the 80% KE cut: CE recon protons in the cut (no ZDC requirement without the 80% KE cut) over all recon protons in the cut,
               // over all CE protons the sim made (no reconstruction or ZDC requirement), and over all CE recon protons that hit ZDC before the cut
-                TChain ceAll("ChargeExchange_values"); ceAll.Add("output0_t*.root"); // every charge exchange the sim made, one CE proton each
-                const long long nCEallZdc = ceAll.GetEntries();
+                const long long nCEallZdc = nCEallZdcAll; // every charge exchange the sim made, one CE proton each
                 gSystem->mkdir((folder_KEcuts + sc.dir).c_str(), true);
                 FILE* rf = fopen((folder_KEcuts + sc.dir + "/cut_ratios.csv").c_str(), ke80 ? "a" : "w");
                 if (!ke80) fprintf(rf, "sample,CE_recon_proton_in_cut,recon_proton_in_cut,CE_recon_proton_in_cut/recon_proton_in_cut,CE_protons_total,CE_recon_before_cut,CE_recon_proton_in_cut/CE_recon_before_cut,nonCE_recon_proton_in_cut,nonCE_recon_proton_in_cut/recon_proton_in_cut,FOM_theta,FOM_thetaBlock,P_phiRe,P_phiRe_err,P_phiReD,P_phiReD_err\n");
                 // without the 80% KE cut no ZDC hit is required (AnglesRaw); the ZDC KE cut needs the ZDC, so that row is CE recon protons that hit ZDC
                 TTree* tS = ke80 ? events2 : rawT;
                 const std::string qS = ke80 ? qCut : sc.expr, qSCE = ke80 ? qCut : rawCE + " && " + sc.expr;
-                const long long nCEc = tS->GetEntries(qSCE.c_str()), nAllc = ke80 ? nAllq : tS->GetEntries(qS.c_str());
+                const long long nCEc = tS->GetEntries(P3(qSCE).c_str()), nAllc = ke80 ? nAllq : tS->GetEntries(P3(qS).c_str());
                 double fom[2], pol[2], polErr[2]; fomStats(tS, qSCE, fom);
                 for (int j = 0; j < 2; j++) phiFit(tS, qSCE, j, "", "", &pol[j], &polErr[j]);
                 fprintf(rf, "%s,%lld,%lld,%.6f,%lld,%.0f,%.6f,%lld,%.6f,%.6g,%.6g,%.5f,%.5f,%.5f,%.5f\n", ke80 ? "cut and ZDC KE > 80%" : "cut", nCEc, nAllc, double(nCEc) / std::max<long long>(1, nAllc),
@@ -428,7 +374,7 @@ void Plot3D(){
             for (const auto& r : keRanges){
                 drawPlot(events2, e.branch + ">>hResCE" + binSpec(r), qCut, e.label + " of Protons that hit ZDC, " + sc.label + (ke80 ? ", ZDC KE > 80%" : "") + ", CE recon protons vs all recon protons;" + e.label + " (MeV);Count", folder_res + (ke80 ? "0_KE_KECUT80_" : "0_KE_hitZDC_") + e.dir + r.tag + ".pdf", "", [&](TH1* h){
                     h->SetLineColor(kBlue);
-                    eventsAllEv->Draw((e.branch + ">>hResAll" + binSpec(r)).c_str(), qCut.c_str(), "same");
+                    eventsAllEv->Draw((e.branch + ">>hResAll" + binSpec(r)).c_str(), P3(qCut).c_str(), "same");
                     TH1* hf = static_cast<TH1*>(gDirectory->Get("hResAll"));
                     hf->SetLineColor(kRed);
                     h->SetMinimum(0.5); h->SetMaximum(2.0 * std::max(h->GetMaximum(), hf->GetMaximum())); canvas->SetLogy(1);
@@ -484,7 +430,7 @@ void Plot3D(){
                     const int kT = j ? 11 : 9, kPh = j ? 15 : 14;
                     const std::string qS = ps.base + ps.expr + Form(" && rawOk(fEvent, TrackID, %d) && rawOk(fEvent, TrackID, %d)", kT, kPh);
                     ps.t->SetEstimate(ps.t->GetEntries() + 1);
-                    const Long64_t n = ps.t->Draw(Form("rawVal(fEvent, TrackID, %d):rawVal(fEvent, TrackID, %d)", kT, kPh), qS.c_str(), "goff");
+                    const Long64_t n = ps.t->Draw(P3(Form("rawVal(fEvent, TrackID, %d):rawVal(fEvent, TrackID, %d)", kT, kPh)).c_str(), P3(qS).c_str(), "goff");
                     std::vector<double> th(ps.t->GetV1(), ps.t->GetV1() + n), ph(ps.t->GetV2(), ps.t->GetV2() + n);
                     std::vector<double> aEv(n); // model A of every event, the same for every start theta
                     {const double apScalePhi = ReadSettings().at("APScale"); for (Long64_t i = 0; i < n; i++) aEv[i] = APFromT(kBeamMomentum, TFromAngle(kBeamMomentum, (std::floor(th[i] / 0.05) + 0.5) * 0.05 * TMath::Pi() / 180), apScalePhi);}
@@ -548,7 +494,7 @@ void Plot3D(){
             gSystem->mkdir(folder_hit.c_str(), true);
             drawPlot(events2, e.branch + ">>hHitCE" + binSpec(r), zdcRecoAll, e.label + " of Protons that hit the ZDC, CE recon protons that hit ZDC vs all events recon;" + e.label + " (MeV);Count", folder_hit + "1_real_vs_recon_" + e.dir + r.tag + ".pdf", "", [&](TH1* h){
                 h->SetLineColor(kBlue);
-                eventsAllEv->Draw((e.branch + ">>hHitRecon" + binSpec(r)).c_str(), zdcRecoAll.c_str(), "same");
+                eventsAllEv->Draw((e.branch + ">>hHitRecon" + binSpec(r)).c_str(), P3(zdcRecoAll).c_str(), "same");
                 TH1* hr = static_cast<TH1*>(gDirectory->Get("hHitRecon"));
                 hr->SetLineColor(kRed);
                 h->SetMinimum(0.5); h->SetMaximum(2.0 * std::max(h->GetMaximum(), hr->GetMaximum())); canvas->SetLogy(1);
@@ -572,17 +518,28 @@ void Plot3D(){
             {"theta", "7_theta", "recon theta (degrees)", 9, 0, 2.3, 100}, {"nHits", "8_nHits", "tracker hits", 10, -0.5, 19.5, 20},
             {"thetaBlock", "7_theta", "recon block theta (degrees)", 11, 0, 2.3, 100},
             {"firstXD", "9_firstHit", "first tracker hit x, block position (mm)", 12, -20, 20, 80}, {"firstYD", "9_firstHit", "first tracker hit y, block position (mm)", 13, -20, 20, 80}};
-        if (!gRawVals.empty()){
+        // 1st and 99th percentile of every fitted proton's value k (the raw_k column of the AnglesRaw cache where ok_k is 1), once per variable
+        std::map<int, std::pair<double, double>> quantileCache;
+        auto quantiles = [&](int k){
+            const auto hit = quantileCache.find(k);
+            if (hit != quantileCache.end()) return hit->second;
+            rawT->SetEstimate(rawT->GetEntries() + 1);
+            const Long64_t n = rawT->Draw(Form("raw_%d", k), Form("ok_%d==1", k), "goff");
+            std::vector<double> vals(rawT->GetV1(), rawT->GetV1() + n);
+            std::sort(vals.begin(), vals.end());
+            const std::pair<double, double> q = vals.empty() ? std::pair<double, double>{0.0, 0.0}
+                : std::pair<double, double>{vals[size_t(0.01 * vals.size())], vals[std::min(vals.size() - 1, size_t(0.99 * vals.size()))]};
+            return quantileCache[k] = q;
+        };
+        if (rawT && rawT->GetBranch("raw_0") && rawT->GetEntries() > 0){
             std::vector<std::pair<std::string, double>> infoCuts = {{"1_hitZDC", -1.0}}; // (folder, KE cut in MeV, -1 none)
             for (int pct : {80}) infoCuts.push_back({"2_KECUT" + std::to_string(pct), initialKE * pct / 100.0});
             for (const auto& sc : sampleCuts) infoCuts.push_back({sc.dir, -1.0}); // no KE cut: what each cut does to every variable
             for (const auto& ic : infoCuts) for (const auto& v : kInfoVars){
                 double lo = v.lo, hi = v.hi;
                 if (lo >= hi){
-                    std::vector<double> vals; for (const auto& kv : gRawVals) if (std::isfinite(kv.second[v.k])) vals.push_back(kv.second[v.k]);
-                    std::sort(vals.begin(), vals.end());
-                    const double q1 = vals[size_t(0.01 * vals.size())], q99 = vals[std::min(vals.size() - 1, size_t(0.99 * vals.size()))];
-                    lo = v.k >= 4 ? std::min(0.0, q1) : 0.0; hi = v.k >= 4 ? 1.0 : std::max(1e-6, 1.2 * q99);
+                    const auto [q1, q99] = quantiles(v.k);
+                    lo =v.k >= 4 ? std::min(0.0, q1) : 0.0; hi = v.k >= 4 ? 1.0 : std::max(1e-6, 1.2 * q99);
                 }
                 const SampleCut* sc = nullptr;
                 for (const auto& c : sampleCuts) if (c.dir == ic.first) sc = &c;
@@ -599,7 +556,7 @@ void Plot3D(){
                         gSystem->mkdir(xyDir.c_str(), true);
                         const double rmKeep = canvas->GetRightMargin(); canvas->SetLogz(1); canvas->SetRightMargin(0.15);
                         for (int k = 0; k < 2; k++){
-                            (k ? tAll : tCE)->Draw("rawVal(fEvent, TrackID, 13):rawVal(fEvent, TrackID, 12)>>hFirstXY(100,-50,50,100,-50,50)", (k ? xyCutAll : xyCut).c_str(), "colz");
+                            (k ? tAll : tCE)->Draw(P3("rawVal(fEvent, TrackID, 13):rawVal(fEvent, TrackID, 12)>>hFirstXY(100,-50,50,100,-50,50)").c_str(), P3(k ? xyCutAll : xyCut).c_str(), "colz");
                             TH1* hxy = static_cast<TH1*>(gDirectory->Get("hFirstXY"));
                             if (!hxy) continue;
                             hxy->SetStats(0);
@@ -612,9 +569,9 @@ void Plot3D(){
                     continue;
                 }
                 const std::string exprPre = "rawVal(fEvent, TrackID, " + std::to_string(v.k) + ")>>hInfo", spec = Form("(%d,%g,%g)", v.nBins, lo, hi);
-                tCE->Draw((exprPre + "CE" + spec).c_str(), cut.c_str(), "goff");
+                tCE->Draw(P3(exprPre + "CE" + spec).c_str(), P3(cut).c_str(), "goff");
                 TH1* hCE = static_cast<TH1*>(gDirectory->Get("hInfoCE"));
-                tAll->Draw((exprPre + "Recon" + spec).c_str(), cutAll.c_str(), "goff");
+                tAll->Draw(P3(exprPre + "Recon" + spec).c_str(), P3(cutAll).c_str(), "goff");
                 TH1* hRec = static_cast<TH1*>(gDirectory->Get("hInfoRecon"));
                 if (!hCE || !hRec) continue;
                 canvas->Clear(); canvas->SetLogy(1);

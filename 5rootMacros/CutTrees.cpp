@@ -4,6 +4,7 @@
 #include <TTree.h>
 
 #include <algorithm>
+#include <cstdlib>
 #include <string>
 
 #include "CutFiles.h"
@@ -23,7 +24,11 @@ void CutTrees(){
     for (TTree* t : trees) if (!t){Error("CutTrees", "a tree is missing (rerun CalcAPandT.cpp / ReconAngleAll.cpp)"); return;}
 
     gSystem->mkdir("cuts", true);
-    for (const auto& ke : KeCuts()){
+    // Only the ke_all lists are read by any macro (CutFiles.h); the 7 ke_gt* files are built only when CUTTREES_ALL=1.
+    const bool all = std::getenv("CUTTREES_ALL") && std::string(std::getenv("CUTTREES_ALL")) == "1";
+    auto kes = KeCuts();
+    if (!all) kes.resize(1);
+    for (const auto& ke : kes){
         TFile out(("cuts/" + ke.dir + ".root").c_str(), "RECREATE");
         for (TTree* t : trees){
             for (const bool block : {false, true}){
@@ -34,6 +39,13 @@ void CutTrees(){
                 if (block) cut = cut.empty() ? kBlockCut : cut + " && " + kBlockCut;
                 const std::string name = std::string(t->GetName()) + (block ? "_block" : "");
                 out.cd();
+                if (!block && cut.empty()){ // no cut: every entry passes, so no scan of the tree is needed
+                    TEntryList* l = new TEntryList(name.c_str(), "no cut", t);
+                    const Long64_t n = t->GetEntries();
+                    for (Long64_t i = 0; i < n; i++) l->Enter(i);
+                    l->SetDirectory(&out);
+                    continue;
+                }
                 t->Draw((">>" + name).c_str(), cut.c_str(), "entrylist");
                 TEntryList* l = (TEntryList*)out.Get(name.c_str());
                 if (l) l->SetTitle(cut.empty() ? "no cut" : cut.c_str());

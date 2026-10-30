@@ -22,6 +22,7 @@
 #include <string>
 #include <vector>
 
+#include <TROOT.h>
 #include "FitCore.h"
 #include "CutFiles.h"
 
@@ -135,6 +136,7 @@ static void DrawSliceGrid(const std::vector<std::vector<double>>& phis, const st
 }
 
 void PlotPolarization(std::string energy = "fKEnergy"){ // energy: "fKEnergy" (true KE) or "fDEnergy" (detector energy), picks the input trees and plot folder
+    ROOT::EnableImplicitMT(NThreads()); // implicit MT for the file reads (NThreads: ANA_NTHREADS, FitCore.h)
     const std::string suffix = (energy == "fDEnergy") ? "_DE" : "";
     const std::string keLabel = (energy == "fDEnergy") ? "ZDC KE" : "true KE";
     const double pRef = ReadSettings().at("PPValue");

@@ -17,6 +17,7 @@
 #include <string>
 #include <vector>
 
+#include <TROOT.h>
 #include "FitCore.h"
 #include "QualityCut.h"
 
@@ -31,6 +32,7 @@ static double Quantile(std::vector<double> v, double q){
 }
 
 void QualityStudy(double keepCE = 0.95){
+    ROOT::EnableImplicitMT(NThreads()); // implicit MT for the file reads (NThreads: ANA_NTHREADS, FitCore.h)
     gStyle->SetPalette(kViridis);
     TFile* f = TFile::Open("cuts/cut_angles_all.root", "READ");
     TTree* t = f ? (TTree*)f->Get("AnglesRaw") : nullptr;
