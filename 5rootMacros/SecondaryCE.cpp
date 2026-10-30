@@ -7,7 +7,8 @@
 #include <utility>
 #include <vector>
 
-#include "TEventList.h"
+#include "TF1.h"
+#include "TMath.h"
 #include "TCanvas.h"
 #include "TChain.h"
 #include "TROOT.h"
@@ -22,6 +23,7 @@
 #include "CutOpen.h"
 #include "FitCore.h"
 #include "QualityCut.h"
+#include "TreeColumns.h"
 
 // CE of the neutrons in the carbon blocks, split into the beam neutron (CECreator "primary", TrackID 1) and the secondary neutrons made by hadronic interactions.
 // 3_CEpolY_distribution.pdf: CEPolY of each group, CEPol is the spin the sim carries on the CE track (track->GetPolarization(), unit vectors, the beam
@@ -41,29 +43,28 @@ void SecondaryCE(){
     for (const char* sub : {"1_counts", "2_polarization", "3_energy", "4_position", "5_phi_cosfit"}) gSystem->mkdir((outDir + sub).c_str(), true); // one folder per kind of plot
 
     // carbon-block CE only, like the other CE plots (CarbonCeCut in FitCore.h)
-    // CECreator is a char leaf (the sim's string column), so it is read into a char buffer; the entry list picks the carbon-block CE
-    ce.Draw(">>ceList", ""); // every row of the cache
-    auto* list = static_cast<TEventList*>(gDirectory->Get("ceList"));
-    int trackID = 0, fEvent = 0;
+    // ce is read once, multithreaded, into one vector per column (Columns, TreeColumns.h; CECreator is a char leaf, read as a std::string), every row of the cache in entry order
+    const bool hasVz = ce.GetBranch("CEVertexZ");
+    std::vector<std::string> ceExprs = {"fEvent", "TrackID", "CEPolY", "LastAP", "LastPhiLab", "fX", "fY"};
+    if (hasVz) ceExprs.push_back("CEVertexZ");
+    const auto ceCol = Columns(&ce, ceExprs);
+    const auto& ceEvent = ceCol[0], &ceTrack = ceCol[1], &cePolY = ceCol[2], &ceAP = ceCol[3], &cePhiLab = ceCol[4], &ceX = ceCol[5], &ceYv = ceCol[6];
+    const auto ceCreator = Columns<std::string>(&ce, {"std::string(CECreator.data())"})[0];
+    const Long64_t nCE = ceEvent.size();
+    const auto creatorGroup = [](const std::string& c){return c == "primary" ? 0 : c == "neutronInelastic" ? 1 : c == "protonInelastic" ? 2 : 3;};
     std::map<std::pair<int, int>, int> groupOf; // (fEvent, CE neutron TrackID) -> 0 beam neutron, 1 neutronInelastic, 2 protonInelastic, 3 every other creator
-    double polX = 0, polY = 0, polZ = 0, lastAP = 0, lastPhiLab = 0;
     double sA[2] = {0, 0}, sCos[2] = {0, 0}; // model A and cos(lab phi) sums of the beam neutron CE (0) and the secondary CE (1), for the P estimate
-    char creator[256] = "";
-    ce.SetBranchAddress("TrackID", &trackID); ce.SetBranchAddress("fEvent", &fEvent);
-    ce.SetBranchAddress("CEPolX", &polX); ce.SetBranchAddress("CEPolY", &polY); ce.SetBranchAddress("CEPolZ", &polZ);
-    ce.SetBranchAddress("CECreator", creator);
-    ce.SetBranchAddress("LastAP", &lastAP); ce.SetBranchAddress("LastPhiLab", &lastPhiLab);
     TH1D hYprim("hYprim", "", 42, -1.05, 1.05), hYsec("hYsec", "", 42, -1.05, 1.05); // CEPolY of the beam neutron and of the secondary neutrons
     std::map<std::string, long long> byCreator;
     long long nPrim = 0, nSec = 0;
-    for (Long64_t k = 0; k < list->GetN(); k++){
-        ce.GetEntry(list->GetEntry(k));
+    for (Long64_t k = 0; k < nCE; k++){
+        const int fEvent = (int)ceEvent[k], trackID = (int)ceTrack[k];
         const int g = trackID == 1 ? 0 : 1;
-        (g == 0 ? hYprim : hYsec).Fill(polY);
-        sA[g] += lastAP; sCos[g] += std::cos(lastPhiLab);
+        (g == 0 ? hYprim : hYsec).Fill(cePolY[k]);
+        sA[g] += ceAP[k]; sCos[g] += std::cos(cePhiLab[k]);
         if (g == 0) nPrim++; else nSec++;
-        byCreator[creator]++;
-        groupOf[{fEvent, trackID}] = !strcmp(creator, "primary") ? 0 : !strcmp(creator, "neutronInelastic") ? 1 : !strcmp(creator, "protonInelastic") ? 2 : 3;
+        byCreator[ceCreator[k]]++;
+        groupOf[{fEvent, trackID}] = creatorGroup(ceCreator[k]);
     }
     const double fracSec = 100.0 * nSec / std::max<long long>(1, nPrim + nSec);
 
@@ -154,14 +155,13 @@ void SecondaryCE(){
     if (!piPtr){Error("SecondaryCE", "no cuts/cut_ParentZdc.root (run CutEvents.cpp)"); return;}
     TTree& pi = *piPtr;
     gROOT->cd();
-    int piEvent = 0, piParent = 0; double piKE = 0, piDE = 0;
-    pi.SetBranchAddress("fEvent", &piEvent); pi.SetBranchAddress("ParentID", &piParent); pi.SetBranchAddress("fKEnergy", &piKE); pi.SetBranchAddress("fDEnergy", &piDE);
+    // pi is read once, multithreaded, every row of the cache in entry order: the ZDC protons of the CE children
+    const auto piCol = Columns(&pi, {"fEvent", "ParentID", "TrackID", "fKEnergy", "fDEnergy"});
+    const Long64_t nPi = piCol[0].size();
     const double cutKE = 0.80 * kBeamKE; // MeV, the 80% KE cut of the other plots (initialKE * 0.80, Plot3D.cpp), on the smeared energy fDEnergy
     long long nAbove[4] = {0, 0, 0, 0}; // CE protons of each creator above the cut
-    pi.Draw(">>zdcList", ""); // every row of the cache: the ZDC protons of the CE children
-    auto* zdcList = static_cast<TEventList*>(gDirectory->Get("zdcList"));
-    for (Long64_t k = 0; k < zdcList->GetN(); k++){
-        pi.GetEntry(zdcList->GetEntry(k));
+    for (Long64_t k = 0; k < nPi; k++){
+        const int piEvent = (int)piCol[0][k], piParent = (int)piCol[1][k]; const double piKE = piCol[3][k], piDE = piCol[4][k];
         const auto it = groupOf.find({piEvent, piParent});
         if (it != groupOf.end()){hKE[0][it->second].Fill(piKE); hKE[1][it->second].Fill(piDE); if (piDE > cutKE) nAbove[it->second]++;}
     }
@@ -198,14 +198,13 @@ void SecondaryCE(){
     // 9_CE_x_position_by_creator.pdf: x of the neutron at the CE (fX, mm), one curve per process that made the CE neutron, same groups as the KE plots
     const std::string xFile = "4_position/9_CE_x_position_by_creator.pdf";
     std::vector<double> xs[4];
-    double fX = 0, xLo = 1e30, xHi = -1e30;
+    double xLo = 1e30, xHi = -1e30;
     std::map<std::pair<int, int>, double> xOf; // (fEvent, CE neutron TrackID) -> x at the CE
-    ce.SetBranchAddress("fX", &fX);
-    for (Long64_t k = 0; k < list->GetN(); k++){
-        ce.GetEntry(list->GetEntry(k));
-        const int g = !strcmp(creator, "primary") ? 0 : !strcmp(creator, "neutronInelastic") ? 1 : !strcmp(creator, "protonInelastic") ? 2 : 3;
+    for (Long64_t k = 0; k < nCE; k++){
+        const int g = creatorGroup(ceCreator[k]);
+        const double fX = ceX[k];
         xs[g].push_back(fX); xLo = std::min(xLo, fX); xHi = std::max(xHi, fX);
-        xOf[{fEvent, trackID}] = fX;
+        xOf[{(int)ceEvent[k], (int)ceTrack[k]}] = fX;
     }
     const double xPad = 0.02 * (xHi - xLo) + 1e-6;
     TH1D hX[4];
@@ -228,8 +227,8 @@ void SecondaryCE(){
     TH1D hXc[4];
     double xcMax = 0;
     for (int g = 0; g < 4; g++) hXc[g] = TH1D(Form("hXc%d", g), "", 100, xLo - xPad, xHi + xPad);
-    for (Long64_t k = 0; k < zdcList->GetN(); k++){
-        pi.GetEntry(zdcList->GetEntry(k));
+    for (Long64_t k = 0; k < nPi; k++){
+        const int piEvent = (int)piCol[0][k], piParent = (int)piCol[1][k]; const double piDE = piCol[4][k];
         const auto it = groupOf.find({piEvent, piParent});
         if (it != groupOf.end() && piDE > cutKE) hXc[it->second].Fill(xOf.at({piEvent, piParent}));
     }
@@ -244,14 +243,13 @@ void SecondaryCE(){
     canvas.SaveAs((outDir + xCutFile).c_str());
     // 18_phiCE_cosfit_beam_vs_all.pdf: the cos phi fit of 3_ReconCalcVals/1_phiCE_cosfit.pdf (N(phi) = N0 (1 + P <A> cos phi), N0 = entries / bins and <A> fixed, only P fitted, 50 bins of the CE
     // proton lab phi) for the CE of the beam neutron only (TrackID 1, red) and for every carbon-block CE (black)
-    // keep() picks the CE rows (it reads fEvent and trackID of the current entry), what is added to the title; 19_ is the same plot for the CE protons that hit the first tracker inside a square
-    const auto phiFitPlot = [&](const std::string& phiFile, const std::string& what, const std::function<bool()>& keep){
+    // keep(k) picks the CE rows (it reads the vectors of the ce entry k), what is added to the title; 19_ is the same plot for the CE protons that hit the first tracker inside a square
+    const auto phiFitPlot = [&](const std::string& phiFile, const std::string& what, const std::function<bool(Long64_t)>& keep){
         TH1D hPhi[2] = {TH1D("hPhiAll", "", 50, 0, 360), TH1D("hPhiBeam", "", 50, 0, 360)};
         double sAng[2] = {0, 0}; long long nPhi[2] = {0, 0};
-        for (Long64_t k = 0; k < list->GetN(); k++){
-            ce.GetEntry(list->GetEntry(k));
-            if (!keep()) continue;
-            const double phiRad = lastPhiLab;
+        for (Long64_t k = 0; k < nCE; k++){
+            if (!keep(k)) continue;
+            const double phiRad = cePhiLab[k], lastAP = ceAP[k]; const int trackID = (int)ceTrack[k];
             const double phiDeg = (phiRad < 0 ? phiRad + TMath::TwoPi() : phiRad) * 180 / TMath::Pi();
             for (int g = 0; g < 2; g++){
                 if (g == 1 && trackID != 1) continue;
@@ -289,26 +287,22 @@ void SecondaryCE(){
         WritePlotNumbers(&hPhi[0], outDir + phiFile, numbersStarted);
         canvas.SaveAs((outDir + phiFile).c_str());
     };
-    phiFitPlot("5_phi_cosfit/18_phiCE_cosfit_beam_vs_all.pdf", "", []{return true;});
+    phiFitPlot("5_phi_cosfit/18_phiCE_cosfit_beam_vs_all.pdf", "", [](Long64_t){return true;});
     // 19_phiCE_cosfit_beam_vs_all_vertex1mm.pdf: plot 18 for the CE whose vertex (fX, fY, the neutron position at the CE) is inside the 1 mm square, a neutron that scattered before the CE has moved off the beam axis
-    double ceY = 0;
-    ce.SetBranchAddress("fY", &ceY);
-    phiFitPlot("5_phi_cosfit/19_phiCE_cosfit_beam_vs_all_vertex1mm.pdf", ", CE vertex within |x|,|y| #leq 1 mm", [&]{return std::fabs(fX) <= 1 && std::fabs(ceY) <= 1;});
+    phiFitPlot("5_phi_cosfit/19_phiCE_cosfit_beam_vs_all_vertex1mm.pdf", ", CE vertex within |x|,|y| #leq 1 mm", [&](Long64_t k){return std::fabs(ceX[k]) <= 1 && std::fabs(ceYv[k]) <= 1;});
     // 16_CE_neutron_vertex_z_by_creator.pdf and 17_..._cut80_by_creator.pdf: z where the CE neutron was made (CEVertexZ, mm), by the process that made it; 17 keeps the CE whose proton is above the 80% KE cut.
     // Needs CEVertexZ in ChargeExchange_values (sim of 28 Oct 2026 or later).
-    if (ce.GetBranch("CEVertexZ")){
-        double vz = 0;
-        ce.SetBranchAddress("CEVertexZ", &vz);
+    if (hasVz){
         std::map<std::pair<int, int>, double> vzOf;
         double vLo = 1e30, vHi = -1e30;
-        for (Long64_t k = 0; k < list->GetN(); k++){ce.GetEntry(list->GetEntry(k)); vzOf[{fEvent, trackID}] = vz; vLo = std::min(vLo, vz); vHi = std::max(vHi, vz);}
+        for (Long64_t k = 0; k < nCE; k++){const double vz = ceCol[7][k]; vzOf[{(int)ceEvent[k], (int)ceTrack[k]}] = vz; vLo = std::min(vLo, vz); vHi = std::max(vHi, vz);}
         const double vPad = 0.02 * (vHi - vLo) + 1e-6;
         const std::string vFile[2] = {"4_position/16_CE_neutron_vertex_z_by_creator.pdf", "4_position/17_CE_neutron_vertex_z_cut80_by_creator.pdf"};
         TH1D hV[2][4];
         for (int q = 0; q < 2; q++) for (int g = 0; g < 4; g++) hV[q][g] = TH1D(Form("hV%d_%d", q, g), "", 100, vLo - vPad, vHi + vPad);
         for (const auto& [key, g] : groupOf) hV[0][g].Fill(vzOf.at(key));
-        for (Long64_t k = 0; k < zdcList->GetN(); k++){
-            pi.GetEntry(zdcList->GetEntry(k));
+        for (Long64_t k = 0; k < nPi; k++){
+            const int piEvent = (int)piCol[0][k], piParent = (int)piCol[1][k]; const double piDE = piCol[4][k];
             const auto it = groupOf.find({piEvent, piParent});
             if (it != groupOf.end() && piDE > cutKE) hV[1][it->second].Fill(vzOf.at({piEvent, piParent}));
         }
@@ -329,22 +323,17 @@ void SecondaryCE(){
     }
     // 14_first_tracker_x_by_creator.pdf and 15_..._cut80_by_creator.pdf: x where the CE proton first enters a tracker (ParticleInfo boundaryType 0, the smallest fZ of the proton), by the process that
     // made the CE neutron; 15 keeps the protons above the 80% KE cut on their smeared ZDC energy. Protons are matched to their CE neutron on (fEvent, ParentID) like plot 6.
-    int piTrack = 0, piBoundary = 0; double piX = 0, piY = 0, piZ = 0;
-    pi.SetBranchAddress("TrackID", &piTrack); pi.SetBranchAddress("boundaryType", &piBoundary); pi.SetBranchAddress("fX", &piX); pi.SetBranchAddress("fY", &piY); pi.SetBranchAddress("fZ", &piZ);
     std::map<std::pair<int, int>, double> zdcDE; // (fEvent, proton TrackID) -> smeared energy at the ZDC
-    for (Long64_t k = 0; k < zdcList->GetN(); k++){pi.GetEntry(zdcList->GetEntry(k)); zdcDE[{piEvent, piTrack}] = piDE;}
+    for (Long64_t k = 0; k < nPi; k++) zdcDE[{(int)piCol[0][k], (int)piCol[2][k]}] = piCol[4][k];
     struct FirstHit {double z, x, y; int group;};
     std::map<std::pair<int, int>, FirstHit> firstHit;
     TTree* ptPtr = OpenCut("cuts/cut_ParentTracker.root", "ParticleInfo"); // first tracker protons of the CE children
     if (!ptPtr){Error("SecondaryCE", "no cuts/cut_ParentTracker.root (run CutEvents.cpp)"); return;}
     TTree& pt = *ptPtr;
     gROOT->cd();
-    pt.SetBranchAddress("fEvent", &piEvent); pt.SetBranchAddress("ParentID", &piParent); pt.SetBranchAddress("TrackID", &piTrack);
-    pt.SetBranchAddress("fX", &piX); pt.SetBranchAddress("fY", &piY); pt.SetBranchAddress("fZ", &piZ);
-    pt.Draw(">>trkList", "");
-    auto* trkList = static_cast<TEventList*>(gDirectory->Get("trkList"));
-    for (Long64_t k = 0; k < trkList->GetN(); k++){
-        pt.GetEntry(trkList->GetEntry(k));
+    const auto ptCol = Columns(&pt, {"fEvent", "ParentID", "TrackID", "fX", "fY", "fZ"}); // read once, multithreaded, every row in entry order
+    for (size_t k = 0; k < ptCol[0].size(); k++){
+        const int piEvent = (int)ptCol[0][k], piParent = (int)ptCol[1][k], piTrack = (int)ptCol[2][k]; const double piX = ptCol[3][k], piY = ptCol[4][k], piZ = ptCol[5][k];
         const auto it = groupOf.find({piEvent, piParent});
         if (it == groupOf.end()) continue;
         const auto [hit, isNew] = firstHit.try_emplace({piEvent, piTrack}, FirstHit{piZ, piX, piY, it->second});
@@ -380,8 +369,8 @@ void SecondaryCE(){
     canvas.SetLogy(0);
     // 12_CE_protons_per_event_by_creator.pdf and 13_..._cut80_by_creator.pdf: the same count split by the process that made the CE neutron, each curve over the events with at least one CE of that creator
     std::map<int, int> nEvG[2][4]; // [0] every CE, [1] above the cut
-    for (Long64_t k = 0; k < zdcList->GetN(); k++){
-        pi.GetEntry(zdcList->GetEntry(k));
+    for (Long64_t k = 0; k < nPi; k++){
+        const int piEvent = (int)piCol[0][k], piParent = (int)piCol[1][k]; const double piDE = piCol[4][k];
         const auto it = groupOf.find({piEvent, piParent});
         if (it == groupOf.end()) continue;
         nEvG[0][it->second][piEvent]++;

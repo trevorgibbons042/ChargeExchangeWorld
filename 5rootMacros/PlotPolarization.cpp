@@ -25,6 +25,7 @@
 #include <TROOT.h>
 #include "FitCore.h"
 #include "CutFiles.h"
+#include "TreeColumns.h"
 
 // Polarization from the phi modulation in thin theta slices. Per slice (kThetaStep deg wide, 0 to kThetaMax) the phi counts are fit with
 // N0 * (1 + AP * P * cos(phi)), AP fixed to the mean AP of the CE protons in the slice and P free. Done for the CE protons and for all protons
@@ -40,7 +41,7 @@ static const size_t kMinN = 10; // protons needed in a slice for its fit
 
 struct Slice {double lo, hi, nPhi, ap, p, pErr, nCE = 0, nCEAll = -1, nReconAll = -1;}; // nCEAll, nReconAll: CE and recon protons of the theta set before any cut, for the CE lost and the recon share // nCE: CE protons in the slice (= nPhi for the CE fits)
 
-// Draws expr (nCols columns separated by ':') once under the KE cut keDir (block: and the block residual cut, CutFiles.h) and copies the columns
+// Reads expr (nCols columns separated by ':') once, multithreaded (Columns, TreeColumns.h), under the KE cut keDir (block: and the block residual cut, CutFiles.h) and copies the columns
 // out. The same (tree, expr, cut) comes back from a cache: the slice width and AP-source loops ask for the same columns many times.
 // listName: the cut list of a view of t (Angles + suffix of AnglesRaw, CutFiles.h); empty for a tree whose list is named like it.
 static void Gather(TTree* t, const std::string& expr, const std::string& keDir, bool block, int nCols, std::vector<std::vector<double>>& cols, const std::string& listName = ""){
@@ -48,12 +49,10 @@ static void Gather(TTree* t, const std::string& expr, const std::string& keDir, 
     const std::string key = (listName.empty() ? std::string(t->GetName()) : listName) + "|" + expr + "|" + keDir + (block ? "|block" : "");
     auto it = cache.find(key);
     if (it == cache.end()){
-        t->SetEstimate(t->GetEntries() + 1);
         ApplyCut(t, keDir, block, listName);
-        const Long64_t n = t->Draw(expr.c_str(), "", "goff");
+        std::vector<std::vector<double>> drawn = Columns(t, SplitDraw(expr).exprs);
         t->SetEntryList(nullptr);
-        std::vector<std::vector<double>> drawn(nCols);
-        for (int i = 0; i < nCols; i++) drawn[i].assign(t->GetVal(i), t->GetVal(i) + n);
+        drawn.resize(nCols);
         it = cache.emplace(key, std::move(drawn)).first;
     }
     cols = it->second;
@@ -147,7 +146,7 @@ void PlotPolarization(std::string energy = "fKEnergy"){ // energy: "fKEnergy" (t
     TFile* allFile = TFile::Open("cuts/cut_angles_all.root", "READ");
     TTree* all = allFile ? (TTree*)allFile->Get(kAngleTree.c_str()) : nullptr; // every fitted proton; the view "Angles" + suffix is passQuality == 1
     if (!ceFile || !all || !all->GetBranch("passQuality")){printf("PlotPolarization: cut_APandT.root or AnglesRaw with passQuality in cut_angles_all.root missing\n"); return;}
-    const double nReconAll = (double)all->GetEntries("passQuality == 1"); // the recon protons of the Angles view, before any cut
+    const double nReconAll = (double)Columns(all, {"passQuality"}, "passQuality == 1")[0].size(); // the recon protons of the Angles view, before any cut
 
     const std::vector<KeCut> kes = {KeCuts(keLabel).front()}; // CutFiles.h, the one cut ke_gt80: no KE and no residual cut folders
 

@@ -55,31 +55,31 @@ inline bool LoadPlot3DMaps(){
     TTree* raw = fReco ? (TTree*)fReco->Get("AnglesRaw") : nullptr;
     if (!raw || !raw->GetBranch("passQuality")){Error("Plot3D", "missing AnglesRaw tree with passQuality in cut_angles_all.root (run ReconAngleAll.cpp first)"); return false;}
     int ev, tid, passQuality = 0;
-    double resDRms = 0;
-    // the reconstructed tracks are the rows of AnglesRaw that pass the quality cut (the old Angles tree)
+    // one pass over AnglesRaw, each entry read once: the reconstructed tracks are the rows that pass the quality cut (the old Angles tree), gRawVals has every row
+    const bool withRaw = raw->GetBranch("nProtonsEv") != nullptr;
+    double v[17] = {0}; double& resDRms = v[1]; double thetaRad = 0, thetaBlockRad = 0, phiRad = 0, phiBlockRad = 0; int nP = 0, zOk = 0, nH = 0;
     raw->SetBranchStatus("*", 0);
     for (const char* b : {"fEvent", "TrackID", "resDRms", "passQuality"}) raw->SetBranchStatus(b, 1);
     raw->SetBranchAddress("fEvent", &ev); raw->SetBranchAddress("TrackID", &tid);
-    raw->SetBranchAddress("resDRms", &resDRms); raw->SetBranchAddress("passQuality", &passQuality);
-    for (Long64_t i = 0; i < raw->GetEntries(); i++){
-        raw->GetEntry(i);
-        if (!passQuality) continue;
-        gRecoTracks.insert({ev, tid});
-        if (PassesBlockResidual(resDRms)) gRecoTracksD.insert({ev, tid});
-        if (resDRms < kRes2Mm) gRes2Tracks.insert({ev, tid});
-    }
-    raw->SetBranchStatus("*", 1);
-    if (raw->GetBranch("nProtonsEv")){
-        double v[17]; double thetaRad, thetaBlockRad, phiRad, phiBlockRad; int nP, zOk, nH;
-        raw->SetBranchAddress("fEvent", &ev); raw->SetBranchAddress("TrackID", &tid);
+    raw->SetBranchAddress("passQuality", &passQuality);
+    if (!withRaw) raw->SetBranchAddress("resDRms", &resDRms);
+    if (withRaw){
+        for (const char* b : {"resRms", "impact", "impactD", "r2", "r2D", "nProtonsEv", "zOrderOK", "nHits", "outPhi", "outDPhi", "firstXD", "firstYD", "z_bx_reconVertexOut", "resHalfRatioD", "outTheta", "outDTheta"}) raw->SetBranchStatus(b, 1);
         const char* dn[6] = {"resRms", "resDRms", "impact", "impactD", "r2", "r2D"};
-        for (int i = 0; i < 6; i++) raw->SetBranchAddress(dn[i], &v[i]);
+        for (int i = 0; i < 6; i++) raw->SetBranchAddress(dn[i], &v[i]); // v[1] is resDRms
         raw->SetBranchAddress("nProtonsEv", &nP); raw->SetBranchAddress("zOrderOK", &zOk); raw->SetBranchAddress("nHits", &nH);
         raw->SetBranchAddress("outPhi", &phiRad); raw->SetBranchAddress("outDPhi", &phiBlockRad);
         raw->SetBranchAddress("firstXD", &v[12]); raw->SetBranchAddress("firstYD", &v[13]);
         raw->SetBranchAddress("z_bx_reconVertexOut", &v[16]); raw->SetBranchAddress("resHalfRatioD", &v[8]); raw->SetBranchAddress("outTheta", &thetaRad); raw->SetBranchAddress("outDTheta", &thetaBlockRad);
-        for (Long64_t i = 0; i < raw->GetEntries(); i++){
-            raw->GetEntry(i);
+    }
+    for (Long64_t i = 0; i < raw->GetEntries(); i++){
+        raw->GetEntry(i);
+        if (passQuality){
+            gRecoTracks.insert({ev, tid});
+            if (PassesBlockResidual(resDRms)) gRecoTracksD.insert({ev, tid});
+            if (resDRms < kRes2Mm) gRes2Tracks.insert({ev, tid});
+        }
+        if (withRaw){
             v[14] = (phiRad < 0 ? phiRad + 2 * TMath::Pi() : phiRad) * TMath::RadToDeg(); v[15] = (phiBlockRad < 0 ? phiBlockRad + 2 * TMath::Pi() : phiBlockRad) * TMath::RadToDeg();
             v[6] = nP; v[7] = zOk; v[9] = thetaRad * TMath::RadToDeg(); v[10] = nH; v[11] = thetaBlockRad * TMath::RadToDeg();
             std::array<double, 17> a; std::copy(v, v + 17, a.begin());
