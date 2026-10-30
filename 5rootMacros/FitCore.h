@@ -26,6 +26,8 @@
 #include <cstdlib>
 #include <sys/stat.h>
 #include <TStyle.h>
+#include <TROOT.h>
+#include <TTree.h>
 
 // Every plotting macro includes this header: plain (not bold) Helvetica for every title, label, stats box, legend and text box.
 static const bool kPlainFonts = [](){
@@ -90,6 +92,23 @@ inline unsigned NThreads(){
     const unsigned h = std::thread::hardware_concurrency();
     return h ? h : 1;
 }
+
+// RDataFrame's rdfentry_ is not the TTree entry number under implicit MT once a tree has more than one cluster (ROOT 6.38: 10 clusters, 60% of the rows labelled wrong), and a multithreaded
+// Snapshot writes one cluster per task. A reader that sorts or matches by rdfentry_ builds its RDataFrame inside a SerialScope for such a tree: the loop is single threaded, rdfentry_ exact.
+inline bool MultiCluster(TTree* t){
+    auto it = t->GetClusterIterator(0);
+    const Long64_t n = t->GetEntries();
+    return n > 0 && it.Next() < n && it.Next() < n; // a second cluster starts before the last entry
+}
+struct SerialScope {
+    unsigned nThreads = 0;
+    explicit SerialScope(bool serial){
+        if (serial && ROOT::IsImplicitMTEnabled()){nThreads = ROOT::GetThreadPoolSize(); ROOT::DisableImplicitMT();}
+    }
+    explicit SerialScope(TTree* t) : SerialScope(MultiCluster(t)) {}
+    ~SerialScope(){if (nThreads) ROOT::EnableImplicitMT(nThreads);}
+    SerialScope(const SerialScope&) = delete; SerialScope& operator=(const SerialScope&) = delete;
+};
 
 // The charge exchange selection of every stage: a CE with its vertex inside one of the carbon blocks (CE in the tracker silicon is left out).
 // The block z positions mirror MyDetectorConstruction (2construction.cc): centre of the stack at 4 m, a block after each group of nBlocksTracking tracker planes, dz apart.

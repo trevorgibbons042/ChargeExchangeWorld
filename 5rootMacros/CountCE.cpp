@@ -4,6 +4,7 @@
 #include <TLeaf.h>
 #include <TString.h>
 #include <TROOT.h>
+#include <TSystem.h>
 #include <ROOT/RDataFrame.hxx>
 
 #include <algorithm>
@@ -169,79 +170,70 @@ void CountCE(){
         std::cout << "\n";
     }
 
-    //out file
-    TFile *out = TFile::Open(outname, "RECREATE");
+    //out file: every block tree is one multithreaded RDataFrame pass over cut_CE.root (selection, the per-CE columns below, Snapshot); the row order of a block tree is not the entry order
+    gSystem->Unlink(outname);
+    std::vector<std::string> ceBranches;
+    for (auto *br : *ceCarbon->GetListOfBranches()) ceBranches.push_back(br->GetName());
     for (size_t b = 0; b < blocks.size(); b++) {
         double lo = z[blocks[b].first];
         double hi = z[blocks[b].second];
         TString sel = Form("fZ>=%.6f && fZ<=%.6f", lo - 1.0, hi + 1.0); // the carbon atoms of CarbonCeCut are already applied (cut_CE.root)
 
-        out->cd();
-        TTree *t = ceCarbon->CopyTree(sel);
-        t->SetName(Form("Block%zu", b + 1));
-        t->SetTitle(Form("CE in block %zu, z %.0f to %.0f mm", b + 1, lo, hi));
-        
         // CE protons (daughters of the CE track) that reach the first tracker past this block
         auto next = std::find_if(planes.begin(), planes.end(),
                                  [&](const std::pair<long,long> &pl){ return pl.first > hi; });
         bool hasNext = next != planes.end();
+        const Double_t nextTrackerZ = hasNext ? next->first : -1;
+        const long nextLo = hasNext ? next->first : 0, nextHi = hasNext ? next->second : 0;
 
-        // per-CE branches added to the block tree
-        Double_t nextTrackerZ = hasNext ? next->first : -1;
-        Int_t reachedNextTracker = 0;
-        Int_t reachedDetector = 0;   // proton that reached the next tracker also entered the detector (boundaryType 2)
-        TBranch *bZ = t->Branch("nextTrackerZ", &nextTrackerZ, "nextTrackerZ/D");
-        TBranch *bReached = t->Branch("reachedNextTracker", &reachedNextTracker, "reachedNextTracker/I");
-        Double_t trackerX = 0, trackerY = 0;   // proton position at the next tracker plane
-        TBranch *bTrkX = t->Branch("trackerX", &trackerX, "trackerX/D");
-        TBranch *bTrkY = t->Branch("trackerY", &trackerY, "trackerY/D");
-        Double_t trackerDX = 0, trackerDY = 0;   // the same positions as the detector (block cell center) records them
-        TBranch *bTrkDX = t->Branch("trackerDX", &trackerDX, "trackerDX/D");
-        TBranch *bTrkDY = t->Branch("trackerDY", &trackerDY, "trackerDY/D");
-        Double_t detectorDX = 0, detectorDY = 0;
-        TBranch *bDetDX = t->Branch("detectorDX", &detectorDX, "detectorDX/D");
-        TBranch *bDetDY = t->Branch("detectorDY", &detectorDY, "detectorDY/D");
-        Double_t detectorX = 0, detectorY = 0;   // proton position entering the detector
-        TBranch *bDetX = t->Branch("detectorX", &detectorX, "detectorX/D");
-        TBranch *bDetY = t->Branch("detectorY", &detectorY, "detectorY/D");
-        TBranch *bDetector = t->Branch("reachedDetector", &reachedDetector, "reachedDetector/I");
-
-        Long64_t nCE = t->GetEntries();
-        Long64_t nReachedNext = 0, nReachedDet = 0;
-        for (Long64_t i = 0; i < nCE; i++) {
-            t->GetEntry(i);
-            long ev = std::lround(t->GetLeaf("fEvent")->GetValue());
-            long parent = std::lround(t->GetLeaf("TrackID")->GetValue());
-            reachedNextTracker = 0;
-            trackerX = trackerY = trackerDX = trackerDY = 0;
+        // per CE: {reachedNextTracker, trackerX, trackerY, trackerDX, trackerDY, reachedDetector, detectorX, detectorY, detectorDX, detectorDY}
+        auto perCE = [&](Int_t evI, Int_t parentI){
+            const long ev = evI, parent = parentI;
+            std::array<double,10> r = {0,0,0,0,0,0,0,0,0,0};
             if (hasNext) {
-                auto hit = protonHits.lower_bound({ev, parent, next->first});
-                reachedNextTracker = hit != protonHits.end() && std::get<0>(hit->first) == ev &&
-                                     std::get<1>(hit->first) == parent && std::get<2>(hit->first) <= next->second;
-                if (reachedNextTracker) { trackerX = hit->second[0]; trackerY = hit->second[1]; trackerDX = hit->second[2]; trackerDY = hit->second[3]; }
+                auto hit = protonHits.lower_bound({ev, parent, nextLo});
+                if (hit != protonHits.end() && std::get<0>(hit->first) == ev && std::get<1>(hit->first) == parent && std::get<2>(hit->first) <= nextHi) {
+                    r[0] = 1; r[1] = hit->second[0]; r[2] = hit->second[1]; r[3] = hit->second[2]; r[4] = hit->second[3];
+                }
             }
             auto det = protonDetectorHits.find({ev, parent});
-            reachedDetector = reachedNextTracker && det != protonDetectorHits.end();
-            detectorX = reachedDetector ? det->second[0] : 0;
-            detectorY = reachedDetector ? det->second[1] : 0;
-            detectorDX = reachedDetector ? det->second[2] : 0;
-            detectorDY = reachedDetector ? det->second[3] : 0;
-            nReachedNext += reachedNextTracker;
-            nReachedDet += reachedDetector;
-            bZ->Fill();
-            bReached->Fill();
-            bTrkX->Fill();
-            bTrkY->Fill();
-            bDetector->Fill();
-            bDetX->Fill();
-            bDetY->Fill();
-            bTrkDX->Fill(); bTrkDY->Fill(); bDetDX->Fill(); bDetDY->Fill();
+            if (r[0] && det != protonDetectorHits.end()) {
+                r[5] = 1; r[6] = det->second[0]; r[7] = det->second[1]; r[8] = det->second[2]; r[9] = det->second[3];
+            }
+            return r;
+        };
+        ROOT::RDF::RNode df = ROOT::RDataFrame(*ceCarbon).Filter(sel.Data(), "block z window");
+        df = df.Define("ceRow", perCE, {"fEvent", "TrackID"})
+               .Define("nextTrackerZ", [nextTrackerZ]{return nextTrackerZ;})
+               .Define("reachedNextTracker", [](const std::array<double,10> &r){return (Int_t)r[0];}, {"ceRow"})
+               .Define("trackerX", [](const std::array<double,10> &r){return r[1];}, {"ceRow"})
+               .Define("trackerY", [](const std::array<double,10> &r){return r[2];}, {"ceRow"})
+               .Define("trackerDX", [](const std::array<double,10> &r){return r[3];}, {"ceRow"})
+               .Define("trackerDY", [](const std::array<double,10> &r){return r[4];}, {"ceRow"})
+               .Define("detectorDX", [](const std::array<double,10> &r){return r[8];}, {"ceRow"})
+               .Define("detectorDY", [](const std::array<double,10> &r){return r[9];}, {"ceRow"})
+               .Define("detectorX", [](const std::array<double,10> &r){return r[6];}, {"ceRow"})
+               .Define("detectorY", [](const std::array<double,10> &r){return r[7];}, {"ceRow"})
+               .Define("reachedDetector", [](const std::array<double,10> &r){return (Int_t)r[5];}, {"ceRow"});
+        auto nCEr = df.Count();
+        auto nReachedNextr = df.Sum<Int_t>("reachedNextTracker");
+        auto nReachedDetr = df.Sum<Int_t>("reachedDetector");
+        std::vector<std::string> cols = ceBranches;
+        for (const char *c : {"nextTrackerZ", "reachedNextTracker", "trackerX", "trackerY", "trackerDX", "trackerDY", "detectorDX", "detectorDY", "detectorX", "detectorY", "reachedDetector"}) cols.push_back(c);
+        ROOT::RDF::RSnapshotOptions opts;
+        opts.fMode = b == 0 ? "RECREATE" : "UPDATE";
+        df.Snapshot(Form("Block%zu", b + 1), outname.Data(), cols, opts);
+        Long64_t nCE = *nCEr, nReachedNext = (Long64_t)*nReachedNextr, nReachedDet = (Long64_t)*nReachedDetr;
+        {
+            TFile f(outname, "UPDATE");
+            if (auto *t = (TTree*)f.Get(Form("Block%zu", b + 1))) {
+                t->SetTitle(Form("CE in block %zu, z %.0f to %.0f mm", b + 1, lo, hi));
+                t->Write("", TObject::kOverwrite);
+            }
         }
         if (Verbose) {
             std::cout << "block " << b + 1 << " (z " << lo << " to " << hi << "): " << nCE << " CE in tree, next tracker z "
                       << nextTrackerZ << ", " << nReachedNext << " reached it, " << nReachedDet << " reached the ZDC\n";
         }
-        t->Write();
     }
-    out->Close();
 }
