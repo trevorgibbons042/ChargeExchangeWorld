@@ -14,10 +14,10 @@ source ./submit_lib.sh
 mkdir -p "../build/root/$RUN/cuts"
 rsync -a --exclude __pycache__ ../5rootMacros/ "../build/root/$RUN/" || exit 1 # the jobs run the run folder's copy of the macros
 
-# the analysis jobs take a whole node, as in run.sh; ConvertAngles.cpp is mostly one thread, so it keeps the default 16 cpus
+# the analysis jobs take a whole node, as in run.sh; ConvertAngles.cpp runs one block of rows per thread too
 cutev=$(submit CutEvents cutevents "" 128)
 if [ "$MODE" = cutdone ]; then
-    angles=$(submit Convert convert "$cutev")
+    angles=$(submit Convert convert "$cutev" 128)
 else
     angles=$(submit Recon recon "$cutev" 128)
 fi
