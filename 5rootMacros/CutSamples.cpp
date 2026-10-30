@@ -19,7 +19,7 @@
 //   cut_nHits         3 to 16 tracker hits
 //   cut_firstHit      first tracker hit within +-5 mm in x and y
 //   cut_thetacut      recon block theta below the ZDC corner limit of its block (BlockLimits.h)
-//   cut_combo1p       at most 1 proton with a track in the event, planes hit in increasing z, and 4, 8, 12 or 16 tracker hits (11_combined/1_combinedCut)
+//   cut_megacut       the mega cut (11_megaCut/1_megaCut): at most 1 proton with a track in the event, planes hit in increasing z, 4, 8, 12 or 16 tracker hits, recon theta 0 to 1 degree
 // ZDC cuts (cut_ZdcCE.root and cut_ZdcAllEv.root, the ZDC protons with the Plot3D columns of ZdcColumns.cpp):
 //   cut_hitZDC_CE / _AllEv     the proton has a reconstructed track (isReco)
 //   cut_KECUT80_CE / _AllEv    also ZDC KE (fDEnergy) above 80% of the beam KE
@@ -43,7 +43,8 @@ void CutSamples(){
     snap(raw.Filter([](int n){return n >= 3 && n <= 16;}, {"nHits"}), "cuts/cut_nHits.root");
     snap(raw.Filter([](double x, double y){return std::fabs(x) <= 5 && std::fabs(y) <= 5;}, {"firstXD", "firstYD"}), "cuts/cut_firstHit.root");
     snap(raw.Filter([](double thetaD, double z){return BlockThetaOk(thetaD * TMath::RadToDeg(), z);}, {"outDTheta", "z_bx_reconVertexOut"}), "cuts/cut_thetacut.root");
-    snap(raw.Filter([](int np, int ok, int n){return np <= 1 && ok > 0 && (n == 4 || n == 8 || n == 12 || n == 16);}, {"nProtonsEv", "zOrderOK", "nHits"}), "cuts/cut_combo1p.root");
+    snap(raw.Filter([](int np, int ok, int n, double theta){const double deg = theta * TMath::RadToDeg(); return np <= 1 && ok > 0 && (n == 4 || n == 8 || n == 12 || n == 16) && deg >= 0 && deg <= 1;},
+                    {"nProtonsEv", "zOrderOK", "nHits", "outTheta"}), "cuts/cut_megacut.root"); // NaN theta fails the test, as in the Draw cut
 
     const double minKE = kBeamKE * 0.80;
     ROOT::RDataFrame zdcCE("ParticleInfo", "cuts/cut_ZdcCE.root"), zdcAllEv("ParticleInfo", "cuts/cut_ZdcAllEv.root"); // both stay alive until RunGraphs
