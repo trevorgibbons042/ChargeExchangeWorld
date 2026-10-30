@@ -28,6 +28,7 @@
 #include <TROOT.h>
 #include "CutOpen.h"
 #include "CutFiles.h"
+#include "TreeColumns.h"
 
 
 // One output file: tree, draw expression, title text, axis titles, whether to fit the core, file name.
@@ -36,76 +37,93 @@ struct PlotSpec {
     std::string expr, title, axes;
     bool fit;
     std::string file;
-    std::string opt = ""; // TTree::Draw option, "colz" for the 2D plots
+    std::string opt = ""; // draw option, "colz" for the 2D plots
     bool block = false; // block position quantity: the block residual cut too (the <tree>_block list of the KE cut, CutFiles.h)
-    // phi distribution: N0 (1 + AP P cos(phi)) fit (FitCosPhi, FitCore.h), AP fixed to the mean apVar of the CE protons in apTree under the
-    // same KE and theta cut (apTheta is that tree's theta in degrees)
-    TTree* apTree = nullptr;
-    std::string apVar = "", apTheta = "";
 };
 
-struct ThetaCut {std::string dir, op, label;}; // op is appended to the theta expression
+struct ThetaCut {std::string dir, op, label; double min;}; // op: the theta cut as text (empty: no cut), min: its lower limit in degrees
 
 // Draws every plot in specs once per KE cut without a theta cut, in <groupDir>/<ke.dir>/<spec file> (a spec file may carry its own subfolder,
 // 1_theta/1_thetaCE.pdf), and once per theta cut where cutPath(spec file, theta cut folder) gives a path; it returns "" for specs that get no
 // theta cuts (only the phi plots do). thetaExpr is the recon theta in degrees for the tree being drawn.
+// Per KE cut and tree one Columns call (TreeColumns.h) reads the draw expressions of all the specs of that tree and its theta; the histograms are filled from those columns
+// in entry order, so a plot is the one TTree::Draw made, the theta cut is a mask over the rows.
 using CutPath = std::function<std::string(const std::string& file, const std::string& thDir)>;
 static void DrawGroup(TCanvas* canvas, const std::string& groupDir, const std::vector<KeCut>& kes,
                       const std::vector<PlotSpec>& specs, const std::string& label, const std::string& baseCut,
                       const std::string& extraCut, const std::function<std::string(TTree*)>& thetaExpr, const CutPath& cutPath)
 {
     const std::vector<ThetaCut> thetas = {
-        {"th_all", "", ""},
-        {"th_gt0p1", " > 0.1", "theta > 0.1 deg"},
-        {"th_gt0p3", " > 0.3", "theta > 0.3 deg"}};
+        {"th_all", "", "", 0},
+        {"th_gt0p1", " > 0.1", "theta > 0.1 deg", 0.1},
+        {"th_gt0p3", " > 0.3", "theta > 0.3 deg", 0.3}};
+
+    std::string filter; // the cut that is the same for every plot
+    for (const std::string& c : {baseCut, extraCut}) {
+        if (!c.empty()) filter += (filter.empty() ? "" : " && ") + std::string("(") + c + ")";
+    }
+
+    // the columns to read per (tree, block cut): the draw expressions of its specs, and the theta when a theta cut is drawn of that tree
+    using Key = std::pair<TTree*, bool>;
+    std::map<Key, std::vector<std::string>> exprsOf;
+    auto slot = [&](const Key& k, const std::string& e){
+        auto& v = exprsOf[k];
+        const size_t at = std::find(v.begin(), v.end(), e) - v.begin();
+        if (at == v.size()) v.push_back(e);
+        return (int)at;
+    };
+    std::vector<DrawSpec> draws;
+    std::vector<std::vector<int>> specCol(specs.size());
+    std::vector<int> specTheta(specs.size(), -1);
+    for (size_t i = 0; i < specs.size(); i++) {
+        const Key k(specs[i].tree, specs[i].block);
+        draws.push_back(SplitDraw(specs[i].expr));
+        for (const std::string& e : draws[i].exprs) specCol[i].push_back(slot(k, e));
+        for (const auto& th : thetas)
+            if (!th.op.empty() && !cutPath(specs[i].file, th.dir).empty()) specTheta[i] = slot(k, thetaExpr(specs[i].tree));
+    }
 
     std::set<std::string> fitFilesStarted; // fit_values.txt files already truncated in this call
     for (const auto& ke : kes) {
+        std::map<Key, std::vector<std::vector<double>>> cols; // one vector per expression, one entry per row under the KE (and block residual) cut
+        std::map<TTree*, double> nCEAll; // CE protons before any cut (the entry list is not set yet), for the share the cuts lose
+        for (const auto& [key, exprs] : exprsOf) {
+            nCEAll[key.first] = key.first->GetEntries(); // GetEntries(): every entry, the list ignored
+            ApplyCut(key.first, ke.dir, key.second); // the KE (and block residual) cut, CutTrees.cpp
+            cols[key] = Columns(key.first, exprs, filter);
+            key.first->SetEntryList(nullptr);
+        }
         for (const auto& th : thetas) {
-            for (const auto& s : specs) {
+            for (size_t i = 0; i < specs.size(); i++) {
+                const auto& s = specs[i];
                 const std::string rel = th.op.empty() ? s.file : cutPath(s.file, th.dir);
                 if (rel.empty()) continue;
                 const std::string path = groupDir + "/" + ke.dir + "/" + rel;
                 gSystem->mkdir(gSystem->GetDirName(path.c_str()), true);
 
-                std::vector<std::string> parts;
-                for (const std::string& c : {baseCut, extraCut}) {
-                    if (!c.empty()) parts.push_back("(" + c + ")");
-                }
-                if (!th.op.empty()) parts.push_back("(" + thetaExpr(s.tree) + th.op + ")");
-                std::string cut;
-                for (size_t i = 0; i < parts.size(); i++) cut += (i ? " && " : "") + parts[i];
-
                 std::string title = s.title + ", " + label;
                 if (!ke.label.empty()) title += ", " + ke.label;
                 if (!th.label.empty()) title += ", " + th.label;
 
-                // CE protons before any cut (the entry list is not set yet), for the share the cuts lose
-                const bool isAngles = s.tree->GetBranch("isFromCE"); // Angles tree = all recon protons, cut_APandT.root trees = CE protons only
-                const double nCEAll = isAngles ? s.tree->GetEntries("isFromCE == 1") : s.tree->GetEntries();
-                const bool anyCut = true; // the 80% KE cut (KeCuts, CutFiles.h) is on every plot
-                double ap = 0;
-                if (s.apTree) {
-                    ApplyCut(s.apTree, ke.dir, s.block);
-                    const Long64_t nAP = s.apTree->Draw(s.apVar.c_str(), th.op.empty() ? "1" : (s.apTheta + th.op).c_str(), "goff");
-                    if (nAP > 0) ap = TMath::Mean(nAP, s.apTree->GetV1());
-                    s.apTree->SetEntryList(nullptr);
-                }
-                ApplyCut(s.tree, ke.dir, s.block); // the KE (and block residual) cut, CutTrees.cpp
-                if (cut.empty()) cut = "1";
+                const auto& c = cols.at(Key(s.tree, s.block));
                 canvas->Clear();
-                s.tree->Draw(s.expr.c_str(), cut.c_str(), s.opt.c_str());
-                TH1* h = s.tree->GetHistogram();
-                if (!h){s.tree->SetEntryList(nullptr); continue;}
+                TH1* h = MakeHist(draws[i].target); // after the Clear: a histogram of the same name from the last theta cut leaves the pad first
+                if (!h) continue;
+                const std::vector<double>& theta = c[th.op.empty() ? 0 : specTheta[i]];
+                const std::vector<double>& x = c[specCol[i].back()];
+                const std::vector<double>* y = specCol[i].size() > 1 ? &c[specCol[i].front()] : nullptr; // "y:x": y is the first expression
+                Long64_t nPass = 0; // rows that pass the theta cut
+                for (size_t r = 0; r < x.size(); r++) {
+                    if (!th.op.empty() && !(theta[r] > th.min)) continue;
+                    nPass++;
+                    if (y) ((TH2*)h)->Fill(x[r], (*y)[r]);
+                    else h->Fill(x[r]);
+                }
+                h->Draw(s.opt.c_str()); // the histogram is the pad's current object, as after TTree::Draw
                 h->SetTitle(PlotTitle(s.file, title + ";" + s.axes).c_str());
                 if (s.fit && h->GetEntries() >= 10) FitCore(h);
-                if (s.apTree) FitCosPhi(h, ap);
                 if (h->GetDimension() == 1 && s.expr.find("phi") != std::string::npos){h->SetMinimum(0); h->SetMaximum(1.1 * h->GetMaximum());} // every 1D phi plot, 0 to max
-                if (isAngles) // the CE ones among the recon protons under the same cut
-                    DrawCEPercent(s.tree->GetEntries(("(" + cut + ") && isFromCE == 1").c_str()), h->GetEntries(), nCEAll, s.tree->GetEntries()); // GetEntries(): every entry, the list ignored
-                else if (anyCut)
-                    DrawCEPercent(s.tree->GetEntries(cut.c_str()), -1, nCEAll);
-                s.tree->SetEntryList(nullptr);
+                DrawCEPercent(nPass, -1, nCEAll.at(s.tree)); // the 80% KE cut (KeCuts, CutFiles.h) is on every plot
                 WritePlotNumbers(h, path, fitFilesStarted);
                 canvas->Update();
                 canvas->SaveAs(path.c_str());
@@ -141,23 +159,21 @@ static void WriteFomCsv(const std::string& groupDir, const std::vector<KeCut>& k
         return (it == thetaEdges.begin() || it == thetaEdges.end()) ? -1 : int(it - thetaEdges.begin() - 1);
     };
     for (const auto& ke : kes) {
-        t->SetEstimate(t->GetEntries() + 1);
         ApplyCut(t, ke.dir, block);
-        const Long64_t n = t->Draw(("theta" + sfx + ":ap" + sfx).c_str(), "", "goff");
+        const auto ce = Columns(t, {"theta" + sfx, "ap" + sfx}); // theta, AP of every CE proton under the cut
         t->SetEntryList(nullptr);
         std::vector<double> countCE(nb, 0.0), countAll(nb, 0.0), sumAP(nb, 0.0);
-        for (Long64_t i = 0; i < n; i++) {
-            const int b = binOf(t->GetV1()[i]);
+        for (size_t i = 0; i < ce[0].size(); i++) {
+            const int b = binOf(ce[0][i]);
             if (b < 0) continue;
             countCE[b]++;
-            sumAP[b] += t->GetV2()[i];
+            sumAP[b] += ce[1][i];
         }
-        all->SetEstimate(all->GetEntries() + 1);
         ApplyCut(all, ke.dir, block, "Angles" + allSfx);
-        const Long64_t nAll = all->Draw(allThetaExpr.c_str(), "", "goff");
+        const auto allTheta = Columns(all, {allThetaExpr})[0];
         all->SetEntryList(nullptr);
-        for (Long64_t i = 0; i < nAll; i++) {
-            const int b = binOf(all->GetV1()[i]);
+        for (size_t i = 0; i < allTheta.size(); i++) {
+            const int b = binOf(allTheta[i]);
             if (b >= 0) countAll[b]++;
         }
         gSystem->mkdir((groupDir + "/1_csv").c_str(), true);
@@ -185,20 +201,25 @@ static void PhiCosFit(TCanvas* canvas, TTree* t, const std::string& phiBranch, c
     double aFit = aMean, nFit = 0, pSum = 0, pSumErr = 0;
     TH1* h = nullptr;
     if (weighted){
-        t->SetEstimate(t->GetEntries() + 1);
-        const Long64_t n = t->Draw((aExpr + ":" + phiBranch).c_str(), cut.c_str(), "goff");
+        const auto ap = Columns(t, {aExpr, phiBranch}, cut); // A, phi (degrees)
+        const size_t n = ap[0].size();
         double sA = 0, sA2 = 0, sAc = 0;
-        for (Long64_t k = 0; k < n; k++){const double a = t->GetV1()[k]; sA += a; sA2 += a * a; sAc += a * std::cos(t->GetV2()[k] * TMath::Pi() / 180);}
+        for (size_t k = 0; k < n; k++){const double a = ap[0][k]; sA += a; sA2 += a * a; sAc += a * std::cos(ap[1][k] * TMath::Pi() / 180);}
         if (n < 10 || sA == 0){canvas->SetRightMargin(0.30); canvas->SetTopMargin(0.1); return;}
         aFit = sA2 / sA; pSum = 2 * sAc / sA2; pSumErr = std::sqrt(2 / sA2);
         h = new TH1D(name.c_str(), "", nBins, 0, 360);
         h->Sumw2();
-        t->Draw((phiBranch + ">>" + name).c_str(), ("-(" + aExpr + ")" + (cut.empty() ? "" : "*(" + cut + ")")).c_str(), "hist"); // "hist": a histogram with Sumw2 is drawn as error bars by default
+        for (size_t k = 0; k < n; k++) h->Fill(ap[1][k], -ap[0][k]);
+        h->Draw("hist"); // "hist": a histogram with Sumw2 is drawn as error bars by default
         nFit = h->GetSumOfWeights();
     } else {
-        t->Draw((phiBranch + ">>" + name + "(" + std::to_string(nBins) + ",0,360)").c_str(), cut.c_str());
-        h = t->GetHistogram();
-        if (h) nFit = h->GetEntries();
+        h = MakeHist(name + "(" + std::to_string(nBins) + ",0,360)");
+        if (h){
+            const auto phis = Columns(t, {phiBranch}, cut)[0];
+            for (double phi : phis) h->Fill(phi);
+            h->Draw();
+            nFit = h->GetEntries();
+        }
     }
     if (!h || h->GetEntries() < 10){canvas->SetRightMargin(0.30); canvas->SetTopMargin(0.1); return;}
     h->SetTitle((title + ";Angle (degrees);" + (weighted ? "Weighted count (weight -A)" : "Count")).c_str());
@@ -260,7 +281,8 @@ void PlotAngle(std::string energy = "fKEnergy"){ // energy: "fKEnergy" (true KE)
     const std::string thetaAP = "Theta (degrees);AP";
     const std::string phiAP = "Phi (degrees);AP";
     auto pctErr = [&](const std::string& diffBranch, const std::string& ceBranch, const std::string& hist){
-        return "100*" + diffBranch + "/CE" + suffix + "." + ceBranch + ">>" + hist + "(100,-100,100)";
+        // 100 * (a / b), bracketed: TTree::Draw divides first, and a * 100 / b would put values at exactly -100% a rounding step off
+        return "100*(" + diffBranch + "/CE" + suffix + "." + ceBranch + ")>>" + hist + "(100,-100,100)";
     };
 
     //CE protons, cut_APandT.root. Theta cuts use the reconstructed (tracker) theta, in degrees.
@@ -321,7 +343,7 @@ void PlotAngle(std::string energy = "fKEnergy"){ // energy: "fKEnergy" (true KE)
                 specsCE.push_back({d.tree, d.ap + ":" + x + ">>h" + ax.name + "ApDiff" + d.name + "(100," + ax.xrange + ",100,-0.15,0.1)",
                                    "AP difference (" + d.what + " - CE) vs CE " + ax.name, ax.label + ";AP Difference", false,
                                    base + std::to_string(4 + i) + "_" + ax.name + "ApDiff" + d.name + ".pdf", "colz"});
-                specsCE.push_back({d.tree, "100*" + d.ap + "/" + apCE + ":" + x + ">>h" + ax.name + "ApPct" + d.name + "(100," + ax.xrange + ",100,-100,100)",
+                specsCE.push_back({d.tree, "100*(" + d.ap + "/" + apCE + "):" + x + ">>h" + ax.name + "ApPct" + d.name + "(100," + ax.xrange + ",100,-100,100)",
                                    "AP percent error (" + d.what + " vs CE) vs CE " + ax.name, ax.label + ";AP Percent Error (%)", false,
                                    base + std::to_string(6 + i) + "_" + ax.name + "ApPct" + d.name + ".pdf", "colz"});
             }
@@ -373,16 +395,16 @@ void PlotAngle(std::string energy = "fKEnergy"){ // energy: "fKEnergy" (true KE)
         TTree* rawCE = OpenCut("cuts/cut_CE.root", "ChargeExchange_values");
         gROOT->cd();
         const std::string ceCut = "";
-        const Long64_t nRaw = rawCE->Draw("LastAP", ceCut.c_str(), "goff");
-        double aRaw = 0; for (Long64_t k = 0; k < nRaw; k++) aRaw += rawCE->GetV1()[k] / nRaw;
+        const auto apRaw = Columns(rawCE, {"LastAP"}, ceCut)[0];
+        double aRaw = 0; for (double a : apRaw) aRaw += a / apRaw.size();
         PhiCosFit(canvas, rawCE, "(LastPhiLab < 0 ? LastPhiLab + 2 * TMath::Pi() : LastPhiLab) * 180 / TMath::Pi()", ceCut, "hPhiCEfit", "All CE protons (every carbon-block CE), CE phi Distribution", aRaw, phiDir + "1_phiCE_cosfit.pdf");
         // the same events at the recon angles (CE protons with a recon track), A is the mean sim A of those events
-        const Long64_t nA = events->Draw("apCE", "", "goff");
-        double aMean = 0; for (Long64_t k = 0; k < nA; k++) aMean += events->GetV1()[k] / nA;
+        const auto apCE = Columns(events, {"apCE"})[0];
+        double aMean = 0; for (double a : apCE) aMean += a / apCE.size();
         PhiCosFit(canvas, events, "phiRe", "", "hPhiRefit", "Reconstructed CE protons, recon phi Distribution", aMean, phiDir + "2_phiRe_cosfit.pdf");
         // the same fit at the block position recon phi (phiReD), A is the mean recon block A of those events
-        const Long64_t nAD = events3->Draw("apReD", "", "goff");
-        double aMeanD = 0; for (Long64_t k = 0; k < nAD; k++) aMeanD += events3->GetV1()[k] / nAD;
+        const auto apReD = Columns(events3, {"apReD"})[0];
+        double aMeanD = 0; for (double a : apReD) aMeanD += a / apReD.size();
         PhiCosFit(canvas, events3, "phiReD", "", "hPhiReDfit", "Reconstructed CE protons, recon block phi Distribution", aMeanD, phiDir + "5_phiReD_cosfit.pdf");
     }
     printf("[PlotAngle] CE plots done %s\n", TDatime().AsSQLString()); fflush(stdout);

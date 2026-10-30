@@ -28,6 +28,7 @@
 #include "FitCore.h"
 #include "CutFiles.h"
 #include "FomCommon.h"
+#include "TreeColumns.h"
 
 // 2D maps over theta ranges [lo, hi): x = lower bound, y = upper bound (hi > lo always, so only the upper triangle is filled). True KE or detector KE
 // (energy argument, trees with the _DE suffix), one set of
@@ -137,25 +138,17 @@ void PlotFomPolarization(std::string energy = "fKEnergy"){ // energy: "fKEnergy"
                                         {"2_reconBlockTheta", "recon block theta", "CalcValsReD" + suffix, "thetaReD", "phiReD", "outDTheta", "outDPhi", true}};
     if (FomBlockOnly()) sets.erase(sets.begin()); // the cut runs besides mega only have the block position set
     const std::vector<ApSrc> apSrcs = {{"apCE", "AP from CE t", "CE" + suffix, "tCE"}};
-    // phi counts of protons with reconstructed paths per theta set and KE cut: they do not depend on the AP source, so one pass over the (large) all-protons tree fills them all
+    // phi counts of protons with reconstructed paths per theta set and KE cut: they do not depend on the AP source, so one read of the (large) all-protons tree per theta set and KE cut fills them all
     std::vector<std::vector<PhiAP>> phiAll(sets.size(), std::vector<PhiAP>(kes.size(), PhiAP(nSlices))); // A of each proton from its recon theta (APFromT, FitCore.h)
     {
-        std::vector<double> th(sets.size(), 0.0), ph(sets.size(), 0.0);
-        // the entries of every KE cut (block set: with the block residual cut), CutTrees.cpp
-        std::vector<std::vector<TEntryList*>> lists(sets.size());
-        for (size_t s = 0; s < sets.size(); s++) for (const auto& ke : kes) lists[s].push_back(CutList(ke.dir, all, sets[s].block, "Angles" + suffix));
-        all->SetBranchStatus("*", 0);
-        for (size_t s = 0; s < sets.size(); s++){
-            all->SetBranchStatus(sets[s].allTheta.c_str(), 1); all->SetBranchStatus(sets[s].allPhi.c_str(), 1);
-            all->SetBranchAddress(sets[s].allTheta.c_str(), &th[s]); all->SetBranchAddress(sets[s].allPhi.c_str(), &ph[s]);
-        }
         const double toDeg = 180 / TMath::Pi();
-        for (Long64_t e = 0, n = all->GetEntries(); e < n; e++){
-            all->GetEntry(e);
-            for (size_t s = 0; s < sets.size(); s++){
-                for (size_t k = 0; k < kes.size(); k++)
-                    if (lists[s][k] && lists[s][k]->Contains(e)) AddProton(phiAll[s][k], th[s] * toDeg, ph[s] * toDeg, apScale);
-            }
+        for (size_t s = 0; s < sets.size(); s++) for (size_t k = 0; k < kes.size(); k++){
+            // the entries of the KE cut (block set: with the block residual cut), CutTrees.cpp; one multithreaded read (Columns, TreeColumns.h) of the angles of those protons, rows in entry order
+            if (!CutList(kes[k].dir, all, sets[s].block, "Angles" + suffix)) continue;
+            ApplyCut(all, kes[k].dir, sets[s].block, "Angles" + suffix);
+            const auto angles = Columns(all, {sets[s].allTheta, sets[s].allPhi});
+            all->SetEntryList(nullptr);
+            for (size_t e = 0; e < angles[0].size(); e++) AddProton(phiAll[s][k], angles[0][e] * toDeg, angles[1][e] * toDeg, apScale);
         }
     }
     for (size_t si = 0; si < sets.size(); si++) for (const auto& apSrc : apSrcs){
@@ -170,15 +163,16 @@ void PlotFomPolarization(std::string energy = "fKEnergy"){ // energy: "fKEnergy"
             ApplyCut(ce, ke.dir, set.block);
             // the CE protons take their own CE angles (thetaCE, phiCE, deg) from the CE tree, not the recon or recon block ones of the theta set
             const std::string ceCols = (apInOwnTree ? "" : apSrc.tree + ".");
-            const Long64_t nCE = ce->Draw((ceCols + "thetaCE:" + ceCols + "phiCE:" + ceCols + apSrc.branch + ":" + ceCols + "apCE:" + set.theta + ":" + set.phi).c_str(), "", "goff");
+            const std::vector<std::vector<double>> ceV = Columns(ce, {ceCols + "thetaCE", ceCols + "phiCE", ceCols + apSrc.branch, ceCols + "apCE", set.theta, set.phi});
+            const Long64_t nCE = (Long64_t)ceV[0].size();
             ce->SetEntryList(nullptr);
             // per theta slice, the phi counts of the CE protons and the AP sum of the CE protons (the AP of both fits, as in PlotPolarization.cpp)
             PhiAP phiCE(nSlices);
-            for (Long64_t k = 0; k < nCE; k++) AddProton(phiCE, ce->GetVal(0)[k], ce->GetVal(1)[k], apScale);
+            for (Long64_t k = 0; k < nCE; k++) AddProton(phiCE, ceV[0][k], ceV[1][k], apScale);
             PhiAP phiCERecon(nSlices); // the same CE protons at their recon angles (set.theta, set.phi), for the all-theta phi fit
-            for (Long64_t k = 0; k < nCE; k++) AddProton(phiCERecon, ce->GetVal(4)[k], ce->GetVal(5)[k], apScale);
+            for (Long64_t k = 0; k < nCE; k++) AddProton(phiCERecon, ceV[4][k], ceV[5][k], apScale);
             double apSimMean = 0; // mean of the sim A (LastAP, apCE) of the CE protons, the A of the CE phi fits
-            for (Long64_t k = 0; k < nCE; k++) apSimMean += ce->GetVal(3)[k] / std::max<Long64_t>(nCE, 1);
+            for (Long64_t k = 0; k < nCE; k++) apSimMean += ceV[3][k] / std::max<Long64_t>(nCE, 1);
 
             for (int type = 0; type < 2; type++){
                 // file numbers continue PlotPolarization.cpp's (CE 2k-1, recon 2k): kinds 5, 6 in the recon theta AP folders, 3, 4 in the block KE folder (no total fits there)

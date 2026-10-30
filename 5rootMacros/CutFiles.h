@@ -2,6 +2,7 @@
 #include <TEntryList.h>
 #include <TError.h>
 #include <TFile.h>
+#include <TSystem.h>
 #include <TTree.h>
 
 #include <map>
@@ -52,7 +53,11 @@ static TEntryList* CutList(const std::string& dir, TTree* t, bool block = false,
     if (!l){Error("CutList", "%s missing in cuts/%s.root (run CutTrees.cpp)", name.c_str(), dir.c_str()); return nullptr;}
     // the list belongs to the tree as this macro opened it, so TTree::SetEntryList uses it as is
     l->SetTreeName(t->GetName());
-    if (t->GetCurrentFile()) l->SetFileName(t->GetCurrentFile()->GetName());
+    // absolute path: TTree::SetEntryList matches the list to the tree's file by name, and a relative name makes RDataFrame (Columns, TreeColumns.h) see an empty list
+    if (t->GetCurrentFile()){
+        const std::string fn = t->GetCurrentFile()->GetName();
+        l->SetFileName(gSystem->IsAbsoluteFileName(fn.c_str()) ? fn.c_str() : gSystem->ConcatFileName(gSystem->WorkingDirectory(), fn.c_str()));
+    }
     return l;
 }
 

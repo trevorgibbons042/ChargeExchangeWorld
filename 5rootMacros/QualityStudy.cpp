@@ -20,6 +20,7 @@
 #include <TROOT.h>
 #include "FitCore.h"
 #include "QualityCut.h"
+#include "TreeColumns.h"
 
 // Picks the thresholds in QualityCut.h. Reads AnglesRaw (every fitted proton, before the quality cut, ReconAngleAll.cpp) and compares the
 // CE protons (isFromCE == 1) with all recon protons for the four quality variables (residual and impact, true and block position).
@@ -41,16 +42,22 @@ void QualityStudy(double keepCE = 0.95){
     const std::vector<std::string> names = {"resRms", "resDRms", "impact", "impactD"};
     const std::vector<std::string> labels = {"residual, true position (mm)", "residual, block position (mm)", "impact to beam axis, true position (mm)", "impact to beam axis, block position (mm)"};
     std::vector<std::vector<double>> ce(4), recon(4); // [variable][track]; recon = every fitted proton, CE ones included
-    double v[4]; int isCE, zOk = 1; // the thresholds ignore the tracks ReconAngleAll.cpp drops for a z order violation
-    if (t->GetBranch("zOrderOK")) t->SetBranchAddress("zOrderOK", &zOk);
-    for (int i = 0; i < 4; i++) t->SetBranchAddress(names[i].c_str(), &v[i]);
-    t->SetBranchAddress("isFromCE", &isCE);
-    for (Long64_t e = 0; e < t->GetEntries(); e++){
-        t->GetEntry(e);
-        if (!zOk) continue;
+    // one multithreaded read of every branch the loops below use (TreeColumns.h), the rows in entry order; the optional branches only when the tree has them
+    const bool hasZ = t->GetBranch("zOrderOK"), hasR2 = t->GetBranch("r2"), hasCand = t->GetBranch("nProtonsEv");
+    std::vector<std::string> want = {"resRms", "resDRms", "impact", "impactD", "isFromCE"}; // columns 0-3 the four variables, 4 isFromCE
+    int iZ = -1, iR2 = -1, iCand = -1;
+    if (hasZ){iZ = (int)want.size(); want.push_back("zOrderOK");}
+    if (hasR2){iR2 = (int)want.size(); want.push_back("r2"); want.push_back("r2D");}
+    if (hasCand){iCand = (int)want.size(); for (const char* b : {"nProtonsEv", "nHits", "firstXD", "firstYD", "resHalfRatioD", "outTheta", "outDTheta"}) want.push_back(b);}
+    const std::vector<std::vector<double>> col = Columns(t, want);
+    const size_t nRows = col[0].size();
+    auto zOk = [&](size_t e){return !hasZ || col[iZ][e] != 0;}; // the thresholds ignore the tracks ReconAngleAll.cpp drops for a z order violation
+    auto isCE = [&](size_t e){return col[4][e] != 0;};
+    for (size_t e = 0; e < nRows; e++){
+        if (!zOk(e)) continue;
         for (int i = 0; i < 4; i++){
-            recon[i].push_back(v[i]);
-            if (isCE) ce[i].push_back(v[i]);
+            recon[i].push_back(col[i][e]);
+            if (isCE(e)) ce[i].push_back(col[i][e]);
         }
     }
     const size_t nCE = ce[0].size(), nRecon = recon[0].size();
@@ -143,17 +150,15 @@ void QualityStudy(double keepCE = 0.95){
 
     // R^2 of the line fit (true and block position): shown, not cut on. 5_r2.pdf, 6_r2D.pdf
     const std::vector<std::string> r2Names = {"r2", "r2D"}, r2Labels = {"R^{2} of the line fit, true position", "R^{2} of the line fit, block position"};
-    if (t->GetBranch("r2")){
-        double r2v[2];
-        for (int i = 0; i < 2; i++) t->SetBranchAddress(r2Names[i].c_str(), &r2v[i]);
+    if (hasR2){
         std::vector<std::vector<double>> r2CE(2), r2Recon(2);
-        for (Long64_t e = 0; e < t->GetEntries(); e++){
-            t->GetEntry(e);
-            if (!zOk) continue;
+        for (size_t e = 0; e < nRows; e++){
+            if (!zOk(e)) continue;
             for (int i = 0; i < 2; i++){
-                if (!std::isfinite(r2v[i])) continue;
-                r2Recon[i].push_back(r2v[i]);
-                if (isCE) r2CE[i].push_back(r2v[i]);
+                const double r2v = col[iR2 + i][e];
+                if (!std::isfinite(r2v)) continue;
+                r2Recon[i].push_back(r2v);
+                if (isCE(e)) r2CE[i].push_back(r2v);
             }
         }
         for (int i = 0; i < 2; i++){
@@ -194,22 +199,15 @@ void QualityStudy(double keepCE = 0.95){
         {"firstXD", "9_firstHit", "first tracker hit x, block position (mm)", -20, 20, 80},
         {"firstYD", "9_firstHit", "first tracker hit y, block position (mm)", -20, 20, 80}};
     {
-        double hr = 0, thetaRad = 0, thetaBlockRad = 0, fxD = NAN, fyD = NAN; int nPEvI, zOrdI, nhI;
-        const bool have = t->GetBranch("nProtonsEv");
-        if (have){
-            t->ResetBranchAddresses(); // the r2 loop above left addresses of its out of scope array on the tree
-            t->SetBranchAddress("isFromCE", &isCE);
-            t->SetBranchAddress("nProtonsEv", &nPEvI); t->SetBranchAddress("zOrderOK", &zOrdI); t->SetBranchAddress("nHits", &nhI);
-            t->SetBranchAddress("firstXD", &fxD); t->SetBranchAddress("firstYD", &fyD);
-            t->SetBranchAddress("resHalfRatioD", &hr); t->SetBranchAddress("outTheta", &thetaRad); t->SetBranchAddress("outDTheta", &thetaBlockRad);
+        if (hasCand){
+            // col[iCand + k]: 0 nProtonsEv, 1 nHits, 2 firstXD, 3 firstYD, 4 resHalfRatioD, 5 outTheta, 6 outDTheta
             std::vector<std::vector<double>> candCE(cands.size()), candRecon(cands.size());
-            for (Long64_t e = 0; e < t->GetEntries(); e++){
-                t->GetEntry(e);
-                const double vals[8] = {double(nPEvI), double(zOrdI), hr, thetaRad * TMath::RadToDeg(), thetaBlockRad * TMath::RadToDeg(), double(nhI), fxD, fyD};
+            for (size_t e = 0; e < nRows; e++){
+                const double vals[6] = {col[iCand][e], hasZ ? col[iZ][e] : 1.0, col[iCand + 4][e], col[iCand + 1][e], col[iCand + 2][e], col[iCand + 3][e]}; // in the order of cands
                 for (size_t i = 0; i < cands.size(); i++){
                     if (!std::isfinite(vals[i])) continue;
                     candRecon[i].push_back(vals[i]);
-                    if (isCE) candCE[i].push_back(vals[i]);
+                    if (isCE(e)) candCE[i].push_back(vals[i]);
                 }
             }
             for (size_t i = 0; i < cands.size(); i++){
@@ -252,7 +250,7 @@ void QualityStudy(double keepCE = 0.95){
                     FILE* hf = fopen((cdir + "csv/cut_efficiency.csv").c_str(), "w");
                     fprintf(hf, "cut,CE_before,CE_after,CE_kept_pct,recon_before,recon_after,recon_left_out_pct\n");
                     size_t ceAll = 0, reAll = 0; // every fitted proton, ratio NAN included (candCE holds the finite values only)
-                    for (Long64_t e = 0; e < t->GetEntries(); e++){t->GetEntry(e); reAll++; ceAll += isCE;}
+                    for (size_t e = 0; e < nRows; e++){reAll++; ceAll += isCE(e);}
                     const size_t ceAfter = std::count_if(candCE[i].begin(), candCE[i].end(), [](double x){return x <= 2;});
                     const size_t reAfter = std::count_if(candRecon[i].begin(), candRecon[i].end(), [](double x){return x <= 2;});
                     fprintf(hf, "ratio <= 2,%zu,%zu,%.4f,%zu,%zu,%.4f\n", ceAll, ceAfter, 100.0 * ceAfter / ceAll, reAll, reAfter, 100.0 * (1.0 - double(reAfter) / reAll));
@@ -267,11 +265,11 @@ void QualityStudy(double keepCE = 0.95){
                         fprintf(ff, "cut,CE_before,CE_after,CE_kept_pct,recon_before,recon_after,recon_left_out_pct\n");
                         size_t ceAll = 0, reAll = 0, ceAfter = 0, reAfter = 0;
                         TH2D hXYCE("hXYCE", "", 100, -50, 50, 100, -50, 50), hXYRe("hXYRe", "", 100, -50, 50, 100, -50, 50);
-                        for (Long64_t e = 0; e < t->GetEntries(); e++){
-                            t->GetEntry(e);
-                            hXYRe.Fill(fxD, fyD); if (isCE) hXYCE.Fill(fxD, fyD);
+                        for (size_t e = 0; e < nRows; e++){
+                            const double fxD = col[iCand + 2][e], fyD = col[iCand + 3][e];
+                            hXYRe.Fill(fxD, fyD); if (isCE(e)) hXYCE.Fill(fxD, fyD);
                             const bool in = std::fabs(fxD) <= 5 && std::fabs(fyD) <= 5; // NAN (no tracker hit) fails
-                            reAll++; reAfter += in; ceAll += isCE; ceAfter += in && isCE;
+                            reAll++; reAfter += in; ceAll += isCE(e); ceAfter += in && isCE(e);
                         }
                         fprintf(ff, "first tracker hit in x and y within 5 mm,%zu,%zu,%.4f,%zu,%zu,%.4f\n", ceAll, ceAfter, 100.0 * ceAfter / ceAll, reAll, reAfter, 100.0 * (1.0 - double(reAfter) / reAll));
                         fclose(ff);
