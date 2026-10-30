@@ -14,12 +14,13 @@
 // The cuts shared by the plot macros (PlotAngle.cpp, PlotPolarization.cpp, PlotFomPolarization.cpp, PlotDiffPhiCuts.cpp): every KE cut. CutTrees.cpp applies them once to the trees of cut_APandT.root and
 // cut_angles_all.root and writes the entries that pass as TEntryLists to cuts/<dir>.root; the plot macros set those lists on the trees
 // (ApplyCut) instead of cutting with a TTree::Draw string.
-struct KeCut {std::string dir, cut, label;}; // cut: the selection CutTrees.cpp applies, as a TTree::Draw string (finalKE is the KE of the tree's energy)
+struct KeCut {std::string dir, cut, label; double minKE;}; // cut: the selection as a TTree::Draw string (finalKE is the KE of the tree's energy), minKE: the same cut as a number (CutTrees.cpp)
 
 // The one KE cut: finalKE above 80% of the beam KE (kBeamKE, FitCore.h). keLabel names the energy in the plot titles ("ZDC KE" or "true KE").
 static std::vector<KeCut> KeCuts(const std::string& keLabel = "KE"){
-    const std::string minKE = std::to_string((int)(kBeamKE * 80 / 100.0));
-    return {{"ke_gt80", "finalKE > " + minKE, keLabel + " > " + minKE + " MeV (80%)"}};
+    const int minKE = (int)(kBeamKE * 80 / 100.0);
+    const std::string min = std::to_string(minKE);
+    return {{"ke_gt80", "finalKE > " + min, keLabel + " > " + min + " MeV (80%)", (double)minKE}};
 }
 
 // Trees CutTrees.cpp writes lists for, per energy suffix ("" or "_DE"). The block lists (name + "_block", block residual cut too) only exist
