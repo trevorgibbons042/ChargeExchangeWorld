@@ -33,7 +33,7 @@ export ANA_NTHREADS=$(( NCPU / 4 > 0 ? NCPU / 4 : 1 ))
 # Lanes run at the same time. A lane holds the macros that write into the same plots/ folders (stats.csv and fit_values.csv are
 # truncated per folder) or read another's csv files, in order; no two lanes share a folder.
 { # 1_position, 2_energy, 6_cuts: the four independent parts of Plot3D (P3_PART, Plot3D.cpp) side by side, then QualityStudy
-    for part in 1 3 4 2:0 2:1 2:2 2:3 2:4 2:5 2:6 2:7 2:8; do (export P3_PART=${part%%:*} P3_CUT=${part#*:}; run 'Plot3D.cpp') & done
+    for part in 1 3 4 2:0 2:1 2:2 2:3 2:4 2:5 2:6 2:7 2:8 2:9; do (export P3_PART=${part%%:*} P3_CUT=; [[ $part == *:* ]] && export P3_CUT=${part#*:}; run 'Plot3D.cpp') & done
     wait
     (export P3_PART=5 P3_CUT=; run 'Plot3D.cpp') # part 5: the rank_*.csv files from the rows of the part 2 processes
     run 'QualityStudy.cpp'
