@@ -41,7 +41,6 @@ static const double kStep = 0.05;    // deg, bin width of both axes (0 to 5 deg:
 static const double kThetaMaxFP = 5.0; // deg, same range as PlotPolarization.cpp
 static const int kPhiBinsFP = 100;
 static const double kLowEdge = 0.3;  // deg, lower edge of the second wide fit plot
-static const int kLowSlice = 6;      // kLowEdge / kStep
 static const size_t kMinNFP = 10;     // CE protons needed in a range for its fit
 
 // Fits N0 * (1 + AP * P * cos(phi)) to a phi histogram (0 to 360 deg), AP fixed. false when the fit fails.
@@ -88,77 +87,6 @@ static Map MakeMap(const std::string& file, const std::string& title, int nSlice
     return m;
 }
 
-// Draws the map with its values outside the graph (box in the right margin) and the marked cells on it, and writes the stats.csv row. Normally the min and max
-// cells are marked; with a reference value (ref, not NaN) only the cell closest to it is, for the P_fit map against the true polarization.
-static void SaveMap(TCanvas& c, Map& m, const std::string& path, bool block, const std::string& what, bool logz = false, double ref = std::nan(""), bool writeStats = true){ // block: theta is the recon block theta
-    const std::string th = block ? "recon block #theta" : "recon #theta";
-    m.h.SetTitle((m.title + " over " + th + " range, " + what + ";lower " + th + " bound (deg);upper " + th + " bound (deg)").c_str());
-    c.SetLogz(logz);
-    const bool hasRef = !std::isnan(ref);
-    int nCells = 0, minX = 0, minY = 0, maxX = 0, maxY = 0, clX = 0, clY = 0;
-    double mn = 0, mx = 0, clV = 0, clD = 0;
-    for (int bx = 1; bx <= m.h.GetNbinsX(); bx++) for (int by = 1; by <= m.h.GetNbinsY(); by++){
-        const double v = m.h.GetBinContent(bx, by);
-        if (v == 0) continue;
-        if (nCells == 0 || v < mn){mn = v; minX = bx; minY = by;}
-        if (nCells == 0 || v > mx){mx = v; maxX = bx; maxY = by;}
-        if (hasRef && (nCells == 0 || std::fabs(v - ref) < clD)){clD = std::fabs(v - ref); clV = v; clX = bx; clY = by;}
-        nCells++;
-    }
-    if (mn < 0){ // empty cells would draw in the color of 0 once the scale reaches below it: put them under the scale so they stay blank
-        for (int bx = 1; bx <= m.h.GetNbinsX(); bx++) for (int by = 1; by <= m.h.GetNbinsY(); by++)
-            if (m.h.GetBinContent(bx, by) == 0) m.h.SetBinContent(bx, by, mn - 1.0);
-        m.h.SetMinimum(mn); m.h.SetMaximum(mx);
-    }
-    if (logz){ // cells below the scale floor would not be drawn: show them in the lowest color (the box and stats.csv above keep the true min)
-        const double zmin = m.h.GetMinimum();
-        for (int bx = 1; bx <= m.h.GetNbinsX(); bx++) for (int by = 1; by <= m.h.GetNbinsY(); by++){
-            const double v = m.h.GetBinContent(bx, by);
-            if (v > 0 && v < zmin) m.h.SetBinContent(bx, by, zmin);
-        }
-    }
-    m.h.Draw("COLZ");
-    auto lo = [&](int bx){return m.h.GetXaxis()->GetBinLowEdge(bx);};
-    auto hi = [&](int by){return m.h.GetYaxis()->GetBinUpEdge(by);};
-    TPaveText box(0.815, 0.68, 0.995, 0.86, "NDC"); // below the title, right of the palette labels
-    box.SetBorderSize(1); box.SetFillColor(0); box.SetTextAlign(12); box.SetTextSize(0.022);
-    box.AddText(m.file.c_str());
-    box.AddText(Form("filled cells = %d", nCells));
-    if (hasRef){
-        box.AddText(Form("true value = %.4g", ref));
-        box.AddText(Form("closest = %.4g", clV));
-        if (nCells > 0) box.AddText(Form("at %.2f to %.2f deg", lo(clX), hi(clY)));
-    } else {
-        box.AddText(Form("min = %.4g", mn));
-        box.AddText(Form("max = %.4g", mx));
-        if (nCells > 0){
-            box.AddText(Form("min at %.2f to %.2f deg", lo(minX), hi(minY)));
-            box.AddText(Form("max at %.2f to %.2f deg", lo(maxX), hi(maxY)));
-        }
-    }
-    box.DrawClone();
-    // the marked cells on the graph itself: an outline around the cell (so its own color stays visible); their values are in the box on the side
-    auto mark = [&](int bx, int by){
-        const double x1 = m.h.GetXaxis()->GetBinLowEdge(bx), x2 = m.h.GetXaxis()->GetBinUpEdge(bx), y1 = m.h.GetYaxis()->GetBinLowEdge(by), y2 = m.h.GetYaxis()->GetBinUpEdge(by);
-        const double pad = kStep; // one cell of room around it, so the marked cell itself is not covered by the line
-        TBox outer(x1 - pad, y1 - pad, x2 + pad, y2 + pad); outer.SetFillStyle(0); outer.SetLineColor(kBlack); outer.SetLineWidth(3); outer.DrawClone();
-        TBox inner(x1 - pad, y1 - pad, x2 + pad, y2 + pad); inner.SetFillStyle(0); inner.SetLineColor(kWhite); inner.SetLineWidth(1); inner.DrawClone();
-    };
-    if (nCells > 0){
-        if (hasRef) mark(clX, clY);
-        else {mark(minX, minY); mark(maxX, maxY);}
-    }
-    // stats.csv next to the plot: the theta range (lower, upper bound) of the min and max, or of the cell closest to the reference; the columns that do not apply stay empty
-    static std::set<std::string> statsStarted;
-    if (nCells > 0 && writeStats){
-        const std::string name = gSystem->BaseName(path.c_str());
-        WriteStatsRow(path, "plot,filled_cells,min,min_lo_deg,min_hi_deg,max,max_lo_deg,max_hi_deg,true_value,closest,closest_lo_deg,closest_hi_deg",
-                      hasRef ? Form("%s,%d,,,,,,,%.8g,%.8g,%.2f,%.2f", name.c_str(), nCells, ref, clV, lo(clX), hi(clY))
-                             : Form("%s,%d,%.8g,%.2f,%.2f,%.8g,%.2f,%.2f,,,,", name.c_str(), nCells, mn, lo(minX), hi(minY), mx, lo(maxX), hi(maxY)), statsStarted);
-    }
-    c.SaveAs(path.c_str());
-    c.SetLogz(0);
-}
 
 
 using PhiCounts = std::vector<std::array<double, kPhiBinsFP>>; // per theta slice, the phi histogram (0 to 360 deg)

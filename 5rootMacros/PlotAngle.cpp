@@ -358,18 +358,15 @@ void PlotAngle(std::string energy = "fKEnergy"){ // energy: "fKEnergy" (true KE)
     auto thetaHistAll = [&](const std::string& name){return Form(">>%s(100,0,%g)", name.c_str(), std::ceil(maxTheta));};
     const std::string deg = "*180/TMath::Pi()";
 
-    std::vector<KeCut> keAll; // the KE cuts without the residual cut twins, for 1_CEvalues
-    for (const auto& ke : keCE) if (ke.dir.size() < std::string(kRes2Dir).size() || ke.dir.compare(ke.dir.size() - std::string(kRes2Dir).size(), std::string::npos, kRes2Dir) != 0) keAll.push_back(ke);
-
     // 3_ReconCalcVals only holds detector energy plots, so the true KE pass stops after its FOM tables
     if (energy != "fDEnergy") return;
     // theta cuts only on the phi plots: <ke>/2_phi/<th>/<file>
-    DrawGroup(canvas, foldermain.substr(0, foldermain.size() - 1), {keAll.front()}, specsCE, "CE recon protons", "", "",
+    DrawGroup(canvas, foldermain.substr(0, foldermain.size() - 1), {keCE.front()}, specsCE, "CE recon protons", "", "",
               [&](TTree* t){return std::string(t == events2 ? "thetaRe" : "CalcValsRe" + suffix + ".thetaRe");},
               [](const std::string& f, const std::string& th){return f.rfind("2_phi/", 0) == 0 ? "2_phi/" + th + "/" + f.substr(6) : std::string();});
     // phi fits of the CE protons (CE angles) and of the same events at the recon angles
     {
-        const std::string phiDir = foldermain.substr(0, foldermain.size() - 1) + "/" + keAll.front().dir + "/";
+        const std::string phiDir = foldermain.substr(0, foldermain.size() - 1) + "/" + keCE.front().dir + "/";
         gSystem->mkdir(phiDir.c_str(), true);
         // CE protons: every carbon-block CE of the sim (ChargeExchange_values, lab phi of the proton at the reaction), not only the ones with a recon track
         // every carbon-block CE of the sim: cuts/cut_CE.root (CarbonCeCut, CutOpen.h), so every row passes and the cut is empty

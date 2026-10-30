@@ -4,7 +4,6 @@
 
 - **cut_CE**: events with a carbon charge exchange. `CarbonCeCut()` selects `ChargeExchange_values` rows with `didChargeExchange > 0`, `fZ < 7000`, and fZ inside one of the four carbon blocks (2775-2975, 3525-3725, 4275-4475, 5025-5225).
 - **cut_ParentID**: tracks whose parent is a CE track of the same event.
-- **cut_FakeID**: tracks in an event that has a CE track which is not their parent.
 - **cut_AllEvProtons**: every proton that reaches the ZDC (`boundaryType == 2 && pdg == 2212`), for all events.
 - **cut_ParentZdc, cut_ParentTracker, cut_CEtracker, cut_CEall**: the ZDC and first-tracker protons of the CE children, and the CE outside the carbon blocks.
 - **cut_ZdcCE, cut_ZdcAllEv** (ZdcColumns.cpp): the ZDC protons above, with the Plot3D columns added.
@@ -22,8 +21,11 @@ A proton passes if its z order is right (`zOrderOK`) and `PassesQuality` holds (
 
 `resDRms <= 2.0` mm, the RMS distance of the block hits to the fitted line. It applies only to quantities from block positions. The env var `RES_CUT_MM` overrides it.
 
-## KE cuts (CutFiles.h, one list file `cuts/<dir>.root` each)
+## KE cut (CutFiles.h, the list file `cuts/ke_gt80.root`)
 
-- `ke_all`: no cut.
-- `ke_gt50`, `ke_gt60`, `ke_gt70`, `ke_gt80`, `ke_gt90`, `ke_gt95`, `ke_gt99`: `finalKE` above that percentage of the beam KE (`finalKED` for the detector-energy plots).
-- Each KE cut also comes with a twin folder `<ke>_res2mm` that adds `resDRms < 2`.
+- `ke_gt80`: `finalKE` above 80% of the beam KE (`finalKED` for the detector-energy plots). It is the only KE cut, and every plot uses it.
+
+## One cut file per cut of 6_cuts (CutSamples.cpp)
+
+- AnglesRaw cuts: `cut_ResCuts` (`passQuality` and `resDRms < 2`), `cut_nProtons1`, `cut_nProtons2`, `cut_zOrder`, `cut_resHalf`, `cut_nHits` (3 to 16), `cut_firstHit` (within 5 mm), `cut_thetacut` (below the ZDC corner limit).
+- ZDC cuts: `cut_hitZDC_CE`, `cut_hitZDC_AllEv` (reconstructed track), `cut_KECUT80_CE`, `cut_KECUT80_AllEv` (also above 80% of the beam KE).

@@ -48,7 +48,6 @@ public:
     Count N(TTree* t, const std::string& selection, const std::string& listCut = "");
     Cols  C(TTree* t, const std::vector<std::string>& exprs, const std::string& selection = "", const std::string& listCut = "");
     void Run();
-    static DrawPlan& Default(){static DrawPlan p; return p;}
     static bool ForceFallback(){const char* e = std::getenv("DRAWPLAN_FALLBACK"); return e && std::string(e) == "1";} // test switch: every request runs as plain TTree::Draw
 
     struct Group {                       // requests on one tree with the same effective selection: one Filter node
