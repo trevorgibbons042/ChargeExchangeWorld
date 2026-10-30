@@ -37,7 +37,7 @@ struct Track {std::vector<Angles> points;};
 void CalcAPandT(std::string energy = "fKEnergy"){ // energy: "fKEnergy" (true KE) or "fDEnergy" (detector energy), picks the Angles tree
     const double apScale = ReadSettings().at("APScale"); // settings.csv from the sim
     const std::string suffix = (energy == "fDEnergy") ? "_DE" : "";
-    ROOT::EnableImplicitMT(128);
+    ROOT::EnableImplicitMT(NThreads());
     
     bool Verbose = false;
     

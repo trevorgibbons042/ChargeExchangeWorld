@@ -9,6 +9,7 @@ import io
 import os
 import subprocess
 import sys
+from concurrent.futures import ProcessPoolExecutor
 
 from PIL import Image, ImageChops
 from pypdf import PdfReader, PdfWriter
@@ -56,13 +57,18 @@ def crop(path):
 
 
 def main(plots):
-    done = total = 0
+    paths = []
     for d, _, files in os.walk(plots):
         for f in sorted(files):
             if f.endswith(".pdf"):
-                total += 1
-                done += crop(os.path.join(d, f))
-    print(f"crop pdfs: {done} of {total} pdfs cropped to their content")
+                paths.append(os.path.join(d, f))
+    # each pdf is cropped by exactly one worker (gs per pdf dominates the time)
+    if len(paths) > 1:
+        with ProcessPoolExecutor(max_workers=os.cpu_count()) as ex:
+            done = sum(ex.map(crop, paths, chunksize=4))
+    else:
+        done = sum(crop(p) for p in paths)
+    print(f"crop pdfs: {done} of {len(paths)} pdfs cropped to their content")
 
 
 if __name__ == "__main__":

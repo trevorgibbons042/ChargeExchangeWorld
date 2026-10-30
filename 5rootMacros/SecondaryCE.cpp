@@ -10,6 +10,7 @@
 #include "TEventList.h"
 #include "TCanvas.h"
 #include "TChain.h"
+#include "TROOT.h"
 #include "TH1D.h"
 #include "TLegend.h"
 #include "TLatex.h"
@@ -18,6 +19,7 @@
 #include "TSystem.h"
 
 #include "BlockLimits.h"
+#include "CutCache.h"
 #include "FitCore.h"
 #include "QualityCut.h"
 
@@ -26,16 +28,21 @@
 // PPValue is the fraction along +y; Geant4 gives secondaries none). 2_CE_count_by_creator.pdf: CE count per CECreator, the process that made the CE neutron.
 // Needs ChargeExchange_values with CECreator and CEPolX/Y/Z (sim of 27 Oct 2026 or later) in output0_t*.root and settings.csv.
 void SecondaryCE(){
+    ROOT::EnableImplicitMT(NThreads()); // implicit MT for the file reads (NThreads: ANA_NTHREADS, FitCore.h)
     gStyle->SetOptStat(0);
-    TChain ce("ChargeExchange_values");
-    ce.Add("output0_t*.root");
+    // the carbon-block CE (CarbonCeCut) come from the cut cache (CutCache.h, the seed cut_CE.root), so every row passes; the ZDC protons of their children and the first tracker protons likewise
+    // (@isParentCE rows: only those match a groupOf key below)
+    const CacheTree cacheCE = GetCutTree("output0_t*.root", "ChargeExchange_values", {CarbonCeCut()});
+    if (!cacheCE.tree){Error("SecondaryCE", "no ChargeExchange_values cache (run CutEvents.cpp)"); return;}
+    TTree& ce = *cacheCE.tree;
+    gROOT->cd();
     if (!ce.GetBranch("CECreator") || !ce.GetBranch("CEPolX")){Error("SecondaryCE", "CECreator/CEPolX missing in ChargeExchange_values (rerun the sim)"); return;}
     const std::string outDir = "plots/7_secondaryCE/";
     for (const char* sub : {"1_counts", "2_polarization", "3_energy", "4_position", "5_phi_cosfit"}) gSystem->mkdir((outDir + sub).c_str(), true); // one folder per kind of plot
 
     // carbon-block CE only, like the other CE plots (CarbonCeCut in FitCore.h)
     // CECreator is a char leaf (the sim's string column), so it is read into a char buffer; the entry list picks the carbon-block CE
-    ce.Draw(">>ceList", CarbonCeCut().c_str());
+    ce.Draw(">>ceList", ""); // every row of the cache
     auto* list = static_cast<TEventList*>(gDirectory->Get("ceList"));
     int trackID = 0, fEvent = 0;
     std::map<std::pair<int, int>, int> groupOf; // (fEvent, CE neutron TrackID) -> 0 beam neutron, 1 neutronInelastic, 2 protonInelastic, 3 every other creator
@@ -143,13 +150,15 @@ void SecondaryCE(){
     const int gColor[4] = {kBlack, kRed, kBlue, kGreen + 2};
     TH1D hKE[2][4]; // [0] true KE, [1] smeared KE
     for (int q = 0; q < 2; q++) for (int g = 0; g < 4; g++) hKE[q][g] = TH1D(Form("hKE%d_%d", q, g), "", 100, 0, 30000);
-    TChain pi("ParticleInfo");
-    pi.Add("output0_t*.root");
+    const CacheTree cacheZdc = GetCutTree("output0_t*.root", "ParticleInfo", {"@isParentCE", "boundaryType == 2 && pdg == 2212"});
+    if (!cacheZdc.tree){Error("SecondaryCE", "no ParticleInfo cache (run CutEvents.cpp)"); return;}
+    TTree& pi = *cacheZdc.tree;
+    gROOT->cd();
     int piEvent = 0, piParent = 0; double piKE = 0, piDE = 0;
     pi.SetBranchAddress("fEvent", &piEvent); pi.SetBranchAddress("ParentID", &piParent); pi.SetBranchAddress("fKEnergy", &piKE); pi.SetBranchAddress("fDEnergy", &piDE);
     const double cutKE = 0.80 * kBeamKE; // MeV, the 80% KE cut of the other plots (initialKE * 0.80, Plot3D.cpp), on the smeared energy fDEnergy
     long long nAbove[4] = {0, 0, 0, 0}; // CE protons of each creator above the cut
-    pi.Draw(">>zdcList", "boundaryType == 2 && pdg == 2212");
+    pi.Draw(">>zdcList", ""); // every row of the cache: the ZDC protons of the CE children
     auto* zdcList = static_cast<TEventList*>(gDirectory->Get("zdcList"));
     for (Long64_t k = 0; k < zdcList->GetN(); k++){
         pi.GetEntry(zdcList->GetEntry(k));
@@ -326,10 +335,16 @@ void SecondaryCE(){
     for (Long64_t k = 0; k < zdcList->GetN(); k++){pi.GetEntry(zdcList->GetEntry(k)); zdcDE[{piEvent, piTrack}] = piDE;}
     struct FirstHit {double z, x, y; int group;};
     std::map<std::pair<int, int>, FirstHit> firstHit;
-    pi.Draw(">>trkList", "boundaryType == 0 && pdg == 2212");
+    const CacheTree cacheTrk = GetCutTree("output0_t*.root", "ParticleInfo", {"@isParentCE", "boundaryType == 0 && pdg == 2212"}); // first tracker protons of the CE children
+    if (!cacheTrk.tree){Error("SecondaryCE", "no ParticleInfo first tracker cache (run CutEvents.cpp)"); return;}
+    TTree& pt = *cacheTrk.tree;
+    gROOT->cd();
+    pt.SetBranchAddress("fEvent", &piEvent); pt.SetBranchAddress("ParentID", &piParent); pt.SetBranchAddress("TrackID", &piTrack);
+    pt.SetBranchAddress("fX", &piX); pt.SetBranchAddress("fY", &piY); pt.SetBranchAddress("fZ", &piZ);
+    pt.Draw(">>trkList", "");
     auto* trkList = static_cast<TEventList*>(gDirectory->Get("trkList"));
     for (Long64_t k = 0; k < trkList->GetN(); k++){
-        pi.GetEntry(trkList->GetEntry(k));
+        pt.GetEntry(trkList->GetEntry(k));
         const auto it = groupOf.find({piEvent, piParent});
         if (it == groupOf.end()) continue;
         const auto [hit, isNew] = firstHit.try_emplace({piEvent, piTrack}, FirstHit{piZ, piX, piY, it->second});

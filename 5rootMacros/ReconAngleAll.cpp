@@ -13,6 +13,7 @@
 #include <vector>
 
 #include "QualityCut.h"
+#include "CutCache.h"
 #include "FitCore.h"
 
 struct FitResult {double x0, y0, bx, by;
@@ -145,13 +146,15 @@ static double ImpactToAxis(double x0, double y0, double bx, double by){
 
 // One pass fits every proton and writes the true-KE trees (Angles, AnglesCE) and the detector-KE trees (Angles_DE, AnglesCE_DE); they differ only in finalKE.
 void ReconAngleAll(){
-    ROOT::EnableImplicitMT(128);
+    ROOT::EnableImplicitMT(NThreads());
 
     // CE neutrons (same selection as CutEvents.cpp): event -> CE track IDs.
-    ROOT::RDataFrame dfCE("ChargeExchange_values", "output0_t*.root");
+    // the carbon-block CE come from the cut cache of CarbonCeCut (the seed cut_CE.root, CutCache.h): every row passes, no filter
+    const CacheTree ceCarbon = GetCutTree("output0_t*.root", "ChargeExchange_values", {CarbonCeCut()});
+    if (!ceCarbon.tree){Error("ReconAngleAll", "no cut cache for the carbon CE (run CutEvents.cpp)"); return;}
+    ROOT::RDataFrame dfCE(*ceCarbon.tree);
     std::vector<std::map<int, std::set<int>>> slotCeTracks(dfCE.GetNSlots());
-    dfCE.Filter(CarbonCeCut())
-        .ForeachSlot([&](unsigned slot, int eventID, int trackID){
+    dfCE.ForeachSlot([&](unsigned slot, int eventID, int trackID){
         slotCeTracks[slot][eventID].insert(trackID);
     }, {"fEvent", "TrackID"});
     std::map<int, std::set<int>> ceTracks;
@@ -231,11 +234,13 @@ void ReconAngleAll(){
 
         std::vector<std::map<std::tuple<int, int, int>, Track>> slotTracks(df.GetNSlots());
         // boundaryType 2 is the ZDC row, left out of the fit points; protons that never reach the ZDC are reconstructed too
-        df.Filter("pdg == 2212 && boundaryType != 2").ForeachSlot([&](unsigned slot,
+        // The selection is in the lambda, not a Filter string: a string Filter is JIT-compiled, which fails on a ROOT whose cling cannot materialize libc++ symbols (the Mac).
+        df.ForeachSlot([&](unsigned slot,
             int eventID, int trackID, int pdg,
-            double x, double y, double z, double xD, double yD, double zD, double KE, double KED, int ParentID, ULong64_t entry){
+            double x, double y, double z, double xD, double yD, double zD, double KE, double KED, int ParentID, ULong64_t entry, int boundaryType){
+            if (pdg != 2212 || boundaryType == 2) return;
             slotTracks[slot][{eventID, trackID, pdg}].push(x, y, z, xD, yD, zD, KE, ParentID, KED, entry);
-        }, {"fEvent", "TrackID", "pdg", "fX", "fY", "fZ", "fDx", "fDy", "fDz", "fKEnergy", "fDEnergy", "ParentID", "rdfentry_"});
+        }, {"fEvent", "TrackID", "pdg", "fX", "fY", "fZ", "fDx", "fDy", "fDz", "fKEnergy", "fDEnergy", "ParentID", "rdfentry_", "boundaryType"});
         // Points are sorted and de-duplicated per track below, so the merge order does not matter.
         std::map<std::tuple<int, int, int>, Track> tracks;
         for (auto &slotMap : slotTracks) {

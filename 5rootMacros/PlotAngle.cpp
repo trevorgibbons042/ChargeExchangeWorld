@@ -25,6 +25,8 @@
 #include <vector>
 
 #include "FitCore.h"
+#include <TROOT.h>
+#include "CutCache.h"
 #include "CutFiles.h"
 
 
@@ -224,6 +226,7 @@ static void PhiCosFit(TCanvas* canvas, TTree* t, const std::string& phiBranch, c
 }
 
 void PlotAngle(std::string energy = "fKEnergy"){ // energy: "fKEnergy" (true KE) or "fDEnergy" (detector energy), picks the input files and plot folder
+    ROOT::EnableImplicitMT(NThreads()); // implicit MT for the file reads (NThreads: ANA_NTHREADS, FitCore.h)
     const std::string suffix = (energy == "fDEnergy") ? "_DE" : "";
     gStyle->SetOptFit(1111); // probability, chi2/ndf, fit parameters with errors
     std::string foldermain = "plots/3_ReconCalcVals/";
@@ -366,12 +369,14 @@ void PlotAngle(std::string energy = "fKEnergy"){ // energy: "fKEnergy" (true KE)
         const std::string phiDir = foldermain.substr(0, foldermain.size() - 1) + "/" + keAll.front().dir + "/";
         gSystem->mkdir(phiDir.c_str(), true);
         // CE protons: every carbon-block CE of the sim (ChargeExchange_values, lab phi of the proton at the reaction), not only the ones with a recon track
-        TChain rawCE("ChargeExchange_values");
-        rawCE.Add("output0_t*.root");
-        const std::string ceCut = CarbonCeCut();
-        const Long64_t nRaw = rawCE.Draw("LastAP", ceCut.c_str(), "goff");
-        double aRaw = 0; for (Long64_t k = 0; k < nRaw; k++) aRaw += rawCE.GetV1()[k] / nRaw;
-        PhiCosFit(canvas, &rawCE, "(LastPhiLab < 0 ? LastPhiLab + 2 * TMath::Pi() : LastPhiLab) * 180 / TMath::Pi()", ceCut, "hPhiCEfit", "All CE protons (every carbon-block CE), CE phi Distribution", aRaw, phiDir + "1_phiCE_cosfit.pdf");
+        // every carbon-block CE of the sim: the cut cache of CarbonCeCut (seed cut_CE.root), so every row passes and the cut is empty
+        const CacheTree cacheCE = GetCutTree("output0_t*.root", "ChargeExchange_values", {CarbonCeCut()});
+        TTree* rawCE = cacheCE.tree;
+        gROOT->cd();
+        const std::string ceCut = "";
+        const Long64_t nRaw = rawCE->Draw("LastAP", ceCut.c_str(), "goff");
+        double aRaw = 0; for (Long64_t k = 0; k < nRaw; k++) aRaw += rawCE->GetV1()[k] / nRaw;
+        PhiCosFit(canvas, rawCE, "(LastPhiLab < 0 ? LastPhiLab + 2 * TMath::Pi() : LastPhiLab) * 180 / TMath::Pi()", ceCut, "hPhiCEfit", "All CE protons (every carbon-block CE), CE phi Distribution", aRaw, phiDir + "1_phiCE_cosfit.pdf");
         // the same events at the recon angles (CE protons with a recon track), A is the mean sim A of those events
         const Long64_t nA = events->Draw("apCE", "", "goff");
         double aMean = 0; for (Long64_t k = 0; k < nA; k++) aMean += events->GetV1()[k] / nA;

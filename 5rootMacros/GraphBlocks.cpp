@@ -12,9 +12,11 @@
 #include <cmath>
 #include <vector>
 
+#include <TROOT.h>
 #include "FitCore.h"
 
 void GraphBlocks(){
+    ROOT::EnableImplicitMT(NThreads()); // implicit MT for the file reads (NThreads: ANA_NTHREADS, FitCore.h)
     const TString filename = "cuts/cut_blocks.root";
     const TString outDir = "plots/4_CEblock";
     const int nBins = 100;

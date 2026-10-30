@@ -1,0 +1,29 @@
+#!/bin/bash -l
+#PBS -A eic
+#PBS -N Analysis
+
+#PBS -l select=1:ncpus=128
+#PBS -l walltime=12:00:00
+#PBS -j oe
+
+#PBS -m bea
+#PBS -M tgibbons@anl.gov
+
+# The whole analysis chain of one run folder (5rootMacros/run.sh): CutEvents, ReconAngleAll, CalcAPandT, CountCE, then plot.sh.
+# Submit with -v RUN=<folder in build/root>. The macros run from the run folder's own copy: copy them in first (rsync -a --exclude __pycache__ 5rootMacros/ build/root/<run>/).
+# BASE can be overridden to try it on another machine.
+BASE=${BASE:-/lcrc/project/eic/tgibbons/G4ChargeExchange}
+
+cd $BASE/build/root/$RUN || exit 1
+
+module load root
+export LD_LIBRARY_PATH=/lcrc/project/eic/tgibbons/xxhash-install/lib:$LD_LIBRARY_PATH
+export LD_LIBRARY_PATH=/lcrc/project/eic/tgibbons/gif-lib:$LD_LIBRARY_PATH
+
+export NCPUS=128 # run.sh and plot.sh split these between their steps and lanes (NThreads(), FitCore.h)
+
+echo Jobid: $PBS_JOBID
+echo Running on host `hostname`
+echo Run folder: $RUN
+
+zsh run.sh

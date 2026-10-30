@@ -15,6 +15,8 @@
 #include <string>
 #include <utility>
 
+#include "CutCache.h"
+#include "DrawPlan.h"
 #include "FitCore.h"
 #include "CutFiles.h"
 
@@ -30,31 +32,43 @@ void PlotDiffPhiCuts(double phiLo = -180, double phiHi = -50, std::string energy
 
     TFile* fAP = TFile::Open("cuts/cut_APandT.root", "READ");
     TTree* diff = (TTree*)fAP->Get(("CalcValsReDDIFF" + suffix).c_str());
-    TFile* fPos = TFile::Open("cuts/cut_ParentID.root", "READ");
-    TTree* pos = (TTree*)fPos->Get("ParticleInfo");
+    // ZDC protons of the CE children, from the cut cache (CutCache.h, built from the seed cut_ParentID.root): every row passes the ZDC proton cut
+    const CacheTree cachePos = GetCutTree("output0_t*.root", "ParticleInfo", {"@isParentCE", "boundaryType == 2 && pdg == 2212"});
+    TTree* pos = cachePos.tree;
     if (!diff || !pos){Error("PlotDiffPhiCuts", "missing tree in cut_APandT.root or cut_ParentID.root"); return;}
 
-    // events in the phi diff window
-    diff->SetEstimate(diff->GetEntries() + 1);
-    ApplyCut(diff, "ke_all", true); // block residual cut, CutTrees.cpp
-    Long64_t nSel = diff->Draw("fEvent:TrackID:finalKE", Form("phiReD >= %g && phiReD < %g", phiLo, phiHi), "goff");
-    diff->SetEntryList(nullptr);
-    std::set<std::pair<long long, long long>> keys;
-    TH1D hKE("hKE", "", 100, 0, 30000);
-    for (Long64_t i = 0; i < nSel; i++){
-        keys.insert({llround(diff->GetV1()[i]), llround(diff->GetV2()[i])});
-        hKE.Fill(diff->GetV3()[i]);
-    }
-
+    // Every column pull of this macro is booked here and collected in one multithreaded pass per tree (DrawPlan.h), the render code below reads the columns in entry order.
+    ROOT::EnableImplicitMT(NThreads());
+    DrawPlan plan;
+    // events in the phi diff window: block residual cut as the list string (CutTrees.cpp), the list itself is not set on the tree
+    auto cDiff = plan.C(diff, {"fEvent", "TrackID", "finalKE"}, Form("phiReD >= %g && phiReD < %g", phiLo, phiHi), ListCut("ke_all", true));
     // Every recon proton (Angles tree of cut_angles_all.root, all events): (fEvent, TrackID) for the positions, finalKE, isFromCE and the
     // block line fit quality (ReconAngleAll.cpp)
     TFile* fAng = TFile::Open("cuts/cut_angles_all.root", "READ");
     TTree* ang = fAng ? (TTree*)fAng->Get(("Angles" + suffix).c_str()) : nullptr;
     if (!ang || !ang->GetBranch("r2D")){Error("PlotDiffPhiCuts", "Angles tree with r2D missing in cut_angles_all.root (rerun ReconAngleAll.cpp)"); return;}
-    ang->SetEstimate(ang->GetEntries() + 1);
-    const Long64_t nAng = ang->Draw("fEvent:TrackID:finalKE:isFromCE:resDRms:r2D:impactD:outPhi:outDPhi", "", "goff");
-    std::vector<std::vector<double>> angCols(9);
-    for (int c = 0; c < 9; c++) angCols[c].assign(ang->GetVal(c), ang->GetVal(c) + nAng);
+    auto cAng = plan.C(ang, {"fEvent", "TrackID", "finalKE", "isFromCE", "resDRms", "r2D", "impactD", "outPhi", "outDPhi"});
+    DrawPlan::Cols cEx;
+    if (ang->GetBranch("nProtonsEv")) cEx = plan.C(ang, {"resRms", "impact", "r2", "nProtonsEv", "zOrderOK", "resHalfRatioD", "outTheta*180/TMath::Pi()", "outDTheta*180/TMath::Pi()", "nHits"});
+    // ZDC protons of the CE children (pos) and of every event (allEv), the cut caches: every row passes the ZDC proton cut
+    const CacheTree cacheAllEv = GetCutTree("output0_t*.root", "ParticleInfo", {"boundaryType == 2 && pdg == 2212"});
+    TTree* allEv = cacheAllEv.tree;
+    if (!allEv){Error("PlotDiffPhiCuts", "ParticleInfo cut caches missing (run CutEvents.cpp)"); return;}
+    auto cPos = plan.C(pos, {"fEvent", "ParentID", "fDx", "fDy", "fX", "fY", "TrackID"});
+    auto cAllEv = plan.C(allEv, {"fEvent", "TrackID", "fDx", "fDy", "fX", "fY"});
+    plan.Run();
+    gROOT->cd();
+    const Long64_t nSel = cDiff.N();
+    std::set<std::pair<long long, long long>> keys;
+    TH1D hKE("hKE", "", 100, 0, 30000);
+    for (Long64_t i = 0; i < nSel; i++){
+        keys.insert({llround(cDiff.V(0)[i]), llround(cDiff.V(1)[i])});
+        hKE.Fill(cDiff.V(2)[i]);
+    }
+
+    const Long64_t nAng = cAng.N();
+    std::vector<const double*> angCols(9); // views of the DrawPlan columns, no copy
+    for (int c = 0; c < 9; c++) angCols[c] = cAng.V(c);
     // every recon proton (all events, CE ones included) in the same block phi diff window: the CE protons keep their block phi - CE phi
     // window above, the non-CE ones have no CE phi so their diff is recon block phi - recon tracker phi (outPhi), wrapped to -180 to 180
     // like CalcAPandT.cpp, with the same block residual cut
@@ -68,24 +82,19 @@ void PlotDiffPhiCuts(double phiLo = -180, double phiHi = -50, std::string energy
     // CE neutron's track, so it matches the proton's ParentID there), every recon proton from cut_AllEvProtons.root (matched on TrackID)
     TH2D hBlock("hBlock", "", 100, -200, 200, 100, -200, 200), hTrue("hTrue", "", 100, -200, 200, 100, -200, 200);
     TH2D hBlockAll("hBlockAll", "", 100, -200, 200, 100, -200, 200), hTrueAll("hTrueAll", "", 100, -200, 200, 100, -200, 200);
-    pos->SetEstimate(pos->GetEntries() + 1);
-    const Long64_t nPos = pos->Draw("fEvent:ParentID:fDx:fDy:fX:fY:TrackID", "boundaryType == 2 && pdg == 2212", "goff");
+    const Long64_t nPos = cPos.N();
     std::set<std::pair<long long, long long>> ceWinKeys; // the window CE protons as (fEvent, proton TrackID), the Angles tree key
     for (Long64_t i = 0; i < nPos; i++){
-        if (!keys.count({llround(pos->GetVal(0)[i]), llround(pos->GetVal(1)[i])})) continue;
-        ceWinKeys.insert({llround(pos->GetVal(0)[i]), llround(pos->GetVal(6)[i])});
-        hBlock.Fill(pos->GetVal(2)[i], pos->GetVal(3)[i]);
-        hTrue.Fill(pos->GetVal(4)[i], pos->GetVal(5)[i]);
+        if (!keys.count({llround(cPos.V(0)[i]), llround(cPos.V(1)[i])})) continue;
+        ceWinKeys.insert({llround(cPos.V(0)[i]), llround(cPos.V(6)[i])});
+        hBlock.Fill(cPos.V(2)[i], cPos.V(3)[i]);
+        hTrue.Fill(cPos.V(4)[i], cPos.V(5)[i]);
     }
-    TFile* fAllEv = TFile::Open("cuts/cut_AllEvProtons.root", "READ");
-    TTree* allEv = fAllEv ? (TTree*)fAllEv->Get("ParticleInfo") : nullptr;
-    if (!allEv){Error("PlotDiffPhiCuts", "ParticleInfo missing in cut_AllEvProtons.root (run CutEvents.cpp)"); return;}
-    allEv->SetEstimate(allEv->GetEntries() + 1);
-    const Long64_t nAllEv = allEv->Draw("fEvent:TrackID:fDx:fDy:fX:fY", "boundaryType == 2 && pdg == 2212", "goff");
+    const Long64_t nAllEv = cAllEv.N();
     for (Long64_t i = 0; i < nAllEv; i++){
-        if (!reconKeys.count({llround(allEv->GetVal(0)[i]), llround(allEv->GetVal(1)[i])})) continue;
-        hBlockAll.Fill(allEv->GetVal(2)[i], allEv->GetVal(3)[i]);
-        hTrueAll.Fill(allEv->GetVal(4)[i], allEv->GetVal(5)[i]);
+        if (!reconKeys.count({llround(cAllEv.V(0)[i]), llround(cAllEv.V(1)[i])})) continue;
+        hBlockAll.Fill(cAllEv.V(2)[i], cAllEv.V(3)[i]);
+        hTrueAll.Fill(cAllEv.V(4)[i], cAllEv.V(5)[i]);
     }
     hBlockAll.Add(&hBlock);
     hTrueAll.Add(&hTrue);
@@ -173,7 +182,7 @@ void PlotDiffPhiCuts(double phiLo = -180, double phiHi = -50, std::string energy
     // z order, residual of the 2nd half over the 1st half of the tracker hits, recon theta, recon block theta and tracker hits. 9_ to 17_
     // The Angles tree already dropped the tracks that fail the z order, so 13_zOrder.pdf only holds protons that pass it.
     if (ang->GetBranch("nProtonsEv")){
-        const Long64_t nEx = ang->Draw("resRms:impact:r2:nProtonsEv:zOrderOK:resHalfRatioD:outTheta*180/TMath::Pi():outDTheta*180/TMath::Pi():nHits", "", "goff");
+        const Long64_t nEx = cEx.N();
         if (nEx != nAng){Error("PlotDiffPhiCuts", "extra columns have %lld rows, not %lld", nEx, nAng); return;}
         struct ExVar {std::string label, file; double lo, hi; int nBins; std::vector<std::string> eq;};
         const std::string lineT = "fit to hits: #hat{x} = x_{0} + b_{x}z, #hat{y} = y_{0} + b_{y}z";
@@ -187,8 +196,8 @@ void PlotDiffPhiCuts(double phiLo = -180, double phiHi = -50, std::string energy
             {"recon theta (degrees)", "15_theta.pdf", 0, 2.3, 100, {}},
             {"recon block theta (degrees)", "16_thetaBlock.pdf", 0, 2.3, 100, {}},
             {"tracker hits", "17_nHits.pdf", -0.5, 19.5, 20, {}}};
-        std::vector<std::vector<double>> exCols(exVars.size());
-        for (size_t c = 0; c < exVars.size(); c++) exCols[c].assign(ang->GetVal(c), ang->GetVal(c) + nEx);
+        std::vector<const double*> exCols(exVars.size());
+        for (size_t c = 0; c < exVars.size(); c++) exCols[c] = cEx.V(c);
         for (size_t v = 0; v < exVars.size(); v++){
             TH1D hRecon(Form("hExRecon%zu", v), "", exVars[v].nBins, exVars[v].lo, exVars[v].hi), hCE(Form("hExCE%zu", v), "", exVars[v].nBins, exVars[v].lo, exVars[v].hi);
             for (Long64_t i = 0; i < nAng; i++){

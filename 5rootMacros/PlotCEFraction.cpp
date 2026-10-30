@@ -16,12 +16,14 @@
 #include <set>
 #include <vector>
 
+#include <TROOT.h>
 #include "FitCore.h"
 #include "FomCommon.h"
 
 // Running percent of CE protons among reconstructed protons up to each theta, 100 * sum N_CE / sum N over the 1_csv/ke_*.csv bins written by
 // PlotAngle.cpp, one curve per KE cut: ke_all/1_cumulative_ce_percent_log.pdf (log y axis only), beside the csv folder.
 void PlotCEFraction(){
+    ROOT::EnableImplicitMT(NThreads()); // implicit MT for the file reads (NThreads: ANA_NTHREADS, FitCore.h)
     gStyle->SetOptStat(0);
     const auto &sets = kSets, &kes = kKes;
     const auto &colors = kColors;

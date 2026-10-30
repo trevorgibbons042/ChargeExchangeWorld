@@ -15,6 +15,9 @@ cd $BASE/build/root/$RUN || exit 1
 
 module load root
 export LD_LIBRARY_PATH=/lcrc/project/eic/tgibbons/xxhash-install/lib:$LD_LIBRARY_PATH
+export ACLIC=${ACLIC-} # interpreted, not ACLiC-compiled: ROOT 6.32 on the cluster fails to materialize the header globals when a compiled macro loads (runStaticInitializersOnce). Submit with -v ACLIC=+O to compile again.
+
+export ANA_NTHREADS=${NCPUS:-16} PLOT_PIPELINE=1 # threads for NThreads() (FitCore.h); the macros skip BoxAndCropPlots, the pdfs step runs the python scripts
 
 echo Jobid: $PBS_JOBID
 echo Running on host `hostname`
@@ -23,6 +26,7 @@ echo Run folder: $RUN, step: $STEP
 # The same lanes as plot.sh: a lane holds the macros that write into the same plots/ folders or read another's csv files
 case $STEP in
     cuttrees) macros=('CutTrees.cpp') ;;
+    caches)   macros=('BuildCaches.cpp') ;; # the cut caches (CutCache.h) every lane reads, built once
     cuts)     macros=('Plot3D.cpp' 'QualityStudy.cpp') ;; # 1_position, 2_energy, 6_cuts
     fom)      macros=('PlotAngle.cpp("fDEnergy")' 'PlotCEFraction.cpp' 'PlotPolarization.cpp("fDEnergy")' 'PlotFomPolarization.cpp("fDEnergy")') ;; # 3_ReconCalcVals, 5_fomCalc
     ceblock)  macros=('PlotDiffPhiCuts.cpp(-180, -50, "fDEnergy")' 'GraphBlocks.cpp' 'CETCompare.cpp') ;; # 4_CEblock
