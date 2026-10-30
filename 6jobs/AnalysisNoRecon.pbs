@@ -17,6 +17,9 @@ BASE=${BASE:-/lcrc/project/eic/tgibbons/G4ChargeExchange}
 
 cd $BASE/build/root/$RUN || exit 1
 
+# the job copies the current macros into the run folder itself (run_norecon.sh, plot.sh and the macros live in 5rootMacros/)
+rsync -a --exclude __pycache__ $BASE/5rootMacros/ $BASE/build/root/$RUN/
+
 module load root
 export LD_LIBRARY_PATH=/lcrc/project/eic/tgibbons/xxhash-install/lib:$LD_LIBRARY_PATH
 export LD_LIBRARY_PATH=/lcrc/project/eic/tgibbons/gif-lib:$LD_LIBRARY_PATH
