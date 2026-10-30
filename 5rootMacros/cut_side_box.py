@@ -7,15 +7,15 @@ The page is widened to the right so the box never covers the plot. Plots of 0_KE
 A folder that holds two cuts (4_nProtons) gets no box on the plots that sit beside the cut folders, they belong to neither cut. pdfs already boxed get their box taken off and redone (unbox), so the box can change without rerunning the macros.
 """
 import csv
-import io
 import os
-import subprocess
 import sys
 from concurrent.futures import ProcessPoolExecutor
 
-from PIL import Image
 from pypdf import PageObject, PdfReader, PdfWriter
 from pypdf.generic import DecodedStreamObject, DictionaryObject, NameObject, RectangleObject
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__))) # FitCore.h runs these with python3 -I, which leaves out the script folder
+import pdfgeom
 
 COLS = ["CE_recon_proton_in_cut/recon_proton_in_cut", "CE_recon_proton_in_cut/CE_recon_before_cut",
         "nonCE_recon_proton_in_cut/recon_proton_in_cut", "FOM_theta", "FOM_thetaBlock"]
@@ -26,7 +26,7 @@ BOX_TOP = 0.53 # box top as a fraction of the page height when the plot has no l
 LEGEND_W = (100, 200) # pt, width of the legend frame (0.245 of the 567 pt wide figure) used to tell it from the axes and the histogram lines
 GAP = 12.0 # pt between the legend frame and the first line of the box
 KE80 = "cut and ZDC KE > 80%"
-FOM_CUTS = {"1_reconTheta": "1_hitZDC", "2_reconBlockTheta": "3_ResCuts/2mmCutResD"} # 5_fomCalc folder -> rank row cut of its sample
+FOM_CUTS = {"1_reconTheta": "1_hitZDC", "2_reconBlockTheta": "3_ResCuts"} # 5_fomCalc folder -> rank row cut of its sample
 
 
 def load_rows(cuts_dir):
@@ -45,6 +45,8 @@ def cut_of(rel_dir, rows):
         return "1_hitZDC"
     if len(parts) >= 2 and (parts[0] + "/" + parts[1], "cut") in rows:
         return parts[0] + "/" + parts[1]
+    if (parts[0], "cut") in rows:
+        return parts[0]
     sub = sorted({c for c, _ in rows if c.split("/")[0] == parts[0] and "/" in c})
     return sub[0] if len(sub) == 1 else None
 
@@ -75,46 +77,55 @@ def text_ops(s, size):
     return " ".join(ops)
 
 
-def legend_bottom(path):
-    """(left edge, bottom edge) of the legend frame in pt from the left and the top of the displayed page, None without a legend. The page is rendered at 72 dpi (1 px = 1 pt, /Rotate honoured);
-    a frame shows as two horizontal black runs of the same x extent and of the legend width (the stats, fit and CE boxes have it too). The legend is the frame with colored line samples
-    inside. Without a legend the box goes under the lowest frame edge in the right half of the page (the stats or fit box); None when there is none either, and the box then goes at the right of the page."""
-    png = subprocess.run(["gs", "-q", "-dBATCH", "-dNOPAUSE", "-dSAFER", "-sDEVICE=png16m", "-r72", "-dTextAlphaBits=1", "-dGraphicsAlphaBits=1", "-sOutputFile=-", path],
-                         check=True, capture_output=True).stdout
-    img = Image.open(io.BytesIO(png)).convert("RGB")
-    w, h = img.size
-    px = img.load()
-    dark = lambda x, y: max(px[x, y]) < 100
-    runs = {} # (x start, x end) -> [(row, x start, x end)]
-    for y in range(h):
-        x = 0
-        while x < w:
-            if not dark(x, y):
-                x += 1
-                continue
-            x0 = x
-            while x < w and dark(x, y):
-                x += 1
-            if LEGEND_W[0] <= x - x0 <= LEGEND_W[1]:
-                runs.setdefault((round(x0 / 3), round(x / 3)), []).append((y, x0, x)) # rounded: the two edges differ by a pixel at most
+def legend_bottom(page):
+    """(left edge, bottom edge) of the legend frame in pt from the left and the top of the displayed page, None without a legend. The frames are found from what the page draws (pdfgeom.py);
+    a frame is two dark horizontal runs of the same x extent and of the legend width (the stats, fit and CE boxes have it too). The legend is the frame with colored line samples
+    inside, drawn on top of a white fill. Without a legend the box goes under the lowest frame edge in the right half of the page (the stats or fit box); None when there is none either, and the box then goes at the right of the page."""
+    w, h = pdfgeom.display_size(page)
+    prims = pdfgeom.page_prims(page)
+    dark = lambda c: max(c) < 0.4
+    lines = {} # displayed row -> [(x start, x end)] of the dark horizontal pieces on it
+    for p in prims:
+        if p[0] != "seg" or not dark(p[4]):
+            continue
+        (xa, ya), (xb, yb) = pdfgeom.to_display(page, *p[2]), pdfgeom.to_display(page, *p[3])
+        if abs(ya - yb) < 0.3:
+            lines.setdefault(round(ya), []).append((min(xa, xb), max(xa, xb)))
+    runs = {} # (x start, x end) / 3 rounded -> [(row, x start, x end)]
+    for y, segs in lines.items():
+        segs.sort()
+        merged = [list(segs[0])]
+        for a, b in segs[1:]:
+            if a <= merged[-1][1] + 1.5: # touching pieces are one run, the baseline of a histogram is many of them
+                merged[-1][1] = max(merged[-1][1], b)
+            else:
+                merged.append([a, b])
+        for x0, x1 in merged:
+            if LEGEND_W[0] <= x1 - x0 <= LEGEND_W[1]:
+                runs.setdefault((round(x0 / 3), round(x1 / 3)), []).append((y, x0, x1))
     frames = [] # left, right, top, bottom
     for rows in runs.values():
+        rows.sort()
         edges = [r for i, r in enumerate(rows) if i == 0 or r[0] - rows[i - 1][0] > 2] # one edge per line, a thick line is several rows
         for top, bottom in zip(edges[0::2], edges[1::2]): # frames sharing the x extent stack: edges 0 and 1 are one frame, 2 and 3 the next
             if bottom[0] - top[0] >= 15:
                 frames.append((top[1], top[2], top[0], bottom[0]))
-    white = lambda x, y: min(px[x, y]) > 230
-    colored = lambda x, y: max(px[x, y]) - min(px[x, y]) > 80
-    def is_legend(f): # a white inside with colored line samples, the dark cells of a 2D plot make no such frame
-        pts = [(x, y) for y in range(f[2] + 2, f[3] - 1) for x in range(f[0] + 2, f[1] - 1)]
-        return sum(white(x, y) for x, y in pts) > 0.6 * len(pts) and any(colored(x, y) for x, y in pts)
+    colored = lambda c: max(c) - min(c) > 0.3
+    blanks = [p for p in prims if p[0] == "blank"]
+    def is_legend(f): # a white fill of exactly the frame, then colored line samples or marks drawn inside it
+        box = lambda p: pdfgeom.prim_box(page, p)
+        fills = [p[1] for p in blanks if all(abs(u - v) < 2 for u, v in zip(box(p), (f[0], f[2], f[1], f[3])))]
+        if not fills:
+            return False
+        inside = lambda b: f[0] - 1 <= b[0] and b[2] <= f[1] + 1 and f[2] - 1 <= b[1] and b[3] <= f[3] + 1
+        return any(p[1] > fills[0] and p[0] in ("seg", "fill") and colored(p[4] if p[0] == "seg" else p[3]) and inside(box(p)) for p in prims)
     legend = [f for f in frames if is_legend(f)]
     if not legend:
         right = [f for f in frames if f[0] > w / 2] # stats and fit boxes, the plot frame is wider than LEGEND_W; a lone run (a curve along the x axis) is no frame
         if not right: # no legend, stats or fit box: at the usual height, right of whatever is drawn there (the plot frame, or a color palette and its labels)
             top = int(h * (1 - BOX_TOP))
-            used = [x for x in range(w) if any(dark(x, y) for y in range(max(0, top - 10), min(h, top + 110)))] # the box is about 100 pt high
-            return (used[-1] + 12, top - GAP) if used else None
+            used = [pdfgeom.prim_box(page, p)[2] for p in prims if dark(p[4] if p[0] == "seg" else p[3]) and pdfgeom.prim_box(page, p)[3] >= top - 10 and pdfgeom.prim_box(page, p)[1] <= top + 110] # the box is about 100 pt high
+            return (max(used) + 12, top - GAP) if used else None
         key = (round(right[0][0] / 3), round(right[0][1] / 3))
         return right[0][0], max(r[0] for r in runs[key]) # the lowest edge of that column, a title line splits the stats box into two frames
     f = max(legend, key=lambda f: f[3])
@@ -169,7 +180,7 @@ def stamp(path, lines, title):
     if is_boxed(reader):
         return False
     writer = PdfWriter()
-    legend = legend_bottom(path)
+    legend = legend_bottom(reader.pages[0])
     for src in reader.pages:
         w, h = float(src.mediabox.width), float(src.mediabox.height)
         rot = int(src.get("/Rotate", 0)) % 360 # ROOT writes landscape canvases as a portrait page rotated 90

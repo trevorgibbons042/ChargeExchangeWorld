@@ -45,32 +45,34 @@ void CutEvents(){
 
     ROOT::RDataFrame df(*events);
     ROOT::RDataFrame dfCEAll(*ChargeExchange);
-    auto dfCE = dfCEAll.Filter(CarbonCeCut());
 
-    // Lazy snapshots: all cuts of one dataframe are written in a single pass over its input, and the dataframes run at the same time. cut_CE.root and cut_ParentID.root hold two trees:
-    // ParticleInfo is written straight into the final file in that pass, and ChargeExchange_values is added to it afterwards (UPDATE), so no file is merged or copied.
+    // The cuts chain off each other (see CutOpen.h): the big sim output is read once, in stage 1, for the three base files; the other two cuts are filters of the small cut_CE.
+    //   stage 1 (sim output):  cut_CE (events with a carbon CE), cut_AllEvProtons (ZDC protons of every event), cut_CEall (every CE)
+    //   stage 2 (cut_CE):      cut_ParentZdc (ZDC protons that are children of a carbon CE track), cut_ParentTracker (the same at the first tracker)
+    //   stage 3 (cut_CEall):   the carbon CE rows, added as the second tree (UPDATE) of cut_CE
+    // Each stage is lazy: all the cuts of a stage are written in one pass over their input. The result handles own the open output files, so they are cleared (files closed)
+    // before the next stage reads those files; left open, cut_CE.root came out without ChargeExchange_values.
     ROOT::RDF::RSnapshotOptions lazy;
     lazy.fLazy = true;
+    const std::string pInfo = events->GetName(), ceTree = ChargeExchange->GetName();
 
-    const std::vector<std::string> cutFiles = {"cuts/cut_CE.root", "cuts/cut_ParentID.root"};
-    const std::vector<std::string> treeNames = {events->GetName(), ChargeExchange->GetName()};
-
-    auto selectedEvent = df.Filter(inEvent, {"fEvent"});
-    auto selectedParent = df.Filter(isParent, {"fEvent", "ParentID"});
-
-
-    std::vector<ROOT::RDF::RResultHandle> handles;
-    handles.emplace_back(selectedEvent.Snapshot(treeNames[0], cutFiles[0], "", lazy));
-    handles.emplace_back(selectedParent.Snapshot(treeNames[0], cutFiles[1], "", lazy));
-    // Single-tree cut files (no merge step), see CutOpen.h: ZDC protons of every event, the ZDC and first tracker protons of the CE children, and the CE outside the carbon blocks.
-    handles.emplace_back(df.Filter("boundaryType == 2 && pdg == 2212").Snapshot(treeNames[0], "cuts/cut_AllEvProtons.root", "", lazy));
-    handles.emplace_back(selectedParent.Filter("boundaryType == 2 && pdg == 2212").Snapshot(treeNames[0], "cuts/cut_ParentZdc.root", "", lazy));
-    handles.emplace_back(selectedParent.Filter("boundaryType == 0 && pdg == 2212").Snapshot(treeNames[0], "cuts/cut_ParentTracker.root", "", lazy));
-    handles.emplace_back(dfCEAll.Filter("!(" + CarbonCeCut() + ")").Snapshot(treeNames[1], "cuts/cut_CEtracker.root", "", lazy));
-    handles.emplace_back(dfCEAll.Snapshot(treeNames[1], "cuts/cut_CEall.root", "", lazy)); // every CE of the sim (the whole ChargeExchange_values tree, one row per CE)
-    ROOT::RDF::RunGraphs(handles);
-
+    {
+        std::vector<ROOT::RDF::RResultHandle> handles;
+        handles.emplace_back(df.Filter(inEvent, {"fEvent"}).Snapshot(pInfo, "cuts/cut_CE.root", "", lazy));
+        handles.emplace_back(df.Filter("boundaryType == 2 && pdg == 2212").Snapshot(pInfo, "cuts/cut_AllEvProtons.root", "", lazy));
+        handles.emplace_back(dfCEAll.Snapshot(ceTree, "cuts/cut_CEall.root", "", lazy)); // every CE of the sim (the whole ChargeExchange_values tree, one row per CE)
+        ROOT::RDF::RunGraphs(handles);
+    }
+    {
+        std::vector<ROOT::RDF::RResultHandle> handles;
+        ROOT::RDataFrame dfCEfile(pInfo, "cuts/cut_CE.root"); // stays alive until RunGraphs
+        auto children = dfCEfile.Filter(isParent, {"fEvent", "ParentID"});
+        handles.emplace_back(children.Filter("boundaryType == 2 && pdg == 2212").Snapshot(pInfo, "cuts/cut_ParentZdc.root", "", lazy));
+        handles.emplace_back(children.Filter("boundaryType == 0 && pdg == 2212").Snapshot(pInfo, "cuts/cut_ParentTracker.root", "", lazy));
+        ROOT::RDF::RunGraphs(handles);
+    }
     ROOT::RDF::RSnapshotOptions update;
     update.fMode = "UPDATE";
-    for (const auto& cutFile : cutFiles) dfCE.Snapshot(treeNames[1], cutFile, "", update); // the carbon-block CE rows, beside ParticleInfo
+    ROOT::RDataFrame dfCEallRows(ceTree, "cuts/cut_CEall.root");
+    dfCEallRows.Filter(CarbonCeCut()).Snapshot(ceTree, "cuts/cut_CE.root", "", update); // the carbon-block CE rows, beside ParticleInfo
 }

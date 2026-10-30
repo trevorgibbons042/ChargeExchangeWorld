@@ -29,7 +29,7 @@ static std::string FomRoot(){return "plots/5_fomCalc";}
 // true when only the block position set is wanted (the position set has no fom_polarization plots)
 static bool FomBlockOnly(){return false;}
 // Subfolder of <theta set>/<ke>/ for the P maps and fits of PlotFomPolarization.cpp
-static const std::string kFitDir = "fom_polarization/";
+static const std::string kFitDir = ""; // the phi fits go straight into the theta set folder
 
 // Every theta axis runs 0 to the last csv bin edge (the total row's theta_hi of ke_gt80.csv), the same for all plots.
 static double ReadThetaMax(){

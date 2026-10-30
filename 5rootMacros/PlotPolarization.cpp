@@ -74,13 +74,13 @@ static bool FitPhi(const std::vector<double>& phis, double ap, TH1D& h, TF1& f, 
 }
 
 // Fits one slice's phi values (deg). With draw, the histogram and fit are drawn in the current pad.
-static bool FitSlice(const std::vector<double>& phis, Slice& s, bool draw, const std::string& file = ""){ // file: the drawn page, numbers the title
+static bool FitSlice(const std::vector<double>& phis, Slice& s, bool draw, const std::string& file = "", const std::string& cutNote = ""){ // file: the drawn page, numbers the title; cutNote: the cuts applied, named in the title
     TH1D h("hPolPhi", "", kPhiBins, 0, 360);
     TF1 f("fPol", "[0]*(1+[1]*[2]*cos(x*TMath::DegToRad()))", 0, 360);
     if (!FitPhi(phis, s.ap, h, f, draw ? "LQ" : "LQ0")) return false; // drawn pages keep the fit in the histogram, like the other plots' fit boxes
     s.nPhi = h.GetEntries(); s.p = f.GetParameter(1); s.pErr = f.GetParError(1);
     if (draw){
-        h.SetTitle(PlotTitle(file, Form("Phi, theta %.2f to %.2f deg, AP = %.4f", s.lo, s.hi, s.ap) + std::string(";Angle (degrees);Count")).c_str());
+        h.SetTitle(PlotTitle(file, Form("Phi, theta %.2f to %.2f deg, AP = %.4f", s.lo, s.hi, s.ap) + (cutNote.empty() ? "" : ", " + cutNote) + std::string(";Angle (degrees);Count")).c_str());
         h.GetXaxis()->SetNdivisions(505);
         h.SetStats(0);
         h.SetMinimum(0); h.SetMaximum(1.1 * h.GetMaximum());
@@ -136,6 +136,7 @@ static void DrawSliceGrid(const std::vector<std::vector<double>>& phis, const st
 }
 
 void PlotPolarization(std::string energy = "fKEnergy"){ // energy: "fKEnergy" (true KE) or "fDEnergy" (detector energy), picks the input trees and plot folder
+    FastJit();
     ROOT::EnableImplicitMT(NThreads()); // implicit MT for the file reads (NThreads: ANA_NTHREADS, FitCore.h)
     const std::string suffix = (energy == "fDEnergy") ? "_DE" : "";
     const std::string keLabel = (energy == "fDEnergy") ? "ZDC KE" : "true KE";
@@ -144,9 +145,9 @@ void PlotPolarization(std::string energy = "fKEnergy"){ // energy: "fKEnergy" (t
 
     TFile* ceFile = TFile::Open("cuts/cut_APandT.root", "READ");
     TFile* allFile = TFile::Open("cuts/cut_angles_all.root", "READ");
-    TTree* all = allFile ? (TTree*)allFile->Get(kAngleTree.c_str()) : nullptr; // every fitted proton; the view "Angles" + suffix is passQuality == 1
-    if (!ceFile || !all || !all->GetBranch("passQuality")){printf("PlotPolarization: cut_APandT.root or AnglesRaw with passQuality in cut_angles_all.root missing\n"); return;}
-    const double nReconAll = (double)Columns(all, {"passQuality"}, "passQuality == 1")[0].size(); // the recon protons of the Angles view, before any cut
+    TTree* all = allFile ? (TTree*)allFile->Get(kAngleTree.c_str()) : nullptr; // every fitted proton
+    if (!ceFile || !all){printf("PlotPolarization: cut_APandT.root or AnglesRaw in cut_angles_all.root missing\n"); return;}
+    const double nReconAll = (double)Columns(all, {"fEvent"})[0].size(); // every recon proton (AnglesRaw row), before any cut
 
     const std::vector<KeCut> kes = {KeCuts(keLabel).front()}; // CutFiles.h, the one cut ke_gt80: no KE and no residual cut folders
 
@@ -248,7 +249,7 @@ void PlotPolarization(std::string energy = "fKEnergy"){ // energy: "fKEnergy" (t
                         Slice t{range.first, range.second, 0, apSum2 / apN2, 0, 0, apN2, (double)ce->GetEntries(), nReconAll};
                         pageC.cd(); pageC.Clear();
                         const std::string totPdf = totDir + (range.first > 0 ? fileNum(3) + "phi_fit_0p5to2deg_" : fileNum(4) + "phi_fit_0to5deg_") + tag + ".pdf";
-                        if (!FitSlice(phis, t, true, gSystem->BaseName(totPdf.c_str()))) continue;
+                        if (!FitSlice(phis, t, true, gSystem->BaseName(totPdf.c_str()), kes[k].label + (set.block ? ", block residual < 2 mm" : ""))) continue;
                         pageC.SaveAs(totPdf.c_str());
                         WriteStatsRow(totPdf, totHeader, Form("%s,%g,%g,%.0f,%.8g,%.8g,%.8g,%.8g", gSystem->BaseName(totPdf.c_str()), t.lo, t.hi, t.nPhi, t.ap, t.p, t.pErr, 100.0 * (t.p - pRef) / pRef), statsStarted, "total_fits.csv");
                     }
@@ -285,7 +286,7 @@ void PlotPolarization(std::string energy = "fKEnergy"){ // energy: "fKEnergy" (t
                     }
                     pageC.cd(); pageC.Clear();
                     const std::string title = std::string(pctPlot ? "Absolute percent error of fitted polarization vs PPValue, log scale" : "Fitted polarization P") + " vs #theta, " +
-                                typeNames[type] + ", " + apSrc.name + ", " + set.name + ", " + kes[k].label +
+                                typeNames[type] + ", " + apSrc.name + ", " + set.name + ", " + kes[k].label + (set.block ? ", block residual < 2 mm" : "") + ", theta < 5 deg" +
                                 ";" + std::string(set.block ? "recon block #theta" : "recon #theta") + " (deg);" + (pctPlot ? "|100 #times (P_{fit} - P_{true}) / P_{true}| (%)" : "P_{fit}");
                     TH1F frame("framePol", PlotTitle(file, title).c_str(), 1, xLo, xHi); // axes and title only, the data is drawn on top
                     frame.SetStats(0);

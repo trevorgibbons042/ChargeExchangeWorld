@@ -44,7 +44,7 @@ void TestDrawPlan(){
     auto h4 = plan.H(t, b + ">>hM", c + " > 0.2", "", &model);
     auto h5 = plan.H(t, a + ">>hW(100,0,30000)", "(" + c + " > 0.2)*0.5", "", nullptr, true);
     auto h6 = plan.H(t, a + ">>hL(100,0,30000)", "", kBlockCut); // listCut without a list set on the tree
-    auto h7 = plan.H(t, a + ">>hE(100,0,30000)", c + " < 4", ListCut("ke_gt80", true)); // the tree has the ke_gt80 block list set below (CutTrees.cpp)
+    auto h7 = plan.H(t, a + ">>hE(100,0,30000)", c + " < 4", ListCut("ke_gt80", true)); // the tree has the ke_gt80 block list set below (CutPlots.cpp (trees))
     auto n1 = plan.N(t, c + " > 1");
     auto cs = plan.C(t, {a, b}, c + " > 1");
     ApplyCut(t, "ke_gt80", true); // the list stays on the tree while DrawPlan runs: Run() must ignore it, ListCut stands for it

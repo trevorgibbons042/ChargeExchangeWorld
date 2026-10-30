@@ -24,8 +24,7 @@ run 'CutEvents.cpp' # rewrites the cut files cuts/cut_*.root (CutOpen.h)
 export ANA_NTHREADS=$(( NCPU / 2 > 0 ? NCPU / 2 : 1 ))
 run 'CountCE.cpp' &
 {
-    run 'CalcAPandT.cpp'
-    run 'CalcAPandT.cpp("fDEnergy")'
+    run 'CalcAPandT.cpp' # true KE, then detector KE
 } &
 wait
 unset ANA_NTHREADS

@@ -30,6 +30,7 @@
 // PPValue is the fraction along +y; Geant4 gives secondaries none). 2_CE_count_by_creator.pdf: CE count per CECreator, the process that made the CE neutron.
 // Needs ChargeExchange_values with CECreator and CEPolX/Y/Z (sim of 27 Oct 2026 or later) in output0_t*.root and settings.csv.
 void SecondaryCE(){
+    FastJit();
     ROOT::EnableImplicitMT(NThreads()); // implicit MT for the file reads (NThreads: ANA_NTHREADS, FitCore.h)
     gStyle->SetOptStat(0);
     // the carbon-block CE (CarbonCeCut) come from cuts/cut_CE.root (CutOpen.h), so every row passes; the ZDC protons of their children and the first tracker protons likewise
@@ -82,7 +83,7 @@ void SecondaryCE(){
     hYprim.SetLineWidth(2); hYsec.SetLineWidth(2); hYprim.SetStats(0);
     hYprim.SetMinimum(0.5);
     hYprim.SetMaximum(2.0 * std::max(hYprim.GetMaximum(), hYsec.GetMaximum()));
-    hYprim.SetTitle(PlotTitle(polYFile, "y component of the polarization of the neutron doing CE in the carbon blocks;CEPolY;Count").c_str());
+    hYprim.SetTitle(PlotTitle(polYFile, "y component of the polarization of the neutron doing CE in the carbon blocks, no cuts;CEPolY;Count").c_str());
     hYprim.Draw("hist"); hYsec.Draw("hist same");
     TLegend legY(0.745, 0.75, 0.99, 0.88); legY.SetTextSize(0.016);
     legY.AddEntry(&hYprim, Form("beam neutron (%lld), mean %.3f", nPrim, hYprim.GetMean()), "l");
@@ -103,7 +104,7 @@ void SecondaryCE(){
     hCreator.SetMinimum(0.5);
     hCreator.GetXaxis()->SetLabelSize(0.025); hCreator.GetXaxis()->SetTitleOffset(1.6); // creator names are long, keep them clear of the axis title
     canvas.SetBottomMargin(0.15);
-    hCreator.SetTitle(PlotTitle(creatorFile, Form("CE in the carbon blocks by the process that made the CE neutron, %.1f%% from secondary neutrons;Creator process;Count", fracSec)).c_str());
+    hCreator.SetTitle(PlotTitle(creatorFile, Form("CE in the carbon blocks by the process that made the CE neutron, %.1f%% from secondary neutrons, no cuts;Creator process;Count", fracSec)).c_str());
     canvas.Clear(); canvas.SetLogy(1);
     hCreator.Draw("hist");
     WritePlotNumbers(&hCreator, outDir + creatorFile, numbersStarted);
@@ -117,7 +118,7 @@ void SecondaryCE(){
     hSplit.SetLineColor(kBlack); hSplit.SetLineWidth(2); hSplit.SetStats(0);
     hSplit.SetMinimum(0.5);
     hSplit.GetXaxis()->SetLabelSize(0.03); hSplit.GetXaxis()->SetTitleOffset(1.6);
-    hSplit.SetTitle(PlotTitle(splitFile, Form("CE in the carbon blocks, beam neutron and all other neutron sources, %.1f%% from the other sources;Neutron source;Count", fracSec)).c_str());
+    hSplit.SetTitle(PlotTitle(splitFile, Form("CE in the carbon blocks, beam neutron and all other neutron sources, %.1f%% from the other sources, no cuts;Neutron source;Count", fracSec)).c_str());
     canvas.Clear(); canvas.SetLogy(1);
     hSplit.Draw("hist");
     WritePlotNumbers(&hSplit, outDir + splitFile, numbersStarted);
@@ -138,7 +139,7 @@ void SecondaryCE(){
     hP.SetLineColor(kBlack); hP.SetLineWidth(2); hP.SetStats(0);
     hP.SetMinimum(0); hP.SetMaximum(1.0);
     hP.GetXaxis()->SetLabelSize(0.022); hP.GetXaxis()->SetTitleOffset(1.6);
-    hP.SetTitle(PlotTitle(pFile, "Fitted polarization P of the CE protons, now and if the neutronInelastic and protonInelastic neutrons were polarized like the beam neutron;;P").c_str());
+    hP.SetTitle(PlotTitle(pFile, "Fitted polarization P of the CE protons, now and if the neutronInelastic and protonInelastic neutrons were polarized like the beam neutron, no cuts;;P").c_str());
     canvas.Clear(); canvas.SetLogy(0);
     hP.Draw("hist");
     TLine pRef(0, ReadSettings().at("PPValue"), 5, ReadSettings().at("PPValue")); pRef.SetLineStyle(3); pRef.SetLineWidth(2); pRef.SetLineColor(kRed); pRef.Draw(); // input PPValue
@@ -166,14 +167,15 @@ void SecondaryCE(){
         if (it != groupOf.end()){hKE[0][it->second].Fill(piKE); hKE[1][it->second].Fill(piDE); if (piDE > cutKE) nAbove[it->second]++;}
     }
     const std::string keFile[2] = {"3_energy/6_CE_proton_KE_by_creator.pdf", "3_energy/7_CE_proton_smeared_KE_by_creator.pdf"};
-    const char* keTitle[2] = {"True Kinetic Energy at ZDC of the CE protons, by the process that made the CE neutron;Kinetic Energy (MeV);Count",
-                              "Smeared Energy at ZDC of the CE protons, by the process that made the CE neutron;Smeared Energy fDEnergy (MeV);Count"};
+    const std::string kZdcNote = "hit ZDC"; // the cut of every plot built from cut_ParentZdc.root, named in its title
+    const std::string keTitle[2] = {"True Kinetic Energy at ZDC of the CE protons, by the process that made the CE neutron, " + kZdcNote + ", no KE cut;Kinetic Energy (MeV);Count",
+                                    "Smeared Energy at ZDC of the CE protons, by the process that made the CE neutron, " + kZdcNote + ", no KE cut;Smeared Energy fDEnergy (MeV);Count"};
     for (int q = 0; q < 2; q++){
         TLegend legKE(0.745, 0.65, 0.99, 0.88); legKE.SetTextSize(0.016);
         double keMax = 0;
         for (int g = 0; g < 4; g++){hKE[q][g].SetLineColor(gColor[g]); hKE[q][g].SetLineWidth(2); hKE[q][g].SetStats(0); keMax = std::max(keMax, hKE[q][g].GetMaximum());}
         hKE[q][0].SetMinimum(0.5); hKE[q][0].SetMaximum(2.0 * keMax);
-        hKE[q][0].SetTitle(PlotTitle(keFile[q], keTitle[q]).c_str());
+        hKE[q][0].SetTitle(PlotTitle(keFile[q], keTitle[q].c_str()).c_str());
         canvas.Clear(); canvas.SetLogy(1);
         for (int g = 0; g < 4; g++){hKE[q][g].Draw(g ? "hist same" : "hist"); legKE.AddEntry(&hKE[q][g], Form("%s (%.0f)", gName[g], hKE[q][g].GetEntries()), "l");}
         legKE.Draw();
@@ -184,7 +186,7 @@ void SecondaryCE(){
     // 8_CE_proton_smeared_KE_cut80_by_creator.pdf: the smeared energy plot with the 80% KE cut (dashed), how many CE protons of each creator stay above it
     const std::string cutFile = "3_energy/8_CE_proton_smeared_KE_cut80_by_creator.pdf";
     canvas.Clear(); canvas.SetLogy(1);
-    hKE[1][0].SetTitle(PlotTitle(cutFile, Form("Smeared Energy at ZDC of the CE protons, by the process that made the CE neutron, 80%% KE cut = %.0f MeV;Smeared Energy fDEnergy (MeV);Count", cutKE)).c_str());
+    hKE[1][0].SetTitle(PlotTitle(cutFile, Form("Smeared Energy at ZDC of the CE protons, by the process that made the CE neutron, %s, 80%% KE cut = %.0f MeV;Smeared Energy fDEnergy (MeV);Count", kZdcNote.c_str(), cutKE)).c_str());
     TLegend legCut(0.745, 0.55, 0.99, 0.88); legCut.SetTextSize(0.016);
     for (int g = 0; g < 4; g++){
         hKE[1][g].Draw(g ? "hist same" : "hist");
@@ -215,7 +217,7 @@ void SecondaryCE(){
         hX[g].SetLineColor(gColor[g]); hX[g].SetLineWidth(2); hX[g].SetStats(0); xMax = std::max(xMax, hX[g].GetMaximum());
     }
     hX[0].SetMinimum(0.5); hX[0].SetMaximum(2.0 * xMax);
-    hX[0].SetTitle(PlotTitle(xFile, "x position of the neutron at the CE in the carbon blocks, by the process that made the CE neutron;x (mm);Count").c_str());
+    hX[0].SetTitle(PlotTitle(xFile, "x position of the neutron at the CE in the carbon blocks, by the process that made the CE neutron, no cuts;x (mm);Count").c_str());
     canvas.Clear(); canvas.SetLogy(1);
     TLegend legX(0.745, 0.65, 0.99, 0.88); legX.SetTextSize(0.016);
     for (int g = 0; g < 4; g++){hX[g].Draw(g ? "hist same" : "hist"); legX.AddEntry(&hX[g], Form("%s (%.0f)", gName[g], hX[g].GetEntries()), "l");}
@@ -234,7 +236,7 @@ void SecondaryCE(){
     }
     for (int g = 0; g < 4; g++){hXc[g].SetLineColor(gColor[g]); hXc[g].SetLineWidth(2); hXc[g].SetStats(0); xcMax = std::max(xcMax, hXc[g].GetMaximum());}
     hXc[0].SetMinimum(0.5); hXc[0].SetMaximum(2.0 * xcMax);
-    hXc[0].SetTitle(PlotTitle(xCutFile, Form("x position of the neutron at the CE, by the process that made the CE neutron, 80%% KE cut = %.0f MeV;x (mm);Count", cutKE)).c_str());
+    hXc[0].SetTitle(PlotTitle(xCutFile, Form("x position of the neutron at the CE, by the process that made the CE neutron, %s, 80%% KE cut = %.0f MeV;x (mm);Count", kZdcNote.c_str(), cutKE)).c_str());
     canvas.Clear();
     TLegend legXc(0.745, 0.65, 0.99, 0.88); legXc.SetTextSize(0.016);
     for (int g = 0; g < 4; g++){hXc[g].Draw(g ? "hist same" : "hist"); legXc.AddEntry(&hXc[g], Form("%s %.0f/%.0f (%.0f%%)", gName[g], hXc[g].GetEntries(), hX[g].GetEntries(), 100.0 * hXc[g].GetEntries() / std::max(1.0, hX[g].GetEntries())), "l");}
@@ -287,7 +289,7 @@ void SecondaryCE(){
         WritePlotNumbers(&hPhi[0], outDir + phiFile, numbersStarted);
         canvas.SaveAs((outDir + phiFile).c_str());
     };
-    phiFitPlot("5_phi_cosfit/18_phiCE_cosfit_beam_vs_all.pdf", "", [](Long64_t){return true;});
+    phiFitPlot("5_phi_cosfit/18_phiCE_cosfit_beam_vs_all.pdf", ", no cuts", [](Long64_t){return true;});
     // 19_phiCE_cosfit_beam_vs_all_vertex1mm.pdf: plot 18 for the CE whose vertex (fX, fY, the neutron position at the CE) is inside the 1 mm square, a neutron that scattered before the CE has moved off the beam axis
     phiFitPlot("5_phi_cosfit/19_phiCE_cosfit_beam_vs_all_vertex1mm.pdf", ", CE vertex within |x|,|y| #leq 1 mm", [&](Long64_t k){return std::fabs(ceX[k]) <= 1 && std::fabs(ceYv[k]) <= 1;});
     // 16_CE_neutron_vertex_z_by_creator.pdf and 17_..._cut80_by_creator.pdf: z where the CE neutron was made (CEVertexZ, mm), by the process that made it; 17 keeps the CE whose proton is above the 80% KE cut.
@@ -310,7 +312,7 @@ void SecondaryCE(){
             double vMax = 0;
             for (int g = 0; g < 4; g++){hV[q][g].SetLineColor(gColor[g]); hV[q][g].SetLineWidth(2); hV[q][g].SetStats(0); vMax = std::max(vMax, hV[q][g].GetMaximum());}
             hV[q][0].SetMinimum(0.5); hV[q][0].SetMaximum(2.0 * vMax);
-            const std::string cutNote = q ? std::string(Form(", 80%% KE cut = %.0f MeV", cutKE)) : "";
+            const std::string cutNote = q ? std::string(Form(", %s, 80%% KE cut = %.0f MeV", kZdcNote.c_str(), cutKE)) : ", no cuts";
             hV[q][0].SetTitle(PlotTitle(vFile[q], "z position where the CE neutron was made, by the process that made it" + cutNote + ";z (mm);Count").c_str());
             canvas.Clear(); canvas.SetLogy(1);
             TLegend legV(0.745, 0.65, 0.99, 0.88); legV.SetTextSize(0.016);
@@ -356,7 +358,7 @@ void SecondaryCE(){
             for (double x : tx[g]) hT[g].Fill(x);
             hT[g].SetLineColor(gColor[g]); hT[g].SetLineWidth(2); hT[g].SetStats(0); tMax = std::max(tMax, hT[g].GetMaximum());
         }
-        const std::string cutNote = q ? std::string(Form(", 80%% KE cut = %.0f MeV", cutKE)) : "";
+        const std::string cutNote = q ? std::string(Form(", hit tracker and %s, 80%% KE cut = %.0f MeV", kZdcNote.c_str(), cutKE)) : ", hit tracker (cut_ParentTracker)";
         hT[0].SetMinimum(0.5); hT[0].SetMaximum(2.0 * tMax);
         hT[0].SetTitle(PlotTitle(trkFile[q], "x position where the CE proton first enters a tracker, by the process that made the CE neutron" + cutNote + ";x (mm);Count").c_str());
         canvas.Clear(); canvas.SetLogy(1);
@@ -386,8 +388,8 @@ void SecondaryCE(){
             hNG[g].SetLineColor(gColor[g]); hNG[g].SetLineWidth(2); hNG[g].SetStats(0); nGMax = std::max(nGMax, hNG[g].GetMaximum());
         }
         hNG[0].SetMinimum(0.5); hNG[0].SetMaximum(2.0 * nGMax);
-        const std::string cutNote = q ? std::string(Form(", 80%% KE cut = %.0f MeV", cutKE)) : "";
-        hNG[0].SetTitle(PlotTitle(nGFile[q], "Reconstructed CE protons per event by the process that made the CE neutron" + cutNote + ";Reconstructed CE protons of that creator in the event;Events").c_str());
+        const std::string cutNote = q ? std::string(Form(", %s, 80%% KE cut = %.0f MeV", kZdcNote.c_str(), cutKE)) : ", " + kZdcNote + ", no KE cut";
+        hNG[0].SetTitle(PlotTitle(nGFile[q], "CE protons that hit ZDC per event by the process that made the CE neutron" + cutNote + ";CE protons that hit ZDC of that creator in the event;Events").c_str());
         canvas.Clear(); canvas.SetLogy(1);
         TLegend legNG(0.745, 0.65, 0.99, 0.88); legNG.SetTextSize(0.016);
         for (int g = 0; g < 4; g++){hNG[g].Draw(g ? "hist same" : "hist"); legNG.AddEntry(&hNG[g], Form("%s (%.0f events), mean %.3f", gName[g], hNG[g].GetEntries(), hNG[g].GetMean()), "l");}

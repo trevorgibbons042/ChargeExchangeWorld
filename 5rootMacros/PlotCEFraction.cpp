@@ -28,6 +28,7 @@ void PlotCEFraction(){
     const auto &sets = kSets, &kes = kKes;
     const auto &colors = kColors;
     const auto &setName = kSetName;
+    auto cutNote = [](const std::string& set){return std::string("no KE cut") + (set == "2_reconBlockTheta" ? ", block residual < 2 mm" : "");};
     const auto keName = KeName;
 
     const double thetaMax = 15.0; // deg, fixed axis range for every plot (ReadThetaMax() ran to the largest recon theta)
@@ -35,6 +36,7 @@ void PlotCEFraction(){
     auto readCsv = [](const std::string& path){
         std::vector<std::array<double, 4>> rows; // theta_lo, theta_hi, N, N_CE
         std::ifstream in(path);
+        if (!in) Error("PlotCEFraction", "%s missing (PlotAngle.cpp writes it, and needs cuts/cut_APandT.root from CalcAPandT.cpp)", path.c_str());
         std::string line; std::getline(in, line);
         while (std::getline(in, line)){
             std::vector<double> x; std::stringstream ss(line); std::string f;
@@ -79,7 +81,7 @@ void PlotCEFraction(){
             TGraph g;
             for (int b = 0; b < nBins; b++) g.SetPoint(g.GetN(), (b + 0.5) * binW, 100.0 * nCE[b] / nNeutrons);
             c.Clear(); c.SetLogy(0);
-            g.SetTitle(("100 #times N_{CE} / N_{neutrons} per #theta bin (0.05 deg), detector KE, N_{CE} = CE recon protons, " + setName.at(set) + ";" +
+            g.SetTitle(("100 #times N_{CE} / N_{neutrons} per #theta bin (0.05 deg), " + cutNote(set) + ", N_{CE} = CE recon protons, " + setName.at(set) + ";" +
                         std::string(set == "2_reconBlockTheta" ? "recon block #theta" : "recon #theta") + " (deg);100 #times N_{CE} / N_{neutrons} (%)").c_str());
             g.SetMarkerStyle(20); g.SetMarkerSize(0.6); g.SetLineWidth(1);
             g.Draw("APL");
@@ -95,7 +97,7 @@ void PlotCEFraction(){
                 gA2.SetPoint(gA2.GetN(), theta, ap * ap * 100.0 * nCE[b] / nNeutrons);
             }
             c.Clear();
-            gA2.SetTitle(("100 #times N_{CE} / N_{neutrons} #times A_{y}^{2}(#theta) per #theta bin (0.05 deg), detector KE, N_{CE} = CE recon protons, " + setName.at(set) + ";" +
+            gA2.SetTitle(("100 #times N_{CE} / N_{neutrons} #times A_{y}^{2}(#theta) per #theta bin (0.05 deg), " + cutNote(set) + ", N_{CE} = CE recon protons, " + setName.at(set) + ";" +
                           std::string(set == "2_reconBlockTheta" ? "recon block #theta" : "recon #theta") + " (deg);A_{y}^{2} #times 100 #times N_{CE} / N_{neutrons} (%)").c_str());
             gA2.SetMarkerStyle(20); gA2.SetMarkerSize(0.6); gA2.SetLineWidth(1);
             gA2.Draw("APL");
@@ -112,7 +114,7 @@ void PlotCEFraction(){
                 gInt.SetPoint(gInt.GetN(), (b + 1) * binW, integral);
             }
             c.Clear();
-            gInt.SetTitle(("#Sigma N_{CE} / N_{neutrons} #times A_{y}^{2}(#theta) #times #Delta#theta up to #theta (#Delta#theta = 0.05 deg), detector KE, N_{CE} = CE recon protons, " + setName.at(set) + ";" +
+            gInt.SetTitle(("#Sigma N_{CE} / N_{neutrons} #times A_{y}^{2}(#theta) #times #Delta#theta up to #theta (#Delta#theta = 0.05 deg), " + cutNote(set) + ", N_{CE} = CE recon protons, " + setName.at(set) + ";" +
                            std::string(set == "2_reconBlockTheta" ? "recon block #theta" : "recon #theta") + " (deg);#Sigma N_{CE} / N_{neutrons} #times A_{y}^{2} #times #Delta#theta (deg)").c_str());
             gInt.SetMarkerStyle(20); gInt.SetMarkerSize(0.6); gInt.SetLineWidth(1);
             gInt.Draw("APL");
@@ -133,7 +135,7 @@ void PlotCEFraction(){
                 }
                 if (gShare.GetN() == 0) continue;
                 c.Clear();
-                gShare.SetTitle(std::string(nonCE ? "100 #times N_{non-CE} / N_{recon}" : "100 #times N_{CE} / N_{recon}").append(" per #theta bin (0.05 deg), N_{CE} = CE recon protons, N_{recon} = all recon protons, detector KE, ").append(setName.at(set)).append(";")
+                gShare.SetTitle(std::string(nonCE ? "100 #times N_{non-CE} / N_{recon}" : "100 #times N_{CE} / N_{recon}").append(" per #theta bin (0.05 deg), N_{CE} = CE recon protons, N_{recon} = all recon protons, " + cutNote(set) + ", ").append(setName.at(set)).append(";")
                                 .append(set == "2_reconBlockTheta" ? "recon block #theta" : "recon #theta").append(nonCE ? " (deg);100 #times N_{non-CE} / N_{recon protons} (%)" : " (deg);100 #times N_{CE} / N_{recon protons} (%)").c_str());
                 gShare.SetMarkerStyle(20); gShare.SetMarkerSize(0.6); gShare.SetLineWidth(1);
                 gShare.Draw("APL");
