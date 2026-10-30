@@ -234,13 +234,14 @@ void ReconAngleAll(){
 
         std::vector<std::map<std::tuple<int, int, int>, Track>> slotTracks(df.GetNSlots());
         // boundaryType 2 is the ZDC row, left out of the fit points; protons that never reach the ZDC are reconstructed too
-        // The selection is in the lambda, not a Filter string: a string Filter is JIT-compiled, which fails on a ROOT whose cling cannot materialize libc++ symbols (the Mac).
-        df.ForeachSlot([&](unsigned slot,
+        // The selection is a typed Filter lambda, not a Filter string: a string Filter is JIT-compiled, which fails on a ROOT whose cling cannot materialize libc++ symbols (the Mac).
+        // A Filter node, unlike a test inside the ForeachSlot lambda, reads the other branches only for rows that pass (protons), not for every particle row.
+        df.Filter([](int pdg, int boundaryType){return pdg == 2212 && boundaryType != 2;}, {"pdg", "boundaryType"})
+          .ForeachSlot([&](unsigned slot,
             int eventID, int trackID, int pdg,
-            double x, double y, double z, double xD, double yD, double zD, double KE, double KED, int ParentID, ULong64_t entry, int boundaryType){
-            if (pdg != 2212 || boundaryType == 2) return;
+            double x, double y, double z, double xD, double yD, double zD, double KE, double KED, int ParentID, ULong64_t entry){
             slotTracks[slot][{eventID, trackID, pdg}].push(x, y, z, xD, yD, zD, KE, ParentID, KED, entry);
-        }, {"fEvent", "TrackID", "pdg", "fX", "fY", "fZ", "fDx", "fDy", "fDz", "fKEnergy", "fDEnergy", "ParentID", "rdfentry_", "boundaryType"});
+        }, {"fEvent", "TrackID", "pdg", "fX", "fY", "fZ", "fDx", "fDy", "fDz", "fKEnergy", "fDEnergy", "ParentID", "rdfentry_"});
         // Points are sorted and de-duplicated per track below, so the merge order does not matter.
         std::map<std::tuple<int, int, int>, Track> tracks;
         for (auto &slotMap : slotTracks) {
