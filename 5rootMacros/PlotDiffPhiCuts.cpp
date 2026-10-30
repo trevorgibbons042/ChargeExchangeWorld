@@ -42,14 +42,15 @@ void PlotDiffPhiCuts(double phiLo = -180, double phiHi = -50, std::string energy
     DrawPlan plan;
     // events in the phi diff window: block residual cut as the list string (CutTrees.cpp), the list itself is not set on the tree
     auto cDiff = plan.C(diff, {"fEvent", "TrackID", "finalKE"}, Form("phiReD >= %g && phiReD < %g", phiLo, phiHi), ListCut("ke_all", true));
-    // Every recon proton (Angles tree of cut_angles_all.root, all events): (fEvent, TrackID) for the positions, finalKE, isFromCE and the
-    // block line fit quality (ReconAngleAll.cpp)
+    // Every recon proton that passes the quality cut (the rows of AnglesRaw in cut_angles_all.root with passQuality set, all events): (fEvent, TrackID) for the positions,
+    // the KE of the energy (finalKE / finalKED), isFromCE and the block line fit quality (ReconAngleAll.cpp)
     TFile* fAng = TFile::Open("cuts/cut_angles_all.root", "READ");
-    TTree* ang = fAng ? (TTree*)fAng->Get(("Angles" + suffix).c_str()) : nullptr;
-    if (!ang || !ang->GetBranch("r2D")){Error("PlotDiffPhiCuts", "Angles tree with r2D missing in cut_angles_all.root (rerun ReconAngleAll.cpp)"); return;}
-    auto cAng = plan.C(ang, {"fEvent", "TrackID", "finalKE", "isFromCE", "resDRms", "r2D", "impactD", "outPhi", "outDPhi"});
+    TTree* ang = fAng ? (TTree*)fAng->Get(kAngleTree.c_str()) : nullptr;
+    if (!ang || !ang->GetBranch("r2D") || !ang->GetBranch("passQuality")){Error("PlotDiffPhiCuts", "AnglesRaw with r2D and passQuality missing in cut_angles_all.root (rerun ReconAngleAll.cpp)"); return;}
+    const std::string angSel = AngleSelection("Angles"); // the same rows for both column sets, so they line up
+    auto cAng = plan.C(ang, {"fEvent", "TrackID", KeVar(suffix), "isFromCE", "resDRms", "r2D", "impactD", "outPhi", "outDPhi"}, angSel);
     DrawPlan::Cols cEx;
-    if (ang->GetBranch("nProtonsEv")) cEx = plan.C(ang, {"resRms", "impact", "r2", "nProtonsEv", "zOrderOK", "resHalfRatioD", "outTheta*180/TMath::Pi()", "outDTheta*180/TMath::Pi()", "nHits"});
+    if (ang->GetBranch("nProtonsEv")) cEx = plan.C(ang, {"resRms", "impact", "r2", "nProtonsEv", "zOrderOK", "resHalfRatioD", "outTheta*180/TMath::Pi()", "outDTheta*180/TMath::Pi()", "nHits"}, angSel);
     // ZDC protons of the CE children (pos) and of every event (allEv), the cut caches: every row passes the ZDC proton cut
     const CacheTree cacheAllEv = GetCutTree("output0_t*.root", "ParticleInfo", {"boundaryType == 2 && pdg == 2212"});
     TTree* allEv = cacheAllEv.tree;

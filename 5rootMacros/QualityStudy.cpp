@@ -289,7 +289,7 @@ void QualityStudy(double keepCE = 0.95){
                         c.cd(); // the shared canvas is the current pad again for the next variable
                     }
                 }
-                if (cd.branch == "zOrderOK"){ // the cut keeping only tracks whose planes are hit in increasing z (ReconAngleAll.cpp already drops the others from the Angles trees)
+                if (cd.branch == "zOrderOK"){ // the cut keeping only tracks whose planes are hit in increasing z (ReconAngleAll.cpp already leaves the others out of the Angles view, passQuality)
                     TLine l(0.5, 0.5, 0.5, hRecon.GetMaximum());
                     l.SetLineStyle(2); l.SetLineWidth(2); l.Draw();
                     gSystem->mkdir((cdir + "csv").c_str(), true);

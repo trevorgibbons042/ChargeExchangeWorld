@@ -144,7 +144,7 @@ static double ImpactToAxis(double x0, double y0, double bx, double by){
     return slope > 0 ? std::fabs(x0 * by - y0 * bx) / slope : std::hypot(x0, y0);
 }
 
-// One pass fits every proton and writes the true-KE trees (Angles, AnglesCE) and the detector-KE trees (Angles_DE, AnglesCE_DE); they differ only in finalKE.
+// One pass fits every proton and writes the tree AnglesRaw with the true (finalKE) and the detector (finalKED) KE of the track end.
 void ReconAngleAll(){
     ROOT::EnableImplicitMT(NThreads());
 
@@ -163,11 +163,9 @@ void ReconAngleAll(){
     }
 
     TFile *outFile = new TFile("cuts/cut_angles_all.root", "RECREATE");
-    TTree *outTree = new TTree("Angles", "Reconstructed Angles, all recon protons");
-    TTree *outTreeCE = new TTree("AnglesCE", "Reconstructed Angles, recon protons in CE events");
-    TTree *outTreeDE = new TTree("Angles_DE", "Reconstructed Angles, all recon protons, detector KE");
-    TTree *outTreeCEDE = new TTree("AnglesCE_DE", "Reconstructed Angles, recon protons in detector KE");
-    TTree *outTreeRaw = new TTree("AnglesRaw", "Reconstructed Angles, every recon proton before the quality cut (QualityStudy.cpp)");
+    // The one proton tree: every recon proton before the quality cut (QualityStudy.cpp). The old trees Angles, AnglesCE and their _DE copies are views of it
+    // (AngleSelection, CutFiles.h): passQuality, inCE pick the rows, finalKE / finalKED the true / detector KE.
+    TTree *outTree = new TTree("AnglesRaw", "Reconstructed Angles, every recon proton before the quality cut");
 
     int outTrackID, outPDG, outEventID, fParentID;
     double outTheta, outPhi, outDTheta, outDPhi;
@@ -184,8 +182,10 @@ void ReconAngleAll(){
     double resHalfRatioD; // block residual of the tracker hits after the first 2 over the first 2 hits, NAN with 2 or fewer hits
     int passResD = 1; // block residual cut, cut on only by the block plots (QualityCut.h)
     int isFromCE;
+    int passQuality, inCE; // z order and quality cut passed (1/0), event has a carbon CE (1/0)
 
-    for (TTree *tree : {outTree, outTreeCE, outTreeDE, outTreeCEDE, outTreeRaw}) {
+    {
+        TTree *tree = outTree;
         tree->Branch("TrackID", &outTrackID);
         tree->Branch("PDG", &outPDG);
         tree->Branch("fEvent", &outEventID);
@@ -201,7 +201,10 @@ void ReconAngleAll(){
         tree->Branch("y0DOut", &y0DOut);
         tree->Branch("bxDOut", &bxDOut);
         tree->Branch("byDOut", &byDOut);
-        tree->Branch("finalKE", (tree == outTreeDE || tree == outTreeCEDE) ? &finalKED : &finalKE);
+        tree->Branch("finalKE", &finalKE);
+        tree->Branch("finalKED", &finalKED);
+        tree->Branch("passQuality", &passQuality);
+        tree->Branch("inCE", &inCE);
         tree->Branch("ParentID", &fParentID);
         tree->Branch("xVertexOut", &xVertexOut);
         tree->Branch("yVertexOut", &yVertexOut);
@@ -387,12 +390,9 @@ void ReconAngleAll(){
                 passResD = r.passResD; nProtonsEv = r.nProtonsEv; zOrderOK = r.zOrderOK; nHits = r.nHits;
                 firstXD = r.firstXD; firstYD = r.firstYD; resHalfRatioD = r.resHalfRatioD;
 
-                outTreeRaw->Fill();
-                if (!r.zOrderOK) {continue;}
-                if (!r.passQuality) {continue;}
+                passQuality = r.zOrderOK && r.passQuality ? 1 : 0; // out of order tracks and tracks that fail the quality cut stay in the tree for the plots, the views drop them
+                inCE = r.inCE;
                 outTree->Fill();
-                outTreeDE->Fill();
-                if (r.inCE) {outTreeCE->Fill(); outTreeCEDE->Fill();}
             }
             rows.clear(); rows.shrink_to_fit();
         }
@@ -400,9 +400,5 @@ void ReconAngleAll(){
 
     outFile->cd();
     outTree->Write();
-    outTreeCE->Write();
-    outTreeDE->Write();
-    outTreeCEDE->Write();
-    outTreeRaw->Write();
     outFile->Close();
 }

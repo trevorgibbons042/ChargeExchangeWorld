@@ -14,6 +14,7 @@
 
 #include <TROOT.h>
 #include "FitCore.h"
+#include "CutFiles.h"
 
 void GraphBlocks(){
     ROOT::EnableImplicitMT(NThreads()); // implicit MT for the file reads (NThreads: ANA_NTHREADS, FitCore.h)
@@ -124,12 +125,16 @@ void GraphBlocks(){
     std::set<std::pair<int,int>> reconKeys;
     {
         TFile *fAng = TFile::Open("cuts/cut_angles_all.root", "READ");
-        TTree *a = fAng ? (TTree*)fAng->Get("AnglesCE") : nullptr;
-        if (!a){Error("GraphBlocks", "AnglesCE missing in cuts/cut_angles_all.root"); return;}
-        Int_t ev = 0, parent = 0;
+        TTree *a = fAng ? (TTree*)fAng->Get(kAngleTree.c_str()) : nullptr; // the AnglesCE view: AnglesRaw rows with passQuality and inCE set
+        if (!a || !a->GetBranch("inCE")){Error("GraphBlocks", "AnglesRaw with inCE missing in cuts/cut_angles_all.root (rerun ReconAngleAll.cpp)"); return;}
+        Int_t ev = 0, parent = 0, passQuality = 0, inCE = 0;
+        a->SetBranchStatus("*", 0);
+        for (const char *b : {"fEvent", "ParentID", "passQuality", "inCE"}) a->SetBranchStatus(b, 1);
         a->SetBranchAddress("fEvent", &ev);
         a->SetBranchAddress("ParentID", &parent);
-        for (Long64_t i = 0; i < a->GetEntries(); i++){a->GetEntry(i); reconKeys.insert({ev, parent});}
+        a->SetBranchAddress("passQuality", &passQuality);
+        a->SetBranchAddress("inCE", &inCE);
+        for (Long64_t i = 0; i < a->GetEntries(); i++){a->GetEntry(i); if (passQuality && inCE) reconKeys.insert({ev, parent});}
     }
     struct ReconGrid {const char *file, *label; bool zdcOnly;};
     for (const ReconGrid &g : {ReconGrid{"CE_per_block_recon.pdf", "reconstructed CE", false}, ReconGrid{"CE_per_block_recon_zdc.pdf", "reconstructed CE that hit ZDC", true}}){
