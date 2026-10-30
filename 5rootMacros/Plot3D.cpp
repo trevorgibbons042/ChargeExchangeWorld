@@ -27,6 +27,7 @@
 #include <set>
 #include <TSystem.h>
 #include <sstream>
+#include <chrono>
 #include <unistd.h> // getpid
 #include <TStyle.h>
 
@@ -270,8 +271,8 @@ void Plot3D(){
             {"9_firstHit/1_firstHitCut", "fabs(rawVal(fEvent, TrackID, 12)) <= 5 && fabs(rawVal(fEvent, TrackID, 13)) <= 5", "cut first tracker hit within x, y in [-5, 5] mm", "9_firstHit", "cut_firstHit"},
             {"8_nHits/1_nHitsCut", "rawVal(fEvent, TrackID, 10) >= 3 && rawVal(fEvent, TrackID, 10) <= 16", "cut 3 to 16 tracker hits", "8_nHits", "cut_nHits"},
             {"10_thetacut/1_thetaCut", "thetaOk(fEvent, TrackID)", "cut recon block theta below the ZDC corner limit of its block", "10_thetacut", "cut_thetacut"},
-            {"11_combined/1_combinedCut", "rawVal(fEvent, TrackID, 6) <= 1 && rawVal(fEvent, TrackID, 7) > 0.5 && (rawVal(fEvent, TrackID, 10) == 4 || rawVal(fEvent, TrackID, 10) == 8 || rawVal(fEvent, TrackID, 10) == 12 || rawVal(fEvent, TrackID, 10) == 16)",
-             "cut at most 1 proton with a track in the event, planes hit in increasing z, 4, 8, 12 or 16 tracker hits", "11_combined", "cut_combo1p"}};
+            {"11_megaCut/1_megaCut", "rawVal(fEvent, TrackID, 6) <= 1 && rawVal(fEvent, TrackID, 7) > 0.5 && (rawVal(fEvent, TrackID, 10) == 4 || rawVal(fEvent, TrackID, 10) == 8 || rawVal(fEvent, TrackID, 10) == 12 || rawVal(fEvent, TrackID, 10) == 16) && rawVal(fEvent, TrackID, 9) >= 0 && rawVal(fEvent, TrackID, 9) <= 1",
+             "MEGA CUT: 1 Recon Proton in Event, Increasing Z order for Recon AND Number of times Recon Proton hits tracker [4,8,12,16], theta from 0 degrees to 1 degree", "11_megaCut", "cut_megacut"}};
         { // the limits behind 10_thetacut
             gSystem->mkdir((folder_KEcuts + "10_thetacut").c_str(), true);
             FILE* lf = fopen((folder_KEcuts + "10_thetacut/block_theta_limits.csv").c_str(), "w");
@@ -604,8 +605,15 @@ void Plot3D(){
             std::vector<std::pair<std::string, double>> infoCuts = {{"1_hitZDC", -1.0}}; // (folder, KE cut in MeV, -1 none)
             for (int pct : {80}) infoCuts.push_back({"2_KECUT" + std::to_string(pct), initialKE * pct / 100.0});
             for (const auto& sc : sampleCuts) infoCuts.push_back({sc.dir, -1.0}); // no KE cut: what each cut does to every variable
+            auto lapStart = std::chrono::steady_clock::now();
+            const auto lap = [&](const std::string& what){ // seconds since the last lap
+                const auto now = std::chrono::steady_clock::now();
+                printf(">>> 1_additionalinfo %s took %.1f s\n", what.c_str(), std::chrono::duration<double>(now - lapStart).count()); fflush(stdout);
+                lapStart = now;
+            };
             for (const auto& ic : infoCuts){
                 if (const int ii = int(&ic - &infoCuts[0]); !RunCut(ii < 2 ? 0 : ii - 1)) continue; // P3_CUT: 0 the first two folders, i the sampleCuts[i - 1] folder
+                lapStart = std::chrono::steady_clock::now();
                 const SampleCut* sc = nullptr;
                 for (const auto& c : sampleCuts) if (c.dir == ic.first) sc = &c;
                 const bool nz = sc != nullptr; // the cuts' plots use every fitted proton (AnglesRaw), the others the protons that hit the ZDC
@@ -639,6 +647,7 @@ void Plot3D(){
                     reqCE.push_back({P3(exprPre + "CE" + k + spec), P3(bCE + sel)});
                     reqAll.push_back({P3(exprPre + "Recon" + k + spec), P3(bAll + sel)});
                 }
+                lap(ic.first + ": quantiles and booking the requests");
                 std::vector<TH1*> hCEs, hAlls;
                 if (tCE == tAll){
                     std::vector<std::pair<std::string, std::string>> both = reqCE;
@@ -646,6 +655,7 @@ void Plot3D(){
                     const std::vector<TH1*> hs = HistsMT(tCE, both);
                     hCEs.assign(hs.begin(), hs.begin() + reqCE.size()); hAlls.assign(hs.begin() + reqCE.size(), hs.end());
                 } else {hCEs = HistsMT(tCE, reqCE); hAlls = HistsMT(tAll, reqAll);}
+                lap(ic.first + ": jit and event loop of " + std::to_string(reqCE.size() + reqAll.size()) + " histograms");
                 for (size_t iv = 0; iv < kInfoVars.size(); iv++){
                     const auto& v = kInfoVars[iv];
                     if (slot[iv] < 0) continue;
@@ -684,6 +694,7 @@ void Plot3D(){
                     canvas->SetLogy(0);
                     delete hCE; delete hRec;
                 }
+                lap(ic.first + ": drawing the plots");
             }
         }
 
