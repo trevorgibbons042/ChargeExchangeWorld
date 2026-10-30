@@ -16,6 +16,7 @@
 #include <algorithm>
 #include <map>
 #include <cstdlib>
+#include <functional>
 #include <regex>
 #include <string>
 #include <type_traits>
@@ -141,37 +142,55 @@ inline Long64_t CountMT(TTree* t, const std::string& cut = ""){
 // TTree::Draw(drawExpr, cut, "goff") as one event loop on all the threads, no row vectors: drawExpr is "x>>name(nx,lo,hi)" or "y:x>>name(nx,lo,hi,ny,lo,hi)". Returns the TH1F / TH2F that MakeHist makes
 // (in gDirectory, named name), filled with the bins and stats of the threads merged, with the line/fill/marker attributes of t as TTree::Draw gives them. It is not drawn: call h->Draw(opt) ("same" for an overlay).
 // Bin contents are the same as the serial Draw; mean and RMS can differ in the last digits (the sums are added up per thread).
-inline TH1* HistMT(TTree* t, const std::string& drawExpr, const std::string& cut = ""){
-    const DrawSpec d = SplitDraw(drawExpr);
-    TH1* h = MakeHist(d.target);
-    if (!h) return nullptr;
+// Several HistMT of one tree in one event loop: reqs are (drawExpr, cut) pairs, the histograms come back in the same order (nullptr for a target without binning). The names in the
+// drawExprs must differ, MakeHist replaces a histogram of the same name.
+inline std::vector<TH1*> HistsMT(TTree* t, const std::vector<std::pair<std::string, std::string>>& reqs){
     std::map<std::string, std::string> aliases;
-    const bool all = cut.empty() || cut == "1";
-    const std::string c = all ? "" : ColumnsExpr(t, cut, aliases);
-    std::vector<std::string> defs;
-    for (const auto& e : d.exprs) defs.push_back("(double)(" + ColumnsExpr(t, e, aliases) + ")");
+    std::vector<DrawSpec> specs;
+    std::vector<TH1*> hs;
+    std::vector<std::string> cuts;
+    std::vector<std::vector<std::string>> defs;
+    for (const auto& [drawExpr, cut] : reqs){
+        specs.push_back(SplitDraw(drawExpr));
+        hs.push_back(MakeHist(specs.back().target));
+        cuts.push_back(cut.empty() || cut == "1" ? "" : ColumnsExpr(t, cut, aliases));
+        defs.emplace_back();
+        for (const auto& e : specs.back().exprs) defs.back().push_back("(double)(" + ColumnsExpr(t, e, aliases) + ")");
+    }
     ROOT::RDataFrame df0(*t);
     ROOT::RDF::RNode df = df0;
     for (const auto& [alias, column] : aliases) df = df.Alias(alias, column);
-    if (!all) df = df.Filter(c, "hist filter");
-    for (size_t i = 0; i < defs.size(); i++) df = df.Define("hcol" + std::to_string(i), defs[i]);
-    const std::string modelName = std::string(h->GetName()) + "_mt";
-    TH1* src = nullptr;
-    if (d.exprs.size() == 1 && h->GetDimension() == 1){
-        auto r = df.Histo1D(ROOT::RDF::TH1DModel(modelName.c_str(), "", h->GetNbinsX(), h->GetXaxis()->GetXmin(), h->GetXaxis()->GetXmax()), "hcol0");
-        src = (TH1*)r->Clone(); // Clone before the result pointer dies
-    } else if (d.exprs.size() == 2 && h->GetDimension() == 2){
-        auto r = df.Histo2D(ROOT::RDF::TH2DModel(modelName.c_str(), "", h->GetNbinsX(), h->GetXaxis()->GetXmin(), h->GetXaxis()->GetXmax(),
-                                                 h->GetNbinsY(), h->GetYaxis()->GetXmin(), h->GetYaxis()->GetXmax()), "hcol1", "hcol0"); // x is the last expression of the Draw string
-        src = (TH1*)r->Clone();
-    } else {Error("HistMT", "%s: %zu expressions for a %dD histogram", drawExpr.c_str(), d.exprs.size(), h->GetDimension()); return h;}
-    src->SetDirectory(nullptr);
-    for (int i = 0; i < h->GetNcells(); i++) h->SetBinContent(i, src->GetBinContent(i)); // SetBinContent, not Add: Add would turn Sumw2 on and the plot would show error bars
-    double stats[13] = {0};
-    src->GetStats(stats);
-    h->PutStats(stats);
-    h->SetEntries(src->GetEntries());
-    delete src;
-    t->TAttLine::Copy(*(TAttLine*)h); t->TAttFill::Copy(*(TAttFill*)h); t->TAttMarker::Copy(*(TAttMarker*)h);
-    return h;
+    std::vector<std::function<TH1*()>> src(reqs.size()); // the first call runs the event loop of every booked histogram
+    for (size_t j = 0; j < reqs.size(); j++){
+        TH1* h = hs[j];
+        if (!h) continue;
+        ROOT::RDF::RNode d = df;
+        if (!cuts[j].empty()) d = d.Filter(cuts[j], "hist filter");
+        const std::string col = "hcol" + std::to_string(j) + "_";
+        for (size_t i = 0; i < defs[j].size(); i++) d = d.Define(col + std::to_string(i), defs[j][i]);
+        const std::string modelName = std::string(h->GetName()) + "_mt";
+        if (specs[j].exprs.size() == 1 && h->GetDimension() == 1){
+            auto r = d.Histo1D(ROOT::RDF::TH1DModel(modelName.c_str(), "", h->GetNbinsX(), h->GetXaxis()->GetXmin(), h->GetXaxis()->GetXmax()), col + "0");
+            src[j] = [r]() mutable {return (TH1*)r->Clone();}; // mutable: operator-> of a result pointer is not const
+        } else if (specs[j].exprs.size() == 2 && h->GetDimension() == 2){
+            auto r = d.Histo2D(ROOT::RDF::TH2DModel(modelName.c_str(), "", h->GetNbinsX(), h->GetXaxis()->GetXmin(), h->GetXaxis()->GetXmax(),
+                                                    h->GetNbinsY(), h->GetYaxis()->GetXmin(), h->GetYaxis()->GetXmax()), col + "1", col + "0"); // x is the last expression of the Draw string
+            src[j] = [r]() mutable {return (TH1*)r->Clone();};
+        } else Error("HistMT", "%s: %zu expressions for a %dD histogram", reqs[j].first.c_str(), specs[j].exprs.size(), h->GetDimension());
+    }
+    for (size_t j = 0; j < reqs.size(); j++){
+        TH1* h = hs[j];
+        if (!h || !src[j]) continue;
+        TH1* s = src[j]();
+        s->SetDirectory(nullptr);
+        for (int i = 0; i < h->GetNcells(); i++) h->SetBinContent(i, s->GetBinContent(i)); // SetBinContent, not Add: Add would turn Sumw2 on and the plot would show error bars
+        double stats[13] = {0};
+        s->GetStats(stats);
+        h->PutStats(stats);
+        h->SetEntries(s->GetEntries());
+        delete s;
+        t->TAttLine::Copy(*(TAttLine*)h); t->TAttFill::Copy(*(TAttFill*)h); t->TAttMarker::Copy(*(TAttMarker*)h);
+    }
+    return hs;
 }
+inline TH1* HistMT(TTree* t, const std::string& drawExpr, const std::string& cut = ""){return HistsMT(t, {{drawExpr, cut}})[0];}
