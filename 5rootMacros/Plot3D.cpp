@@ -27,6 +27,7 @@
 #include <set>
 #include <TSystem.h>
 #include <sstream>
+#include <unistd.h> // getpid
 #include <TStyle.h>
 
 #include "BlockLimits.h"
@@ -565,42 +566,96 @@ void Plot3D(){
             {"thetaBlock", "7_theta", "recon block theta (degrees)", 11, 0, 2.3, 100},
             {"firstXD", "9_firstHit", "first tracker hit x, block position (mm)", 12, -20, 20, 80}, {"firstYD", "9_firstHit", "first tracker hit y, block position (mm)", 13, -20, 20, 80}};
         // 1st and 99th percentile of every fitted proton's value k (the raw_k column of the AnglesRaw cache where ok_k is 1), once per variable
+        // kept in cuts/info_quantiles.tsv (k, 1%, 99%) while it is newer than cut_angles_all.root, so the passes over AnglesRaw run once per run folder, not in every Plot3D process
         std::map<int, std::pair<double, double>> quantileCache;
+        bool quantilesRead = false;
         auto quantiles = [&](int k){
+            const char* qFile = "cuts/info_quantiles.tsv";
+            if (!quantilesRead){
+                quantilesRead = true;
+                Long_t id, size, flags, mtQ = 0, mtA = 1;
+                if (!gSystem->GetPathInfo(qFile, &id, &size, &flags, &mtQ) && !gSystem->GetPathInfo("cuts/cut_angles_all.root", &id, &size, &flags, &mtA) && mtQ >= mtA){
+                    std::ifstream in(qFile);
+                    int kk; double a, b;
+                    while (in >> kk >> a >> b) quantileCache[kk] = {a, b};
+                }
+            }
             const auto hit = quantileCache.find(k);
             if (hit != quantileCache.end()) return hit->second;
             std::vector<double> vals = Columns(rawT, {Form("raw_%d", k)}, Form("ok_%d==1", k))[0];
-            std::sort(vals.begin(), vals.end());
-            const std::pair<double, double> q = vals.empty() ? std::pair<double, double>{0.0, 0.0}
-                : std::pair<double, double>{vals[size_t(0.01 * vals.size())], vals[std::min(vals.size() - 1, size_t(0.99 * vals.size()))]};
-            return quantileCache[k] = q;
+            std::pair<double, double> q{0.0, 0.0};
+            if (!vals.empty()){ // nth_element, the two values only, in place of a sort of all of them
+                const size_t i1 = size_t(0.01 * vals.size()), i99 = std::min(vals.size() - 1, size_t(0.99 * vals.size()));
+                std::nth_element(vals.begin(), vals.begin() + i1, vals.end());
+                q.first = vals[i1];
+                std::nth_element(vals.begin() + i1, vals.begin() + i99, vals.end());
+                q.second = vals[i99];
+            }
+            quantileCache[k] = q;
+            const std::string tmp = std::string(qFile) + "." + std::to_string(getpid());
+            if (FILE* qf = fopen(tmp.c_str(), "w")){ // written to a temporary name and renamed, two processes never read a half file
+                for (const auto& kv : quantileCache) fprintf(qf, "%d\t%.17g\t%.17g\n", kv.first, kv.second.first, kv.second.second);
+                fclose(qf);
+                gSystem->Rename(tmp.c_str(), qFile);
+            }
+            return q;
         };
         if (RunPart(3) && rawT && rawT->GetAlias("raw_0") && rawT->GetEntries() > 0){
             std::vector<std::pair<std::string, double>> infoCuts = {{"1_hitZDC", -1.0}}; // (folder, KE cut in MeV, -1 none)
             for (int pct : {80}) infoCuts.push_back({"2_KECUT" + std::to_string(pct), initialKE * pct / 100.0});
             for (const auto& sc : sampleCuts) infoCuts.push_back({sc.dir, -1.0}); // no KE cut: what each cut does to every variable
-            for (const auto& ic : infoCuts) for (const auto& v : kInfoVars){
+            for (const auto& ic : infoCuts){
                 if (const int ii = int(&ic - &infoCuts[0]); !RunCut(ii < 2 ? 0 : ii - 1)) continue; // P3_CUT: 0 the first two folders, i the sampleCuts[i - 1] folder
-                double lo = v.lo, hi = v.hi;
-                if (lo >= hi){
-                    const auto [q1, q99] = quantiles(v.k);
-                    lo =v.k >= 4 ? std::min(0.0, q1) : 0.0; hi = v.k >= 4 ? 1.0 : std::max(1e-6, 1.2 * q99);
-                }
                 const SampleCut* sc = nullptr;
                 for (const auto& c : sampleCuts) if (c.dir == ic.first) sc = &c;
-                const std::string ke = (ic.second < 0 ? "" : " && fDEnergy > " + std::to_string(ic.second)) + (sc && sc->dir.find("2mmCutResD") != std::string::npos && v.k == 0 ? " && rawVal(fEvent, TrackID, 0) < 2" : ""); // the true position residual plot is also cut on itself
                 const bool nz = sc != nullptr; // the cuts' plots use every fitted proton (AnglesRaw), the others the protons that hit the ZDC
+                const bool res2 = nz && sc->dir.find("2mmCutResD") != std::string::npos; // the true position residual plot is also cut on itself
                 TTree *tCE = nz ? cutTree(*sc) : events2, *tAll = nz ? tCE : eventsAllEv;
+                const std::string ke = ic.second < 0 ? "" : " && fDEnergy > " + std::to_string(ic.second);
                 const std::string bCE = nz ? rawCE : zdcRecoAll, bAll = nz ? "1" : zdcRecoAll, hitTxt = nz ? "" : " that hit ZDC";
-                const std::string cut = bCE + ke + " && rawOk(fEvent, TrackID, " + std::to_string(v.k) + ")", cutAll = bAll + ke + " && rawOk(fEvent, TrackID, " + std::to_string(v.k) + ")";
-                if (v.folder == "9_firstHit"){ // the first tracker hit is shown as xy plots (CE and all recon protons, 100 x 100 bins, log color scale) in place of the two 1D variables
-                    if (v.k == 12){
-                        const std::string xyCut = bCE + ke + " && rawOk(fEvent, TrackID, 12) && rawOk(fEvent, TrackID, 13)", xyCutAll = bAll + ke + " && rawOk(fEvent, TrackID, 12) && rawOk(fEvent, TrackID, 13)";
+                // every histogram of the folder is booked first and filled in one event loop per tree (one for both samples of a cut, they share the cut file), not one loop per plot
+                std::vector<std::pair<std::string, std::string>> reqCE, reqAll; // (Draw string, cut) of the CE recon protons and of all recon protons
+                std::vector<int> slot(kInfoVars.size(), -1); // position of the variable in reqCE and reqAll
+                std::vector<std::pair<double, double>> range(kInfoVars.size());
+                for (size_t iv = 0; iv < kInfoVars.size(); iv++){
+                    const auto& v = kInfoVars[iv];
+                    const std::string k = std::to_string(v.k);
+                    slot[iv] = (int)reqCE.size();
+                    if (v.folder == "9_firstHit"){ // the first tracker hit is shown as xy plots (CE and all recon protons, 100 x 100 bins, log color scale) in place of the two 1D variables
+                        if (v.k != 12){slot[iv] = -1; continue;}
+                        const std::string xy = ke + " && rawOk(fEvent, TrackID, 12) && rawOk(fEvent, TrackID, 13)", ex = "rawVal(fEvent, TrackID, 13):rawVal(fEvent, TrackID, 12)>>hFirstXY";
+                        reqCE.push_back({P3(ex + "CE(100,-50,50,100,-50,50)"), P3(bCE + xy)});
+                        reqAll.push_back({P3(ex + "All(100,-50,50,100,-50,50)"), P3(bAll + xy)});
+                        continue;
+                    }
+                    double lo = v.lo, hi = v.hi;
+                    if (lo >= hi){
+                        const auto [q1, q99] = quantiles(v.k);
+                        lo =v.k >= 4 ? std::min(0.0, q1) : 0.0; hi = v.k >= 4 ? 1.0 : std::max(1e-6, 1.2 * q99);
+                    }
+                    range[iv] = {lo, hi};
+                    const std::string sel = ke + (res2 && v.k == 0 ? " && rawVal(fEvent, TrackID, 0) < 2" : "") + " && rawOk(fEvent, TrackID, " + k + ")", // the true position residual plot is also cut on itself
+                        exprPre = "rawVal(fEvent, TrackID, " + k + ")>>hInfo", spec = Form("(%d,%g,%g)", v.nBins, lo, hi);
+                    reqCE.push_back({P3(exprPre + "CE" + k + spec), P3(bCE + sel)});
+                    reqAll.push_back({P3(exprPre + "Recon" + k + spec), P3(bAll + sel)});
+                }
+                std::vector<TH1*> hCEs, hAlls;
+                if (tCE == tAll){
+                    std::vector<std::pair<std::string, std::string>> both = reqCE;
+                    both.insert(both.end(), reqAll.begin(), reqAll.end());
+                    const std::vector<TH1*> hs = HistsMT(tCE, both);
+                    hCEs.assign(hs.begin(), hs.begin() + reqCE.size()); hAlls.assign(hs.begin() + reqCE.size(), hs.end());
+                } else {hCEs = HistsMT(tCE, reqCE); hAlls = HistsMT(tAll, reqAll);}
+                for (size_t iv = 0; iv < kInfoVars.size(); iv++){
+                    const auto& v = kInfoVars[iv];
+                    if (slot[iv] < 0) continue;
+                    TH1 *hCE = hCEs[slot[iv]], *hRec = hAlls[slot[iv]];
+                    if (v.folder == "9_firstHit"){
                         const std::string xyDir = folder_KEcuts + ic.first + (sc && v.folder == sc->onFolder ? "/" : "/1_additionalinfo/");
                         gSystem->mkdir(xyDir.c_str(), true);
                         const double rmKeep = canvas->GetRightMargin(); canvas->SetLogz(1); canvas->SetRightMargin(0.15);
                         for (int k = 0; k < 2; k++){
-                            TH1* hxy = HistMT(k ? tAll : tCE, P3("rawVal(fEvent, TrackID, 13):rawVal(fEvent, TrackID, 12)>>hFirstXY(100,-50,50,100,-50,50)"), P3(k ? xyCutAll : xyCut));
+                            TH1* hxy = k ? hRec : hCE;
                             if (!hxy) continue;
                             hxy->Draw("colz");
                             hxy->SetStats(0);
@@ -609,29 +664,26 @@ void Plot3D(){
                             delete hxy;
                         }
                         canvas->SetLogz(0); canvas->SetRightMargin(rmKeep);
+                        continue;
                     }
-                    continue;
+                    if (!hCE || !hRec) continue;
+                    canvas->Clear(); canvas->SetLogy(1);
+                    hCE->SetLineColor(kBlue); hRec->SetLineColor(kRed); hCE->SetLineWidth(2); hRec->SetLineWidth(2); hCE->SetStats(0); hRec->SetStats(0);
+                    hRec->SetTitle((v.label + ", CE recon protons vs all recon protons" + (nz ? std::string(", ") : std::string(", hit ZDC, ")) + (ic.second < 0 ? std::string(sc ? "no KE cut, " + sc->label + (res2 && v.k == 0 ? " and resRms (true position residual) < 2 mm" : "") : "no KE cut") : "ZDC KE > " + std::to_string(int(ic.second)) + " MeV") + ";" + v.label + ";Count").c_str());
+                    if (v.name == "nHits") for (int bin = 1; bin <= hRec->GetNbinsX(); bin++) hRec->GetXaxis()->SetBinLabel(bin, bin % 4 == 1 && bin > 1 ? Form("%d", bin - 1) : ""); // labels at 4, 8, 12, 16 hits only
+                    hRec->SetMinimum(0.5); hRec->SetMaximum(2.0 * std::max(hRec->GetMaximum(), hCE->GetMaximum()));
+                    hRec->Draw("hist"); hCE->Draw("hist same");
+                    TLegend* leg = new TLegend(0.745, 0.80, 0.99, 0.90); leg->SetTextSize(0.014);
+                    leg->AddEntry(hCE, Form("CE recon protons (%.0f)", hCE->GetEntries()), "l");
+                    leg->AddEntry(hRec, Form("all recon protons (%.0f)", hRec->GetEntries()), "l");
+                    leg->Draw();
+                    // flat files named <folder>_<variable> in 1_additionalinfo of the hit ZDC, KE cut and 2 mm cut folders
+                    const std::string idir = folder_KEcuts + ic.first + (sc && v.folder == sc->onFolder ? "/" : "/1_additionalinfo/"); // the variable a cut is on sits beside 1_additionalinfo
+                    gSystem->mkdir(idir.c_str(), true);
+                    canvas->SaveAs((idir + v.folder + "_" + v.name + ".pdf").c_str());
+                    canvas->SetLogy(0);
+                    delete hCE; delete hRec;
                 }
-                const std::string exprPre = "rawVal(fEvent, TrackID, " + std::to_string(v.k) + ")>>hInfo", spec = Form("(%d,%g,%g)", v.nBins, lo, hi);
-                TH1* hCE = HistMT(tCE, P3(exprPre + "CE" + spec), P3(cut));
-                TH1* hRec = HistMT(tAll, P3(exprPre + "Recon" + spec), P3(cutAll));
-                if (!hCE || !hRec) continue;
-                canvas->Clear(); canvas->SetLogy(1);
-                hCE->SetLineColor(kBlue); hRec->SetLineColor(kRed); hCE->SetLineWidth(2); hRec->SetLineWidth(2); hCE->SetStats(0); hRec->SetStats(0);
-                hRec->SetTitle((v.label + ", CE recon protons vs all recon protons" + (nz ? std::string(", ") : std::string(", hit ZDC, ")) + (ic.second < 0 ? std::string(sc ? "no KE cut, " + sc->label + (sc->dir.find("2mmCutResD") != std::string::npos && v.k == 0 ? " and resRms (true position residual) < 2 mm" : "") : "no KE cut") : "ZDC KE > " + std::to_string(int(ic.second)) + " MeV") + ";" + v.label + ";Count").c_str());
-                if (v.name == "nHits") for (int bin = 1; bin <= hRec->GetNbinsX(); bin++) hRec->GetXaxis()->SetBinLabel(bin, bin % 4 == 1 && bin > 1 ? Form("%d", bin - 1) : ""); // labels at 4, 8, 12, 16 hits only
-                hRec->SetMinimum(0.5); hRec->SetMaximum(2.0 * std::max(hRec->GetMaximum(), hCE->GetMaximum()));
-                hRec->Draw("hist"); hCE->Draw("hist same");
-                TLegend* leg = new TLegend(0.745, 0.80, 0.99, 0.90); leg->SetTextSize(0.014);
-                leg->AddEntry(hCE, Form("CE recon protons (%.0f)", hCE->GetEntries()), "l");
-                leg->AddEntry(hRec, Form("all recon protons (%.0f)", hRec->GetEntries()), "l");
-                leg->Draw();
-                // flat files named <folder>_<variable> in 1_additionalinfo of the hit ZDC, KE cut and 2 mm cut folders
-                const std::string idir = folder_KEcuts + ic.first + (sc && v.folder == sc->onFolder ? "/" : "/1_additionalinfo/"); // the variable a cut is on sits beside 1_additionalinfo
-                gSystem->mkdir(idir.c_str(), true);
-                canvas->SaveAs((idir + v.folder + "_" + v.name + ".pdf").c_str());
-                canvas->SetLogy(0);
-                delete hCE; delete hRec;
             }
         }
 
