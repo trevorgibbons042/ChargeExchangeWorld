@@ -128,11 +128,11 @@ static std::vector<double> ThetaEdges(double maxTheta, double binWidth)
 }
 
 // FOM table, csv only, one file per KE cut: <groupDir>/1_csv/<ke.dir>.csv. t is the tree with the recon values (sfx: "Re" true position, "ReD" block position);
-// all is the tree of every proton from every event (cut_angles_all.root), allThetaExpr its recon theta in degrees for the same position type.
+// all is the tree of every proton from every event (AnglesRaw of cut_angles_all.root; the cut list "Angles" + allSfx keeps those that pass the quality cut), allThetaExpr its recon theta in degrees for the same position type.
 // Per theta bin: N = reconstructed protons in the bin (the Angles tree only holds tracks with a fit), N_CE = CE protons in the bin (the ones with AP), eff = N / total neutrons, mean AP of the CE protons,
 // eff*|<AP>| (the FOM) and eff*<AP>^2 (the F^2 term). The last row is the sum over all bins.
 // block: the block residual cut on both trees too (block position)
-static void WriteFomCsv(const std::string& groupDir, const std::vector<KeCut>& kes, TTree* t, const std::string& sfx, TTree* all, const std::string& allThetaExpr, const std::vector<double>& thetaEdges,
+static void WriteFomCsv(const std::string& groupDir, const std::vector<KeCut>& kes, TTree* t, const std::string& sfx, TTree* all, const std::string& allSfx, const std::string& allThetaExpr, const std::vector<double>& thetaEdges,
                         bool block = false)
 {
     const size_t nb = thetaEdges.size() - 1;
@@ -153,7 +153,7 @@ static void WriteFomCsv(const std::string& groupDir, const std::vector<KeCut>& k
             sumAP[b] += t->GetV2()[i];
         }
         all->SetEstimate(all->GetEntries() + 1);
-        ApplyCut(all, ke.dir, block);
+        ApplyCut(all, ke.dir, block, "Angles" + allSfx);
         const Long64_t nAll = all->Draw(allThetaExpr.c_str(), "", "goff");
         all->SetEntryList(nullptr);
         for (Long64_t i = 0; i < nAll; i++) {
@@ -336,19 +336,22 @@ void PlotAngle(std::string energy = "fKEnergy"){ // energy: "fKEnergy" (true KE)
 
     //All protons and CE protons, theta/phi and block theta/phi
     TFile* FileAll = TFile::Open("cuts/cut_angles_all.root", "READ");
-    TTree *all = (TTree*)FileAll->Get(("Angles" + suffix).c_str());
-    TTree *allCE = (TTree*)FileAll->Get(("AnglesCE" + suffix).c_str());
+    TTree *all = (TTree*)FileAll->Get(kAngleTree.c_str()); // every fitted proton; the view "Angles" + suffix is passQuality == 1
+    if (!all || !all->GetBranch("passQuality")){Error("PlotAngle", "AnglesRaw with passQuality missing in cuts/cut_angles_all.root (rerun ReconAngleAll.cpp)"); return;}
 
     printf("[PlotAngle] FOM setup %s\n", TDatime().AsSQLString()); fflush(stdout);
     // up to the largest recon theta of any reconstructed proton (true or block), so every one lands in a bin
-    const double maxTheta = std::max(all->GetMaximum("outTheta"), all->GetMaximum("outDTheta")) * 180.0 / TMath::Pi() + 1e-6;
+    ROOT::RDataFrame dfAll(*all);
+    auto dfQ = dfAll.Filter([](int passQuality){return passQuality == 1;}, {"passQuality"});
+    auto maxT = dfQ.Max<double>("outTheta"), maxDT = dfQ.Max<double>("outDTheta");
+    const double maxTheta = std::max(*maxT, *maxDT) * 180.0 / TMath::Pi() + 1e-6;
     const std::vector<double> thetaEdges = ThetaEdges(maxTheta, 0.001);
 
     printf("[PlotAngle] %zu theta bins, writing FOM csv %s\n", thetaEdges.size() - 1, TDatime().AsSQLString()); fflush(stdout);
     // FOM tables: reconstructed protons from all events (N) and the CE protons with AP (N_CE) per theta bin
     const std::vector<KeCut> keFom = {keCE.front()}; // the FOM tables have no KE and no residual cuts
-    WriteFomCsv(fomDir + "1_reconTheta", keFom, events2, "Re", all, "outTheta*180/TMath::Pi()", thetaEdges);
-    WriteFomCsv(fomDir + "2_reconBlockTheta", keFom, events3, "ReD", all, "outDTheta*180/TMath::Pi()", thetaEdges, true);
+    WriteFomCsv(fomDir + "1_reconTheta", keFom, events2, "Re", all, suffix, "outTheta*180/TMath::Pi()", thetaEdges);
+    WriteFomCsv(fomDir + "2_reconBlockTheta", keFom, events3, "ReD", all, suffix, "outDTheta*180/TMath::Pi()", thetaEdges, true);
 
     printf("[PlotAngle] FOM csv done %s\n", TDatime().AsSQLString()); fflush(stdout);
     // every recon proton, no theta acceptance cut, so the theta plots run up to the largest recon theta

@@ -198,8 +198,8 @@ void PlotFomPolarization(std::string energy = "fKEnergy"){ // energy: "fKEnergy"
     TFile* ceFile = TFile::Open("cuts/cut_APandT.root", "READ");
     if (!ceFile){printf("PlotFomPolarization: cut_APandT.root missing\n"); return;}
     TFile* allFile = TFile::Open("cuts/cut_angles_all.root", "READ");
-    TTree* all = allFile ? (TTree*)allFile->Get(("Angles" + suffix).c_str()) : nullptr;
-    if (!all){printf("PlotFomPolarization: Angles tree in cut_angles_all.root missing\n"); return;}
+    TTree* all = allFile ? (TTree*)allFile->Get(kAngleTree.c_str()) : nullptr; // every fitted proton; the cut lists "Angles" + suffix hold those that pass the quality cut
+    if (!all || !all->GetBranch("passQuality")){printf("PlotFomPolarization: AnglesRaw with passQuality in cut_angles_all.root missing\n"); return;}
     // block: the block position set, which only takes the block AP and the block residual cut (kBlockCut, QualityCut.h); the recon set takes AP from CE and from recon
     struct ThetaSet {std::string dir, name, tree, theta, phi, allTheta, allPhi; bool block;}; // all* : theta and phi (rad) of every proton with a reconstructed path in the Angles tree
     const std::vector<std::string> typeTags = {"CE", "recon"}, typeNames = {"CE recon protons", "all recon protons"};
@@ -215,7 +215,7 @@ void PlotFomPolarization(std::string energy = "fKEnergy"){ // energy: "fKEnergy"
         std::vector<double> th(sets.size(), 0.0), ph(sets.size(), 0.0);
         // the entries of every KE cut (block set: with the block residual cut), CutTrees.cpp
         std::vector<std::vector<TEntryList*>> lists(sets.size());
-        for (size_t s = 0; s < sets.size(); s++) for (const auto& ke : kes) lists[s].push_back(CutList(ke.dir, all, sets[s].block));
+        for (size_t s = 0; s < sets.size(); s++) for (const auto& ke : kes) lists[s].push_back(CutList(ke.dir, all, sets[s].block, "Angles" + suffix));
         all->SetBranchStatus("*", 0);
         for (size_t s = 0; s < sets.size(); s++){
             all->SetBranchStatus(sets[s].allTheta.c_str(), 1); all->SetBranchStatus(sets[s].allPhi.c_str(), 1);

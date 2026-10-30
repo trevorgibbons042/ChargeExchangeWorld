@@ -1,4 +1,5 @@
 #include "FitCore.h"
+#include "CutFiles.h"
 #include <TError.h>
 #include <TFile.h>
 #include <TTree.h>
@@ -42,8 +43,8 @@ void CalcAPandT(std::string energy = "fKEnergy"){ // energy: "fKEnergy" (true KE
     bool Verbose = false;
     
     ROOT::RDataFrame dfCEV("ChargeExchange_values", "cuts/cut_CE.root");
-    ROOT::RDataFrame dfAnglesAll("Angles" + suffix, "cuts/cut_angles_all.root");
-    auto dfAngles = dfAnglesAll.Filter("isFromCE==1"); // the fitted CE protons, ReconAngleAll.cpp fits every proton
+    ROOT::RDataFrame dfAnglesAll(kAngleTree, "cuts/cut_angles_all.root");
+    auto dfAngles = dfAnglesAll.Filter("passQuality==1 && isFromCE==1"); // the fitted CE protons that pass the quality cut, ReconAngleAll.cpp fits every proton
     
     TFile *outFile = new TFile("cuts/cut_APandT.root", energy == "fDEnergy" ? "UPDATE" : "RECREATE"); // detector-energy pass appends its _DE trees to the true-KE file
     TTree *outTree = new TTree(("CE" + suffix).c_str(), "values from ChargeExchange directly");
@@ -198,7 +199,7 @@ void CalcAPandT(std::string energy = "fKEnergy"){ // energy: "fKEnergy" (true KE
         auto &tReconBlock = slotTracksAngles[slot][{eventID, ParentID, 2}];
 
         tReconBlock.points.push_back({outDPhi, outDTheta, 0.0, 0.0, 0.0, pdg, finalKE, entry, passResD, resDRms});
-        },{"fEvent", "ParentID","outTheta", "outPhi", "outDTheta", "outDPhi", "finalKE", "PDG","rdfentry_", "passResD", "resDRms"});
+        },{"fEvent", "ParentID","outTheta", "outPhi", "outDTheta", "outDPhi", KeVar(suffix), "PDG","rdfentry_", "passResD", "resDRms"});
     std::map<std::tuple<int, int, int>, Track> tracksAngles = mergeSlots(slotTracksAngles);
     
     if (Verbose == true){

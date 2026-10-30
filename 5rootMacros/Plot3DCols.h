@@ -49,20 +49,24 @@ inline bool thetaOk(int fEvent, int trackID){
 // Fills the maps above from cuts/cut_angles_all.root and the block limits from settings.csv. False (with an Error) if the file or tree is missing.
 inline bool LoadPlot3DMaps(){
     TFile* fReco = TFile::Open("cuts/cut_angles_all.root", "READ");
-    TTree* reco = fReco ? (TTree*)fReco->Get("Angles") : nullptr;
-    if (!reco){Error("Plot3D", "missing Angles tree in cut_angles_all.root (run ReconAngleAll.cpp first)"); return false;}
-    int ev, tid;
+    TTree* raw = fReco ? (TTree*)fReco->Get("AnglesRaw") : nullptr;
+    if (!raw || !raw->GetBranch("passQuality")){Error("Plot3D", "missing AnglesRaw tree with passQuality in cut_angles_all.root (run ReconAngleAll.cpp first)"); return false;}
+    int ev, tid, passQuality = 0;
     double resDRms = 0;
-    reco->SetBranchAddress("fEvent", &ev); reco->SetBranchAddress("TrackID", &tid);
-    reco->SetBranchAddress("resDRms", &resDRms);
-    for (Long64_t i = 0; i < reco->GetEntries(); i++){
-        reco->GetEntry(i);
+    // the reconstructed tracks are the rows of AnglesRaw that pass the quality cut (the old Angles tree)
+    raw->SetBranchStatus("*", 0);
+    for (const char* b : {"fEvent", "TrackID", "resDRms", "passQuality"}) raw->SetBranchStatus(b, 1);
+    raw->SetBranchAddress("fEvent", &ev); raw->SetBranchAddress("TrackID", &tid);
+    raw->SetBranchAddress("resDRms", &resDRms); raw->SetBranchAddress("passQuality", &passQuality);
+    for (Long64_t i = 0; i < raw->GetEntries(); i++){
+        raw->GetEntry(i);
+        if (!passQuality) continue;
         gRecoTracks.insert({ev, tid});
         if (PassesBlockResidual(resDRms)) gRecoTracksD.insert({ev, tid});
         if (resDRms < kRes2Mm) gRes2Tracks.insert({ev, tid});
     }
-    TTree* raw = (TTree*)fReco->Get("AnglesRaw");
-    if (raw && raw->GetBranch("nProtonsEv")){
+    raw->SetBranchStatus("*", 1);
+    if (raw->GetBranch("nProtonsEv")){
         double v[17]; double thetaRad, thetaBlockRad, phiRad, phiBlockRad; int nP, zOk, nH;
         raw->SetBranchAddress("fEvent", &ev); raw->SetBranchAddress("TrackID", &tid);
         const char* dn[6] = {"resRms", "resDRms", "impact", "impactD", "r2", "r2D"};

@@ -42,13 +42,14 @@ struct Slice {double lo, hi, nPhi, ap, p, pErr, nCE = 0, nCEAll = -1, nReconAll 
 
 // Draws expr (nCols columns separated by ':') once under the KE cut keDir (block: and the block residual cut, CutFiles.h) and copies the columns
 // out. The same (tree, expr, cut) comes back from a cache: the slice width and AP-source loops ask for the same columns many times.
-static void Gather(TTree* t, const std::string& expr, const std::string& keDir, bool block, int nCols, std::vector<std::vector<double>>& cols){
+// listName: the cut list of a view of t (Angles + suffix of AnglesRaw, CutFiles.h); empty for a tree whose list is named like it.
+static void Gather(TTree* t, const std::string& expr, const std::string& keDir, bool block, int nCols, std::vector<std::vector<double>>& cols, const std::string& listName = ""){
     static std::map<std::string, std::vector<std::vector<double>>> cache;
-    const std::string key = std::string(t->GetName()) + "|" + expr + "|" + keDir + (block ? "|block" : "");
+    const std::string key = (listName.empty() ? std::string(t->GetName()) : listName) + "|" + expr + "|" + keDir + (block ? "|block" : "");
     auto it = cache.find(key);
     if (it == cache.end()){
         t->SetEstimate(t->GetEntries() + 1);
-        ApplyCut(t, keDir, block);
+        ApplyCut(t, keDir, block, listName);
         const Long64_t n = t->Draw(expr.c_str(), "", "goff");
         t->SetEntryList(nullptr);
         std::vector<std::vector<double>> drawn(nCols);
@@ -144,8 +145,9 @@ void PlotPolarization(std::string energy = "fKEnergy"){ // energy: "fKEnergy" (t
 
     TFile* ceFile = TFile::Open("cuts/cut_APandT.root", "READ");
     TFile* allFile = TFile::Open("cuts/cut_angles_all.root", "READ");
-    TTree* all = allFile ? (TTree*)allFile->Get(("Angles" + suffix).c_str()) : nullptr;
-    if (!ceFile || !all){printf("PlotPolarization: cut_APandT.root or cut_angles_all.root missing\n"); return;}
+    TTree* all = allFile ? (TTree*)allFile->Get(kAngleTree.c_str()) : nullptr; // every fitted proton; the view "Angles" + suffix is passQuality == 1
+    if (!ceFile || !all || !all->GetBranch("passQuality")){printf("PlotPolarization: cut_APandT.root or AnglesRaw with passQuality in cut_angles_all.root missing\n"); return;}
+    const double nReconAll = (double)all->GetEntries("passQuality == 1"); // the recon protons of the Angles view, before any cut
 
     const std::vector<KeCut> kes = {KeCuts(keLabel).front()}; // CutFiles.h, the one cut ke_all: no KE and no residual cut folders
 
@@ -194,7 +196,7 @@ void PlotPolarization(std::string energy = "fKEnergy"){ // energy: "fKEnergy" (t
                 gSystem->mkdir((base + kes[k].dir + "/" + apSrc.sub).c_str(), true);
                 std::vector<std::vector<double>> ceCols, allCols;
                 Gather(ce, set.theta + ":" + set.phi + ":" + (apInOwnTree ? "" : apSrc.tree + ".") + apSrc.branch, kes[k].dir, set.block, 3, ceCols);
-                Gather(all, set.allTheta + deg + ":" + set.allPhi + deg, kes[k].dir, set.block, 2, allCols);
+                Gather(all, set.allTheta + deg + ":" + set.allPhi + deg, kes[k].dir, set.block, 2, allCols, "Angles" + suffix);
 
                 std::vector<double> apSum(nSlices, 0.0), apN(nSlices, 0.0);
                 std::vector<std::vector<double>> cePhi(nSlices), allPhi(nSlices);
@@ -244,7 +246,7 @@ void PlotPolarization(std::string energy = "fKEnergy"){ // energy: "fKEnergy" (t
                             for (size_t i = 0; i < allCols[0].size(); i++)
                                 if (allCols[0][i] >= range.first && allCols[0][i] < range.second) phis.push_back(allCols[1][i]);
                         }
-                        Slice t{range.first, range.second, 0, apSum2 / apN2, 0, 0, apN2, (double)ce->GetEntries(), (double)all->GetEntries()};
+                        Slice t{range.first, range.second, 0, apSum2 / apN2, 0, 0, apN2, (double)ce->GetEntries(), nReconAll};
                         pageC.cd(); pageC.Clear();
                         const std::string totPdf = totDir + (range.first > 0 ? fileNum(3) + "phi_fit_0p5to2deg_" : fileNum(4) + "phi_fit_0to5deg_") + tag + ".pdf";
                         if (!FitSlice(phis, t, true, gSystem->BaseName(totPdf.c_str()))) continue;
@@ -297,7 +299,7 @@ void PlotPolarization(std::string energy = "fKEnergy"){ // energy: "fKEnergy" (t
                     { // recon protons: the CE ones in the plotted slices; both: the CE lost vs every CE proton of the theta set, no cuts
                         double nCE = 0, nRec = 0;
                         for (const auto& s : fits[type][k]){nCE += s.nCE; nRec += s.nPhi;}
-                        DrawCEPercent(nCE, type == 1 ? nRec : -1, ce->GetEntries(), all->GetEntries());
+                        DrawCEPercent(nCE, type == 1 ? nRec : -1, ce->GetEntries(), nReconAll);
                     }
                     if (!pctPlot){ // the reference (true P), not on the log axis
                         TLine ref(xLo, pRef, xHi, pRef);
