@@ -1,0 +1,31 @@
+#!/bin/bash -l
+#PBS -q backfill
+#PBS -A eic
+#PBS -N AnalysisNoRecon
+
+#PBS -l select=1:ncpus=128
+#PBS -l walltime=12:00:00
+#PBS -j oe
+
+#PBS -m bea
+#PBS -M tgibbons@anl.gov
+
+# The analysis chain of one run folder without ReconAngleAll (5rootMacros/run_norecon.sh): CutEvents, CalcAPandT, CountCE, then plot.sh. It reuses the cuts/cut_angles_all.root of an earlier run.sh.
+# Submit with qsub -v RUN=<folder in build/root> AnalysisNoRecon.pbs. The macros run from the run folder's own copy: copy them in first (rsync -a --exclude __pycache__ 5rootMacros/ build/root/<run>/).
+# BASE can be overridden to try it on another machine.
+BASE=${BASE:-/lcrc/project/eic/tgibbons/G4ChargeExchange}
+
+cd $BASE/build/root/$RUN || exit 1
+
+module load root
+export LD_LIBRARY_PATH=/lcrc/project/eic/tgibbons/xxhash-install/lib:$LD_LIBRARY_PATH
+export LD_LIBRARY_PATH=/lcrc/project/eic/tgibbons/gif-lib:$LD_LIBRARY_PATH
+
+export NCPUS=128 # run_norecon.sh and plot.sh split these between their steps and lanes (NThreads(), FitCore.h)
+export ACLIC=${ACLIC-} # interpreted, not ACLiC-compiled: ROOT 6.32 on the cluster fails to materialize the header globals when a compiled macro loads (see Plot.pbs). Submit with -v ACLIC=+O to compile.
+
+echo Jobid: $PBS_JOBID
+echo Running on host `hostname`
+echo Run folder: $RUN
+
+zsh run_norecon.sh
