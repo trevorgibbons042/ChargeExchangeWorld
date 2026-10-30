@@ -1,49 +1,47 @@
 #!/usr/bin/env python3
 """Crops every pdf under plots/ to its content (called by plot.sh after cut_side_box.py).
 
-ROOT always writes an A4 page with the figure at 20 cm width in its top left corner, the rest of the page is blank. The page is rendered with
-ghostscript at 72 dpi (1 px = 1 pt, /Rotate honoured), the non-white bounding box is found with PIL and the page box is cut to it plus PAD.
+ROOT always writes an A4 page with the figure at 20 cm width in its top left corner, the rest of the page is blank. What is painted is read from the page content (pdfgeom.py, no ghostscript render),
+the bounding box of the non-white things is found and the page box is cut to it plus PAD.
 Cropping an already cropped pdf finds the same content box again, so rerunning changes nothing.
 """
-import io
 import os
-import subprocess
 import sys
 from concurrent.futures import ProcessPoolExecutor
 
-from PIL import Image, ImageChops
 from pypdf import PdfReader, PdfWriter
 from pypdf.generic import RectangleObject
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__))) # FitCore.h runs these with python3 -I, which leaves out the script folder
+import pdfgeom
 
 PAD = 8.0 # pt kept around the content
 
 
-def content_box(path):
-    """(left, top, right, bottom) in px = pt of the displayed page, None if the page is empty."""
-    png = subprocess.run(["gs", "-q", "-dBATCH", "-dNOPAUSE", "-dSAFER", "-sDEVICE=png16m", "-r72", "-dTextAlphaBits=1", "-dGraphicsAlphaBits=1", "-sOutputFile=-", path],
-                         check=True, capture_output=True).stdout
-    img = Image.open(io.BytesIO(png)).convert("RGB")
-    return img.size, ImageChops.difference(img, Image.new("RGB", img.size, (255, 255, 255))).getbbox()
+def content_box(page):
+    """(xmin, ymin, xmax, ymax) of everything painted on the page in pdf user space (what pdfgeom.page_prims reads from the content), None if the page is empty."""
+    boxes = []
+    for p in pdfgeom.page_prims(page):
+        if p[0] == "seg":
+            boxes.append((min(p[2][0], p[3][0]), min(p[2][1], p[3][1]), max(p[2][0], p[3][0]), max(p[2][1], p[3][1])))
+        elif p[0] != "blank": # the white background of ROOT's canvas is no content
+            boxes.append(p[2])
+    if not boxes:
+        return None
+    return min(b[0] for b in boxes), min(b[1] for b in boxes), max(b[2] for b in boxes), max(b[3] for b in boxes)
 
 
 def crop(path):
-    (dw, dh), box = content_box(path)
-    if box is None:
-        return False
-    left, top, right, bottom = max(0, box[0] - PAD), max(0, box[1] - PAD), min(dw, box[2] + PAD), min(dh, box[3] + PAD)
     reader = PdfReader(path)
     if len(reader.pages) != 1:
         return False
     page = reader.pages[0]
-    w, h = float(page.mediabox.width), float(page.mediabox.height) # unrotated page
-    rot = int(page.get("/Rotate", 0)) % 360
-    if rot == 0: # displayed x = x, displayed y from the top = h - y
-        rect = (left, h - bottom, right, h - top)
-    elif rot == 90: # displayed (X, Y from the bottom) = (y, w - x)
-        rect = (w - (dh - top), left, w - (dh - bottom), right)
-    else:
-        raise SystemExit(f"{path}: /Rotate {rot} not handled")
-    if abs(rect[2] - rect[0] - float(page.mediabox.width)) < 1 and abs(rect[3] - rect[1] - float(page.mediabox.height)) < 1:
+    box = content_box(page)
+    if box is None:
+        return False
+    x0, y0, x1, y1 = pdfgeom.media(page)
+    rect = (max(x0, box[0] - PAD), max(y0, box[1] - PAD), min(x1, box[2] + PAD), min(y1, box[3] + PAD)) # the padding is the same on any /Rotate
+    if abs(rect[2] - rect[0] - (x1 - x0)) < 1 and abs(rect[3] - rect[1] - (y1 - y0)) < 1:
         return False # already as tight as it gets
     writer = PdfWriter(clone_from=reader)
     for p in writer.pages:
@@ -62,7 +60,7 @@ def main(plots):
         for f in sorted(files):
             if f.endswith(".pdf"):
                 paths.append(os.path.join(d, f))
-    # each pdf is cropped by exactly one worker (gs per pdf dominates the time)
+    # each pdf is cropped by exactly one worker (parsing the content of a pdf dominates the time)
     if len(paths) > 1:
         with ProcessPoolExecutor(max_workers=os.cpu_count()) as ex:
             done = sum(ex.map(crop, paths, chunksize=4))

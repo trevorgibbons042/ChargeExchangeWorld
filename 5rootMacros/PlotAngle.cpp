@@ -89,7 +89,7 @@ static void DrawGroup(TCanvas* canvas, const std::string& groupDir, const std::v
         std::map<TTree*, double> nCEAll; // CE protons before any cut (the entry list is not set yet), for the share the cuts lose
         for (const auto& [key, exprs] : exprsOf) {
             nCEAll[key.first] = key.first->GetEntries(); // GetEntries(): every entry, the list ignored
-            ApplyCut(key.first, ke.dir, key.second); // the KE (and block residual) cut, CutTrees.cpp
+            ApplyCut(key.first, ke.dir, key.second); // the KE (and block residual) cut, CutPlots.cpp (trees)
             cols[key] = Columns(key.first, exprs, filter);
             key.first->SetEntryList(nullptr);
         }
@@ -104,6 +104,7 @@ static void DrawGroup(TCanvas* canvas, const std::string& groupDir, const std::v
                 std::string title = s.title + ", " + label;
                 if (!ke.label.empty()) title += ", " + ke.label;
                 if (!th.label.empty()) title += ", " + th.label;
+                if (s.block) title += ", block residual < 2 mm";
 
                 const auto& c = cols.at(Key(s.tree, s.block));
                 canvas->Clear();
@@ -194,7 +195,7 @@ static void WriteFomCsv(const std::string& groupDir, const std::vector<KeCut>& k
 // phi histogram (50 bins) of t with the polarization fit N(phi) = N0 (1 + P <A> cos(phi)): N0 = entries / bins and <A> (mean sim analyzing power apCE of the CE protons) are fixed, only P is fitted
 // aExpr (the per-event analyzing power, e.g. "LastAP", all negative) switches to the A-weighted version: phi is filled with weight -A, so a bin holds sum(-A) (1 + P A_eff cos(phi)) with A_eff = sum(A^2) / sum(A)
 // (N0 = sum(-A) / bins and A_eff fixed), and the line P = 2 sum(A cos(phi)) / sum(A^2) +- sqrt(2 / sum(A^2)) is printed.
-static void PhiCosFit(TCanvas* canvas, TTree* t, const std::string& phiBranch, const std::string& cut, const std::string& name, const std::string& title, double aMean, const std::string& path, const std::string& aExpr = ""){
+static void PhiCosFit(TCanvas* canvas, TTree* t, const std::string& phiBranch, const std::string& cut, const std::string& name, const std::string& title, double aMean, const std::string& path, const std::string& aExpr = "", const std::string& aLabel = "mean sim A (LastAP)"){
     const int nBins = 50;
     const bool weighted = !aExpr.empty();
     canvas->Clear(); canvas->SetRightMargin(0.25); canvas->SetTopMargin(weighted ? 0.2 : 0.17); // weighted: a third text line above the frame
@@ -239,7 +240,7 @@ static void PhiCosFit(TCanvas* canvas, TTree* t, const std::string& phiBranch, c
         tx.DrawLatex(0.13, 0.83, Form("P = 2 #SigmaA cos#phi / #SigmaA^{2} = %.2f #pm %.2f", pSum, pSumErr));
     } else {
         tx.DrawLatex(0.13, 0.90, "Fit  N(#phi) = N_{0} (1 + P #upoint #LTA#GT cos#phi),   N_{0} = Entries / bins (fixed)");
-        tx.DrawLatex(0.13, 0.865, Form("#LTA#GT = %.4f (fixed, mean sim A (LastAP)),   P = %.2f #pm %.2f", aMean, fit.GetParameter(1), fit.GetParError(1)));
+        tx.DrawLatex(0.13, 0.865, Form("#LTA#GT = %.4f (fixed, %s),   P = %.2f #pm %.2f", aMean, aLabel.c_str(), fit.GetParameter(1), fit.GetParError(1)));
     }
     canvas->Modified(); canvas->Update();
     canvas->SaveAs(path.c_str());
@@ -247,6 +248,7 @@ static void PhiCosFit(TCanvas* canvas, TTree* t, const std::string& phiBranch, c
 }
 
 void PlotAngle(std::string energy = "fKEnergy"){ // energy: "fKEnergy" (true KE) or "fDEnergy" (detector energy), picks the input files and plot folder
+    FastJit();
     ROOT::EnableImplicitMT(NThreads()); // implicit MT for the file reads (NThreads: ANA_NTHREADS, FitCore.h)
     const std::string suffix = (energy == "fDEnergy") ? "_DE" : "";
     gStyle->SetOptFit(1111); // probability, chi2/ndf, fit parameters with errors
@@ -358,14 +360,13 @@ void PlotAngle(std::string energy = "fKEnergy"){ // energy: "fKEnergy" (true KE)
 
     //All protons and CE protons, theta/phi and block theta/phi
     TFile* FileAll = TFile::Open("cuts/cut_angles_all.root", "READ");
-    TTree *all = (TTree*)FileAll->Get(kAngleTree.c_str()); // every fitted proton; the view "Angles" + suffix is passQuality == 1
-    if (!all || !all->GetBranch("passQuality")){Error("PlotAngle", "AnglesRaw with passQuality missing in cuts/cut_angles_all.root (rerun ReconAngleAll.cpp)"); return;}
+    TTree *all = (TTree*)FileAll->Get(kAngleTree.c_str()); // every fitted proton
+    if (!all){Error("PlotAngle", "AnglesRaw missing in cuts/cut_angles_all.root (rerun ReconAngleAll.cpp)"); return;}
 
     printf("[PlotAngle] FOM setup %s\n", TDatime().AsSQLString()); fflush(stdout);
     // up to the largest recon theta of any reconstructed proton (true or block), so every one lands in a bin
     ROOT::RDataFrame dfAll(*all);
-    auto dfQ = dfAll.Filter([](int passQuality){return passQuality == 1;}, {"passQuality"});
-    auto maxT = dfQ.Max<double>("outTheta"), maxDT = dfQ.Max<double>("outDTheta");
+    auto maxT = dfAll.Max<double>("outTheta"), maxDT = dfAll.Max<double>("outDTheta");
     const double maxTheta = std::max(*maxT, *maxDT) * 180.0 / TMath::Pi() + 1e-6;
     const std::vector<double> thetaEdges = ThetaEdges(maxTheta, 0.001);
 
@@ -397,15 +398,13 @@ void PlotAngle(std::string energy = "fKEnergy"){ // energy: "fKEnergy" (true KE)
         const std::string ceCut = "";
         const auto apRaw = Columns(rawCE, {"LastAP"}, ceCut)[0];
         double aRaw = 0; for (double a : apRaw) aRaw += a / apRaw.size();
-        PhiCosFit(canvas, rawCE, "(LastPhiLab < 0 ? LastPhiLab + 2 * TMath::Pi() : LastPhiLab) * 180 / TMath::Pi()", ceCut, "hPhiCEfit", "All CE protons (every carbon-block CE), CE phi Distribution", aRaw, phiDir + "1_phiCE_cosfit.pdf");
+        PhiCosFit(canvas, rawCE, "(LastPhiLab < 0 ? LastPhiLab + 2 * TMath::Pi() : LastPhiLab) * 180 / TMath::Pi()", ceCut, "hPhiCEfit", "All CE protons (every carbon-block CE), CE phi Distribution, no cuts", aRaw, phiDir + "1_phiCE_cosfit.pdf");
         // the same events at the recon angles (CE protons with a recon track), A is the mean sim A of those events
         const auto apCE = Columns(events, {"apCE"})[0];
         double aMean = 0; for (double a : apCE) aMean += a / apCE.size();
-        PhiCosFit(canvas, events, "phiRe", "", "hPhiRefit", "Reconstructed CE protons, recon phi Distribution", aMean, phiDir + "2_phiRe_cosfit.pdf");
-        // the same fit at the block position recon phi (phiReD), A is the mean recon block A of those events
-        const auto apReD = Columns(events3, {"apReD"})[0];
-        double aMeanD = 0; for (double a : apReD) aMeanD += a / apReD.size();
-        PhiCosFit(canvas, events3, "phiReD", "", "hPhiReDfit", "Reconstructed CE protons, recon block phi Distribution", aMeanD, phiDir + "5_phiReD_cosfit.pdf");
+        PhiCosFit(canvas, events, "phiRe", "", "hPhiRefit", "Reconstructed CE protons, recon phi Distribution, no cuts", aMean, phiDir + "2_phiRe_cosfit.pdf");
+        // the same fit at the block position recon phi (phiReD), A is the mean sim A (apCE) of the same events (the trees are filled in one loop, so aMean is the same)
+        PhiCosFit(canvas, events3, "phiReD", Form("phiReD >= %g && phiReD <= %g", kBlockPhiLo, kBlockPhiHi), "hPhiReDfit", std::string("Reconstructed CE protons, recon block phi Distribution, fit phi ") + "0.5 to 359.5 deg (spike at 0 left out), no other cuts", aMean, phiDir + "5_phiReD_cosfit.pdf");
     }
     printf("[PlotAngle] CE plots done %s\n", TDatime().AsSQLString()); fflush(stdout);
 }

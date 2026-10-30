@@ -37,7 +37,7 @@ struct Angles {double LastPhi, LastTheta, LastMomentum, LastT, LastAP; int PDG; 
 
 struct Track {std::vector<Angles> points;};
 
-void CalcAPandT(std::string energy = "fKEnergy"){ // energy: "fKEnergy" (true KE) or "fDEnergy" (detector energy), picks the Angles tree
+static void CalcAPandTOne(std::string energy){ // energy: "fKEnergy" (true KE) or "fDEnergy" (detector energy), picks the Angles tree
     const double apScale = ReadSettings().at("APScale"); // settings.csv from the sim
     const std::string suffix = (energy == "fDEnergy") ? "_DE" : "";
     ROOT::EnableImplicitMT(NThreads());
@@ -46,7 +46,7 @@ void CalcAPandT(std::string energy = "fKEnergy"){ // energy: "fKEnergy" (true KE
     
     ROOT::RDataFrame dfCEV("ChargeExchange_values", "cuts/cut_CE.root");
     ROOT::RDataFrame dfAnglesAll(kAngleTree, "cuts/cut_angles_all.root");
-    auto dfAngles = dfAnglesAll.Filter("passQuality==1 && isFromCE==1"); // the fitted CE protons that pass the quality cut, ReconAngleAll.cpp fits every proton
+    auto dfAngles = dfAnglesAll.Filter("isFromCE==1"); // the fitted CE protons, ReconAngleAll.cpp fits every proton
     
     using Key3 = std::tuple<int, int, int>;
     using TrackMap = std::map<Key3, Track>;
@@ -175,7 +175,7 @@ void CalcAPandT(std::string energy = "fKEnergy"){ // energy: "fKEnergy" (true KE
         double outAPReDDIFF;
         double outFOMReDDIFF;
         int outPassResD; // block residual cut (QualityCut.h), only on the block trees: the block plots cut on passResD == 1
-        double outResDRms; // block fit residual of the track, on every tree: CutTrees.cpp cuts it into the block lists (kBlockCut, QualityCut.h)
+        double outResDRms; // block fit residual of the track, on every tree: CutPlots.cpp (trees) cuts it into the block lists (kBlockCut, QualityCut.h)
 
         outTree->Branch("TrackID", &outTrackID);
         outTree->Branch("PDG", &outPDG);
@@ -311,4 +311,10 @@ void CalcAPandT(std::string energy = "fKEnergy"){ // energy: "fKEnergy" (true KE
         }
         outFile->Write();
     }, ROOT::TSeqU((unsigned)nChunks));
+}
+
+// Both energies in one run: the true-KE pass writes cut_APandT.root, the detector-KE pass appends its _DE trees (the merger of each pass is closed before the next one starts).
+void CalcAPandT(){
+    CalcAPandTOne("fKEnergy");
+    CalcAPandTOne("fDEnergy");
 }

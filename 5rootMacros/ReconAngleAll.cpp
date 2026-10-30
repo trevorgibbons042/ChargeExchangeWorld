@@ -17,6 +17,10 @@
 #include "QualityCut.h"
 #include "CutOpen.h"
 #include "FitCore.h"
+#include <chrono>
+
+// One proton point as the read pass sees it. The read keeps these flat per slot; the tracks are built from them later, in parallel (a std::map per slot made the read as slow as the fits).
+struct Point {int eventID, trackID, pdg, parentID; double x, y, z, xD, yD, zD, KE, KED; ULong64_t entry;};
 
 struct FitResult {double x0, y0, bx, by;
     double x0D, y0D, bxD, byD;};
@@ -148,6 +152,9 @@ static double ImpactToAxis(double x0, double y0, double bx, double by){
 
 // One pass fits every proton and writes the tree AnglesRaw with the true (finalKE) and the detector (finalKED) KE of the track end.
 void ReconAngleAll(){
+    using Clock = std::chrono::steady_clock;
+    const auto tStart = Clock::now();
+    auto secs = [](Clock::time_point a, Clock::time_point b){return std::chrono::duration<double>(b - a).count();};
     ROOT::EnableImplicitMT(NThreads());
     ROOT::TTreeProcessorMT::SetTasksPerWorkerHint(4); // a raw file is split into 4 tasks per thread, so one file keeps all the threads busy
 
@@ -166,7 +173,7 @@ void ReconAngleAll(){
     }
 
     // One proton tree: every recon proton before the quality cut (QualityStudy.cpp). The old trees Angles, AnglesCE and their _DE copies are views of it
-    // (AngleSelection, CutFiles.h): passQuality, inCE pick the rows, finalKE / finalKED the true / detector KE.
+    // (AngleSelection, CutFiles.h): inCE picks the rows, finalKE / finalKED the true / detector KE.
     // The file is written through a TBufferMerger: the shards fill their own trees on all the threads (see the write below).
     ROOT::TBufferMerger merger("cuts/cut_angles_all.root", "RECREATE");
 
@@ -182,7 +189,8 @@ void ReconAngleAll(){
         for (size_t i = first; i < std::min(rawNames.size(), first + filesPerPass); i++) group.Add(rawNames[i].c_str());
         ROOT::RDataFrame df(group);
 
-        std::vector<std::map<std::tuple<int, int, int>, Track>> slotTracks(df.GetNSlots());
+        const auto tRead0 = Clock::now();
+        std::vector<std::vector<Point>> slotPoints(df.GetNSlots());
         // boundaryType 2 is the ZDC row, left out of the fit points; protons that never reach the ZDC are reconstructed too
         // The selection is a typed Filter lambda, not a Filter string: a string Filter is JIT-compiled, which fails on a ROOT whose cling cannot materialize libc++ symbols (the Mac).
         // A Filter node, unlike a test inside the ForeachSlot lambda, reads the other branches only for rows that pass (protons), not for every particle row.
@@ -190,75 +198,71 @@ void ReconAngleAll(){
           .ForeachSlot([&](unsigned slot,
             int eventID, int trackID, int pdg,
             double x, double y, double z, double xD, double yD, double zD, double KE, double KED, int ParentID, ULong64_t entry){
-            slotTracks[slot][{eventID, trackID, pdg}].push(x, y, z, xD, yD, zD, KE, ParentID, KED, entry);
+            slotPoints[slot].push_back({eventID, trackID, pdg, ParentID, x, y, z, xD, yD, zD, KE, KED, entry});
         }, {"fEvent", "TrackID", "pdg", "fX", "fY", "fZ", "fDx", "fDy", "fDz", "fKEnergy", "fDEnergy", "ParentID", "rdfentry_"});
         // The merge and the fits run on every thread: tracks are sharded by event (all tracks of an event land in one shard, so the per-event
         // proton count is complete per shard), each shard builds its tracks, fits them and keeps the results as rows. Only the TTree fills below are serial.
         struct Row {
-            int trackID, pdg, eventID, parentID, isFromCE, inCE, passResD, nProtonsEv, zOrderOK, nHits;
-            bool passQuality;
+            int trackID, pdg, eventID, parentID, isFromCE, inCE, passResD, nProtonsEv, nHits;
             double theta, phi, dTheta, dPhi, x0, y0, bx, by, x0D, y0D, bxD, byD, finalKE, finalKED;
             double xVertex, yVertex, zVertex, zBxRecon, zByRecon, zBxReconDIFF, zByReconDIFF;
             double resRms, resDRms, impact, impactD, r2, r2D, firstXD, firstYD, resHalfRatioD;
         };
         const unsigned nShards = NThreads();
         std::vector<std::vector<Row>> shardRows(nShards);
+        const auto tFit0 = Clock::now(); // the event loop above is the read
         ROOT::TThreadExecutor pool;
-        // Sort the tracks of every slot into the bucket of their shard once, one slot per thread: a shard then reads only its own buckets
-        // (a shard that looked through every slot map for its keys would scan all the tracks, nShards times over).
-        using KeyTrack = std::pair<std::tuple<int, int, int>, Track>;
-        std::vector<std::vector<std::vector<KeyTrack>>> buckets(slotTracks.size(), std::vector<std::vector<KeyTrack>>(nShards));
+        // Sort the points of every slot into the bucket of their shard once, one slot per thread: a shard then reads only its own buckets
+        // (a shard that looked through every point of every slot would scan all of them, nShards times over).
+        std::vector<std::vector<std::vector<Point>>> buckets(slotPoints.size(), std::vector<std::vector<Point>>(nShards));
         pool.Foreach([&](unsigned slot){
-            for (auto &[key, t] : slotTracks[slot]) buckets[slot][(unsigned)std::get<0>(key) % nShards].emplace_back(key, std::move(t));
-            slotTracks[slot].clear();
-        }, ROOT::TSeqU((unsigned)slotTracks.size()));
+            for (const Point &p : slotPoints[slot]) buckets[slot][(unsigned)p.eventID % nShards].push_back(p);
+            slotPoints[slot].clear(); slotPoints[slot].shrink_to_fit();
+        }, ROOT::TSeqU((unsigned)slotPoints.size()));
         pool.Foreach([&](unsigned shard){
             // Points are sorted and de-duplicated per track below, so the merge order does not matter.
-            // Each key is taken by exactly one shard, so its Track is moved out of its bucket, not copied.
-            std::map<std::tuple<int, int, int>, Track> tracks;
+            // Every point of an event is in the buckets of one shard, so the shard builds its tracks alone: its points go in one flat vector, sorted by track
+            // and then by z (then x, y, ...), so a track is a run of rows with its points already in order. That is cheaper than a std::map of growing vectors.
+            std::vector<Point> pts;
+            std::size_t nPts = 0;
+            for (const auto &slotBuckets : buckets) nPts += slotBuckets[shard].size();
+            pts.reserve(nPts);
             for (auto &slotBuckets : buckets) {
-                for (auto &kt : slotBuckets[shard]) {
-                    auto it = tracks.find(kt.first);
-                    if (it == tracks.end()) tracks.emplace(kt.first, std::move(kt.second)); else it->second.append(kt.second);
-                }
+                pts.insert(pts.end(), slotBuckets[shard].begin(), slotBuckets[shard].end());
                 slotBuckets[shard].clear(); slotBuckets[shard].shrink_to_fit();
             }
-
-            std::map<int, int> nProtonsInEvent;
-            for (const auto &kv : tracks) nProtonsInEvent[std::get<0>(kv.first)]++;
+            std::sort(pts.begin(), pts.end(), [](const Point &a, const Point &b){
+                return std::tie(a.eventID, a.trackID, a.pdg, a.z, a.x, a.y, a.zD, a.xD, a.yD, a.entry) < std::tie(b.eventID, b.trackID, b.pdg, b.z, b.x, b.y, b.zD, b.xD, b.yD, b.entry);
+            });
+            // the runs of one track (begin, end), and the number of tracks of the event of each: every run counts, also one that is dropped below
+            std::vector<std::pair<std::size_t, std::size_t>> runs;
+            for (std::size_t i = 0, j; i < pts.size(); i = j) {
+                for (j = i + 1; j < pts.size() && pts[j].eventID == pts[i].eventID && pts[j].trackID == pts[i].trackID && pts[j].pdg == pts[i].pdg; j++) {}
+                runs.emplace_back(i, j);
+            }
+            std::vector<int> nProtonsInEvent(runs.size());
+            for (std::size_t i = 0, j; i < runs.size(); i = j) {
+                for (j = i + 1; j < runs.size() && pts[runs[j].first].eventID == pts[runs[i].first].eventID; j++) {}
+                for (std::size_t k = i; k < j; k++) nProtonsInEvent[k] = int(j - i);
+            }
 
             std::vector<Row> &rows = shardRows[shard];
-            for (auto &kv : tracks) {
-                const auto &key = kv.first;
-                Track &t = kv.second; // not a structured binding: the sort lambdas below capture it, which C++17 does not allow for a binding
-                Row r;
-                // Tracker hit order: rows in ParticleInfo come in the order the track hit them, fDz (zD) is the tracker plane z.
-                // Planes must be hit with strictly increasing z (repeat rows of the same plane are fine); 4 to 2 to 3 or 4 to 3 is dropped.
-                {
-                    std::vector<std::size_t> hits;
-                    for (std::size_t i = 0; i < t.size(); i++) {if (t.zD[i] != 0.0) {hits.push_back(i);}}
-                    std::sort(hits.begin(), hits.end(), [&](std::size_t a, std::size_t b){return t.entry[a] < t.entry[b];});
-                    bool outOfOrder = false;
-                    for (std::size_t i = 1; i < hits.size() && !outOfOrder; i++) {
-                        if (t.zD[hits[i]] < t.zD[hits[i - 1]]) {outOfOrder = true;}
+            for (std::size_t run = 0; run < runs.size(); run++) {
+                const auto key = std::make_tuple(pts[runs[run].first].eventID, pts[runs[run].first].trackID, pts[runs[run].first].pdg);
+                Track t; // the points of the track in z order, repeats of the same position dropped
+                t.x.reserve(runs[run].second - runs[run].first); t.y.reserve(runs[run].second - runs[run].first); t.z.reserve(runs[run].second - runs[run].first);
+                t.xD.reserve(runs[run].second - runs[run].first); t.yD.reserve(runs[run].second - runs[run].first); t.zD.reserve(runs[run].second - runs[run].first);
+                t.KE.reserve(runs[run].second - runs[run].first); t.KED.reserve(runs[run].second - runs[run].first);
+                t.ParentID.reserve(runs[run].second - runs[run].first); t.entry.reserve(runs[run].second - runs[run].first);
+                for (std::size_t i = runs[run].first; i < runs[run].second; i++) {
+                    const Point &p = pts[i];
+                    if (i > runs[run].first) {
+                        const Point &q = pts[i - 1];
+                        if (p.x == q.x && p.y == q.y && p.z == q.z && p.xD == q.xD && p.yD == q.yD && p.zD == q.zD) continue;
                     }
-                    r.zOrderOK = outOfOrder ? 0 : 1; // out of order tracks stay in AnglesRaw for the plots, the other trees drop them below
+                    t.push(p.x, p.y, p.z, p.xD, p.yD, p.zD, p.KE, p.parentID, p.KED, p.entry);
                 }
-                { // points sorted by z (then x, y), repeats of the same position dropped
-                    std::vector<std::size_t> order(t.size());
-                    for (std::size_t i = 0; i < order.size(); i++) order[i] = i;
-                    std::sort(order.begin(), order.end(), [&](std::size_t a, std::size_t b){
-                        if (t.z[a] != t.z[b]) return t.z[a] < t.z[b];
-                        if (t.x[a] != t.x[b]) return t.x[a] < t.x[b];
-                        return t.y[a] < t.y[b];
-                    });
-                    order.erase(std::unique(order.begin(), order.end(), [&](std::size_t a, std::size_t b){
-                        return t.x[a]  == t.x[b]  && t.y[a]  == t.y[b]  && t.z[a]  == t.z[b] &&
-                               t.xD[a] == t.xD[b] && t.yD[a] == t.yD[b] && t.zD[a] == t.zD[b];
-                    }), order.end());
-                    t = t.select(order);
-                }
-
+                Row r;
                 if (t.size() < 2) {continue;}
 
                 const std::size_t endPoint   = std::max_element(t.z.begin(), t.z.end()) - t.z.begin();
@@ -308,9 +312,8 @@ void ReconAngleAll(){
                 r.r2D = RSquared(t, fit.x0D, fit.y0D, fit.bxD, fit.byD, true);
 
                 r.passResD = PassesBlockResidual(r.resDRms) ? 1 : 0; // block plots only, see QualityCut.h
-                r.passQuality = PassesQuality(r.resRms, r.impact, r.impactD);
 
-                r.nProtonsEv = nProtonsInEvent[r.eventID];
+                r.nProtonsEv = nProtonsInEvent[run];
                 {
                     std::vector<std::size_t> blockHits; // tracker hits by z
                     for (std::size_t i = 0; i < t.size(); i++) {if (t.zD[i] != 0.0) {blockHits.push_back(i);}}
@@ -327,10 +330,10 @@ void ReconAngleAll(){
                 rows.push_back(r);
             }
         }, ROOT::TSeqU(nShards));
-        slotTracks.clear();
 
         // TTree::Fill is not thread-safe: every shard fills a TTree of its own in a file the TBufferMerger gives it, in parallel, and the merger appends them into AnglesRaw.
         // A file's rows come from the shards in the order they finish, nothing reads them by position.
+        const auto tWrite0 = Clock::now();
         ROOT::TThreadExecutor writePool;
         writePool.Foreach([&](unsigned shard){
             auto outFile = merger.GetFile();
@@ -346,11 +349,11 @@ void ReconAngleAll(){
         double resRms, resDRms, impact, impactD; // quality variables, see QualityCut.h
         double r2, r2D; // R^2 of the line fit (true and block position), plotted by QualityStudy.cpp, not cut on
         double firstXD = NAN, firstYD = NAN; // block position (mm) of the first tracker hit (lowest z)
-        int nProtonsEv, zOrderOK, nHits; // protons with a track in the event, planes hit in increasing z (1/0), tracker hits (block points)
+        int nProtonsEv, nHits; // protons with a track in the event, tracker hits (block points)
         double resHalfRatioD; // block residual of the tracker hits after the first 2 over the first 2 hits, NAN with 2 or fewer hits
         int passResD = 1; // block residual cut, cut on only by the block plots (QualityCut.h)
         int isFromCE;
-        int passQuality, inCE; // z order and quality cut passed (1/0), event has a carbon CE (1/0)
+        int inCE; // event has a carbon CE (1/0)
             
     tree->Branch("TrackID", &outTrackID);
     tree->Branch("PDG", &outPDG);
@@ -369,7 +372,6 @@ void ReconAngleAll(){
     tree->Branch("byDOut", &byDOut);
     tree->Branch("finalKE", &finalKE);
     tree->Branch("finalKED", &finalKED);
-    tree->Branch("passQuality", &passQuality);
     tree->Branch("inCE", &inCE);
     tree->Branch("ParentID", &fParentID);
     tree->Branch("xVertexOut", &xVertexOut);
@@ -388,7 +390,6 @@ void ReconAngleAll(){
     tree->Branch("r2D", &r2D);
     tree->Branch("passResD", &passResD);
     tree->Branch("nProtonsEv", &nProtonsEv);
-    tree->Branch("zOrderOK", &zOrderOK);
     tree->Branch("nHits", &nHits);
     tree->Branch("firstXD", &firstXD); tree->Branch("firstYD", &firstYD);
     tree->Branch("resHalfRatioD", &resHalfRatioD);
@@ -403,15 +404,16 @@ void ReconAngleAll(){
                 z_bx_reconVertexDIFFOut = r.zBxReconDIFF; z_by_reconVertexDIFFOut = r.zByReconDIFF;
                 isFromCE = r.isFromCE;
                 resRms = r.resRms; resDRms = r.resDRms; impact = r.impact; impactD = r.impactD; r2 = r.r2; r2D = r.r2D;
-                passResD = r.passResD; nProtonsEv = r.nProtonsEv; zOrderOK = r.zOrderOK; nHits = r.nHits;
+                passResD = r.passResD; nProtonsEv = r.nProtonsEv; nHits = r.nHits;
                 firstXD = r.firstXD; firstYD = r.firstYD; resHalfRatioD = r.resHalfRatioD;
 
-                passQuality = r.zOrderOK && r.passQuality ? 1 : 0; // out of order tracks and tracks that fail the quality cut stay in the tree for the plots, the views drop them
                 inCE = r.inCE;
                 tree->Fill();
             }
             outFile->Write();
             shardRows[shard].clear(); shardRows[shard].shrink_to_fit();
         }, ROOT::TSeqU(nShards));
+        printf(">>> ReconAngleAll group %zu: read %.1f s, sort and fit %.1f s, write %.1f s\n", first, secs(tRead0, tFit0), secs(tFit0, tWrite0), secs(tWrite0, Clock::now())); fflush(stdout);
     }
+    printf(">>> ReconAngleAll loop total %.1f s (the merger closes after this)\n", secs(tStart, Clock::now())); fflush(stdout);
 }

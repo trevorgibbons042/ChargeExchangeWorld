@@ -3,37 +3,40 @@ source ~/.zshrc
 # runs one macro and prints how long it took. Compiled with ACLiC (+O: optimized, rebuilt only when the macro or a header changed);
 # ACLIC= (empty) runs it interpreted instead, for a ROOT whose compiled macros do not load (the Mac one: runStaticInitializersOnce)
 run(){
-    local start=$SECONDS
-    root -l -b -q "${1/.cpp/.cpp${ACLIC-+O}}"
+    local start=$SECONDS log=$(mktemp) mode=${ACLIC-+O} other
+    root -l -b -q "${1/.cpp/.cpp$mode}" 2>&1 | tee "$log"
+    if grep -q "Failed to materialize symbols" "$log"; then # this ROOT cannot load the macro in that mode: rerun it in the other one (compiled <-> interpreted)
+        [ -n "$mode" ] && other= || other=+O
+        echo ">>> $1: Failed to materialize symbols, rerunning ${other:+compiled (ACLiC)}${other:-interpreted}"
+        root -l -b -q "${1/.cpp/.cpp$other}"
+    fi
+    rm -f "$log"
     echo ">>> $1 took $((SECONDS - start)) s"
 }
 
 sh preflight.sh || exit 1 # skipped when run.sh already ran it (PREFLIGHT_DONE) or with PREFLIGHT=0
-# Cores: CutTrees runs with all of them, each of the 4 lanes with a quarter (the macros read ANA_NTHREADS through NThreads(), FitCore.h).
+# Cores: CutPlots runs with all of them, each of the 4 lanes with a quarter (the macros read ANA_NTHREADS through NThreads(), FitCore.h).
 # PLOT_PIPELINE=1: the macros skip BoxAndCropPlots (FitCore.h), the python steps below run once after every lane.
 export PLOT_PIPELINE=1
 NCPU=${NCPUS:-$(nproc 2>/dev/null || sysctl -n hw.ncpu)}
 export ANA_NTHREADS=$NCPU
 
 total=$SECONDS
-run 'CutTrees.cpp' # cuts/ke_gt80.root: the shared 80% KE cut the plot macros read (CutFiles.h)
-
 # Compile every macro once, at the same time, before the lanes (ACLiC): two lanes never build the same .so, and the lanes skip the dependency check. Not with ACLIC= (interpreted).
 if [ "${ACLIC-+O}" != "" ]; then
-    for m in ZdcColumns CutSamples Plot3D QualityStudy PlotAngle PlotCEFraction PlotPolarization PlotFomPolarization PlotDiffPhiCuts GraphBlocks CETCompare SecondaryCE; do
+    for m in CutPlots Plot3D QualityStudy PlotAngle PlotCEFraction PlotPolarization PlotFomPolarization PlotDiffPhiCuts GraphBlocks CETCompare SecondaryCE; do
         root -l -b -q -e ".L $m.cpp${ACLIC-+O}" > /dev/null 2>&1 &
     done
     wait
 fi
-run 'ZdcColumns.cpp' # cuts/cut_ZdcCE.root and cut_ZdcAllEv.root (the ZDC protons with the Plot3D columns) that Plot3D reads, with all the threads
-run 'CutSamples.cpp' # one cut file per cut of 6_cuts (cut_ResCuts.root, cut_zOrder.root, cut_KECUT80_CE.root, ...) that Plot3D reads, with all the threads
+run 'CutPlots.cpp' # trees (cuts/ke_gt80.root, ...: the KE cut lists), zdc (cut_ZdcCE.root, cut_ZdcAllEv.root) and samples (one cut file per cut of 6_cuts) that the plot macros read, with all the threads
 
 export ANA_NTHREADS=$(( NCPU / 4 > 0 ? NCPU / 4 : 1 ))
 
 # Lanes run at the same time. A lane holds the macros that write into the same plots/ folders (stats.csv and fit_values.csv are
 # truncated per folder) or read another's csv files, in order; no two lanes share a folder.
 { # 1_position, 2_energy, 6_cuts: the four independent parts of Plot3D (P3_PART, Plot3D.cpp) side by side, then QualityStudy
-    for part in 1 3 4 2:0 2:1 2:2 2:3 2:4 2:5 2:6 2:7 2:8 2:9; do (export P3_PART=${part%%:*} P3_CUT=; [[ $part == *:* ]] && export P3_CUT=${part#*:}; run 'Plot3D.cpp') & done
+    for part in 1 3 4 2:0 2:1 2:2 2:3 2:4 2:5; do (export P3_PART=${part%%:*} P3_CUT=; [[ $part == *:* ]] && export P3_CUT=${part#*:}; run 'Plot3D.cpp') & done
     wait
     (export P3_PART=5 P3_CUT=; run 'Plot3D.cpp') # part 5: the rank_*.csv files from the rows of the part 2 processes
     run 'QualityStudy.cpp'

@@ -251,6 +251,25 @@ inline void FitCosPhi(TH1* h, double ap){
     if (h->GetFunction("fCosPhi")) AddFitEquation(h, {"N_{0} (1 + AP #times P #times cos#phi)", "AP fixed: mean AP of the CE protons"});
 }
 
+// The RDataFrame string expressions (Filter, Define, Histo of a Draw string) are compiled by cling when the macro runs, with the optimizer on, and that was most of the time of the plot macros:
+// they read small trees, so the code of an expression runs for a few hundred thousand rows only. ".O 0" halved the time of Plot3D (ANA_JIT_O1=1 keeps the default). Not for the macros that read the big trees.
+inline void FastJit(){if (!std::getenv("ANA_JIT_O1")) gInterpreter->ProcessLine(".O 0");}
+
+// Bin string "n,lo,hi" for a plot of the ZDC block positions (fDx, fDy): the ZDC is a grid of nCols cells over 400 mm, and every bin holds the same whole number of cells.
+// A bin width that is not a multiple of the pitch (a plain 100 bins over 100 mm on a pitch of 400 / 801 mm) holds one cell more in some bins than in the others:
+// a bin that starts on a cell center, like the one at x = 0, holds the extra cell, which is a line at x = 0 and y = 0 in the 2D plots and spikes in the slices.
+// The bin is k cells wide, the closest width to targetMm, and the bins are centered on the grid: an odd nCols has a cell at 0, so n and k are odd, an even one has an edge at 0, so n is even.
+inline std::string BlockBins(int nCols, double targetMm, double halfRangeMm){
+    const double pitch = 400.0 / nCols;
+    int k = std::max(1, (int)std::lround(targetMm / pitch));
+    if (nCols % 2 == 1 && k % 2 == 0) k = (k > 1 && std::fabs((k - 1) * pitch - targetMm) <= std::fabs((k + 1) * pitch - targetMm)) ? k - 1 : k + 1;
+    int n = std::max(1, (int)std::lround(2.0 * halfRangeMm / (k * pitch)));
+    if (nCols % 2 == 1 && n % 2 == 0) n++;
+    if (nCols % 2 == 0 && n % 2 == 1) n++;
+    const double lo = 0.5 * n * k * pitch;
+    return Form("%d,%.6f,%.6f", n, -lo, lo);
+}
+
 // Block positions (fDx) are discrete cell centers, so h needs one bin per block (bin width = block pitch). A plain
 // point-wise gaus fit on such a histogram is meaningless: the "I" option fits the gaussian integrated over each
 // block's width, seeded from the histogram mean and RMS. No windowed refit, since a block cannot be split.
@@ -353,6 +372,12 @@ inline void FitCore(TH1* h){
 
 // The first line of a stats box is the histogram's name: "Fit results" when h has a fit function, else what (or "Statistics").
 // Set it with h->SetName right before the canvas is painted and saved, and put the old name back after, so Draw ">>name" and gDirectory->Get still find h.
+// Recon block phi sits on the block grid: tracks along the x axis pile up at exactly 0 (a spike in the first phi bin). Every fit of the recon block phi
+// (the thetaReconBlock sets) only uses the protons with phi from kBlockPhiLo to kBlockPhiHi degrees, and says so on its plot.
+constexpr double kBlockPhiLo = 0.5, kBlockPhiHi = 359.5;
+inline bool InBlockPhi(double phi){return phi >= kBlockPhiLo && phi <= kBlockPhiHi;}
+inline const char* BlockPhiNote(){return "block phi fit: 0.5 to 359.5 deg only (the spike at 0 is left out)";}
+
 inline std::string StatsTitle(TH1* h, const std::string& what = ""){
     for (TObject* o : *h->GetListOfFunctions()) if (dynamic_cast<TF1*>(o)) return "Fit results";
     return what.empty() ? "Statistics" : what;

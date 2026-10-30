@@ -18,11 +18,13 @@
 #include "TreeColumns.h"
 
 void GraphBlocks(){
+    FastJit();
     ROOT::EnableImplicitMT(NThreads()); // implicit MT for the file reads (NThreads: ANA_NTHREADS, FitCore.h)
     const TString filename = "cuts/cut_blocks.root";
     const TString outDir = "plots/4_CEblock";
     const int nBins = 100;
-    const char *ceLabel = "all CE protons (sim, reconstructed or not)";
+    const char *ceBase = "all CE protons (sim, reconstructed or not)";
+    const TString ceLabel = TString(ceBase) + ", no cuts";
 
     TFile *file = TFile::Open(filename, "READ");
 
@@ -79,7 +81,7 @@ void GraphBlocks(){
         TString trackerRate = Form("Tracker/CE = %lld/%lld = %.4f", nTracker, nCE, nCE ? (double)nTracker / nCE : 0.0);
 
         if (FILE* out = fopen((dir + "/numbers.txt").Data(), "w")) {
-            fprintf(out, "%s, %s\n", ceLabel, name.Data());
+            fprintf(out, "%s, %s\n", ceBase, name.Data());
             fprintf(out, "CE events: %lld\n", nCE);
             fprintf(out, "%s\n%s\n", trackerRate.Data(), rate.Data());
             fclose(out);
@@ -98,7 +100,7 @@ void GraphBlocks(){
             drawStyle(hz, t);
             for (double z : cols[iZ]) hz->Fill(z);
             hz->Draw("");
-            TString zTitle = Form("%s, %s, %s: %lld", p.label, ceLabel, name.Data(), nCE);
+            TString zTitle = Form("%s, %s, %s: %lld", p.label, ceLabel.Data(), name.Data(), nCE);
             hz->SetTitle(PlotTitle(p.file, (zTitle + ";Z Position (mm);Counts").Data()).c_str());
             canvas->Update();
             WritePlotNumbers(hz, Form("%s/%s.pdf", dir.Data(), p.file), numberFiles);
@@ -112,7 +114,7 @@ void GraphBlocks(){
         drawStyle(hGrid, t);
         for (double z : cols[iZ]) hGrid->Fill(z);
         hGrid->Draw("");
-        hGrid->SetTitle(Form("Z Position of Charge Exchange, %s, %s: %lld;Z Position (mm);Counts", ceLabel, name.Data(), nCE));
+        hGrid->SetTitle(Form("Z Position of Charge Exchange, %s, %s: %lld;Z Position (mm);Counts", ceLabel.Data(), name.Data(), nCE));
         hGrid->SetStats(0); // small grid pads have no margin for a stats box, it would sit on the graph
 
         const double pitchT = 400.0 / ReadSettings().at("nCols_blocks"), pitchD = 400.0 / ReadSettings().at("nCols_detector"); // cell pitch, mm
@@ -136,7 +138,9 @@ void GraphBlocks(){
             const std::vector<double>* mask = cutBranch.empty() ? nullptr : &cols[colIdx(cutBranch)];
             for (size_t k = 0; k < xs.size(); k++) if (!mask || (*mask)[k] == 1) ((TH2*)hxy)->Fill(xs[k], ys[k]);
             hxy->Draw("colz");
-            TString xyTitle = Form("%s, %s, %s", p.label, ceLabel, name.Data());
+            const bool atTracker = TString(p.file).Contains("Tracker"), atZdc = TString(p.file).Contains("ZDC");
+            const TString xyCuts = atTracker ? TString(ceBase) + ", no cuts besides reaching the tracker" : atZdc ? TString(ceBase) + ", no cuts besides reaching the ZDC" : ceLabel;
+            TString xyTitle = Form("%s, %s, %s", p.label, xyCuts.Data(), name.Data());
             if (TString(p.file) == "4_ZDC_xy" || TString(p.file) == "6_ZDC_xy_detector") xyTitle += ", " + rate;
             if (TString(p.file) == "3_Tracker_xy" || TString(p.file) == "5_Tracker_xy_detector") xyTitle += ", " + trackerRate;
             hxy->SetTitle(PlotTitle(p.file, (xyTitle + ";X Position (mm);Y Position (mm)").Data()).c_str());
@@ -158,13 +162,13 @@ void GraphBlocks(){
     std::set<std::pair<int,int>> reconKeys;
     {
         TFile *fAng = TFile::Open("cuts/cut_angles_all.root", "READ");
-        TTree *a = fAng ? (TTree*)fAng->Get(kAngleTree.c_str()) : nullptr; // the AnglesCE view: AnglesRaw rows with passQuality and inCE set
+        TTree *a = fAng ? (TTree*)fAng->Get(kAngleTree.c_str()) : nullptr; // the AnglesCE view: AnglesRaw rows with inCE set
         if (!a || !a->GetBranch("inCE")){Error("GraphBlocks", "AnglesRaw with inCE missing in cuts/cut_angles_all.root (rerun ReconAngleAll.cpp)"); return;}
-        const auto keys = Columns(a, {"fEvent", "ParentID"}, "passQuality != 0 && inCE != 0"); // multithreaded read (TreeColumns.h)
+        const auto keys = Columns(a, {"fEvent", "ParentID"}, "inCE != 0"); // multithreaded read (TreeColumns.h)
         for (size_t i = 0; i < keys[0].size(); i++) reconKeys.insert({(int)keys[0][i], (int)keys[1][i]});
     }
     struct ReconGrid {const char *file, *label; bool zdcOnly;};
-    for (const ReconGrid &g : {ReconGrid{"CE_per_block_recon.pdf", "reconstructed CE", false}, ReconGrid{"CE_per_block_recon_zdc.pdf", "reconstructed CE that hit ZDC", true}}){
+    for (const ReconGrid &g : {ReconGrid{"CE_per_block_recon.pdf", "reconstructed CE (inCE, no other cuts)", false}, ReconGrid{"CE_per_block_recon_zdc.pdf", "reconstructed CE (inCE) that hit ZDC, no other cuts", true}}){
         TCanvas* reconCanvas = new TCanvas(Form("canvas_%s", g.file), g.label, 1500, 1200);
         reconCanvas->Divide(nCols, nRows);
         const TString path = Form("%s/%s", outDir.Data(), g.file);

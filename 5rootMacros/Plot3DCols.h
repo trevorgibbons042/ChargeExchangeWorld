@@ -1,7 +1,7 @@
 #pragma once
 // The Plot3D maps, the columns that replace the per-entry isReco/rawVal/rawOk/thetaOk calls of the TTree::Draw cuts (P3), and where each tree of Plot3D gets them:
-// the ZDC proton cut files cut_ZdcCE.root / cut_ZdcAllEv.root hold them as columns (ZdcColumns.cpp), AnglesRaw gets them as TTree aliases of its own branches (Plot3DRawAliases).
-// Shared by Plot3D.cpp and ZdcColumns.cpp.
+// the ZDC proton cut files cut_ZdcCE.root / cut_ZdcAllEv.root hold them as columns (CutPlots.cpp (zdc)), AnglesRaw gets them as TTree aliases of its own branches (Plot3DRawAliases).
+// Shared by Plot3D.cpp and CutPlots.cpp.
 #include <TFile.h>
 #include <TError.h>
 #include <TMath.h>
@@ -21,7 +21,6 @@
 #include <string>
 #include <utility>
 
-#include "BlockLimits.h"
 #include "FitCore.h"
 #include "QualityCut.h"
 
@@ -51,34 +50,34 @@ struct P3Item {std::pair<int, int> key; unsigned char flags; std::array<double, 
 inline bool LoadPlot3DMaps(){
     TFile* fReco = TFile::Open("cuts/cut_angles_all.root", "READ");
     TTree* raw = fReco ? (TTree*)fReco->Get("AnglesRaw") : nullptr;
-    if (!raw || !raw->GetBranch("passQuality")){Error("Plot3D", "missing AnglesRaw tree with passQuality in cut_angles_all.root (run ReconAngleAll.cpp first)"); return false;}
-    // one pass over AnglesRaw, each entry read once and on all the threads (RDataFrame): the reconstructed tracks are the rows that pass the quality cut (the old Angles tree), gRawVals has every row.
+    if (!raw){Error("Plot3D", "missing AnglesRaw tree in cut_angles_all.root (run ReconAngleAll.cpp first)"); return false;}
+    // one pass over AnglesRaw, each entry read once and on all the threads (RDataFrame): every row is a reconstructed track (the Angles tree), gRawVals has every row.
     // Every slot collects its rows in a vector, the vectors are sorted and merged on all the threads, and the maps are built in key order (insertion at the end, no tree search), one map per thread.
     const bool withRaw = raw->GetBranch("nProtonsEv") != nullptr;
     const unsigned char kReco = 1, kRecoD = 2, kRes2 = 4;
     ROOT::RDataFrame df(*raw);
     std::vector<std::vector<P3Item>> parts(df.GetNSlots());
-    auto flagsOf = [&](int pq, double resDRms){
-        return (unsigned char)(pq ? (kReco | (PassesBlockResidual(resDRms) ? kRecoD : 0) | (resDRms < kRes2Mm ? kRes2 : 0)) : 0);
+    auto flagsOf = [&](double resDRms){
+        return (unsigned char)(kReco | (PassesBlockResidual(resDRms) ? kRecoD : 0) | (resDRms < kRes2Mm ? kRes2 : 0));
     };
     if (withRaw){
         const double rad = TMath::RadToDeg(), twoPi = 2 * TMath::Pi();
-        df.ForeachSlot([&](unsigned slot, int ev, int tid, int pq, double resRms, double resDRms, double impact, double impactD, double r2, double r2D, int nP, int zOk, int nH,
+        df.ForeachSlot([&](unsigned slot, int ev, int tid, double resRms, double resDRms, double impact, double impactD, double r2, double r2D, int nP, int nH,
                            double phiRad, double phiBlockRad, double firstXD, double firstYD, double zRecon, double resHalfRatioD, double thetaRad, double thetaBlockRad){
-            P3Item it; it.key = {ev, tid}; it.flags = flagsOf(pq, resDRms);
+            P3Item it; it.key = {ev, tid}; it.flags = flagsOf(resDRms);
             double* v = it.a.data();
             v[0] = resRms; v[1] = resDRms; v[2] = impact; v[3] = impactD; v[4] = r2; v[5] = r2D;
-            v[6] = nP; v[7] = zOk; v[8] = resHalfRatioD; v[9] = thetaRad * rad; v[10] = nH; v[11] = thetaBlockRad * rad; v[12] = firstXD; v[13] = firstYD;
+            v[6] = nP; v[7] = 1; // slot 7 is unused (it held zOrderOK), kept so the other indexes stay put
+            v[8] = resHalfRatioD; v[9] = thetaRad * rad; v[10] = nH; v[11] = thetaBlockRad * rad; v[12] = firstXD; v[13] = firstYD;
             v[14] = (phiRad < 0 ? phiRad + twoPi : phiRad) * rad; v[15] = (phiBlockRad < 0 ? phiBlockRad + twoPi : phiBlockRad) * rad; v[16] = zRecon;
             parts[slot].push_back(it);
-        }, {"fEvent", "TrackID", "passQuality", "resRms", "resDRms", "impact", "impactD", "r2", "r2D", "nProtonsEv", "zOrderOK", "nHits",
+        }, {"fEvent", "TrackID", "resRms", "resDRms", "impact", "impactD", "r2", "r2D", "nProtonsEv", "nHits",
             "outPhi", "outDPhi", "firstXD", "firstYD", "z_bx_reconVertexOut", "resHalfRatioD", "outTheta", "outDTheta"});
     } else {
-        df.ForeachSlot([&](unsigned slot, int ev, int tid, int pq, double resDRms){
-            if (!pq) return;
-            P3Item it; it.key = {ev, tid}; it.flags = flagsOf(pq, resDRms); it.a.fill(0); it.a[1] = resDRms;
+        df.ForeachSlot([&](unsigned slot, int ev, int tid, double resDRms){
+            P3Item it; it.key = {ev, tid}; it.flags = flagsOf(resDRms); it.a.fill(0); it.a[1] = resDRms;
             parts[slot].push_back(it);
-        }, {"fEvent", "TrackID", "passQuality", "resDRms"});
+        }, {"fEvent", "TrackID", "resDRms"});
     }
     fReco->Close();
 
@@ -105,7 +104,6 @@ inline bool LoadPlot3DMaps(){
         for (const P3Item& it : all) if (it.flags & bit) target.emplace_hint(target.end(), it.key);
     }, ROOT::TSeqU(4u));
     std::vector<P3Item>().swap(parts[0]);
-    FillBlockLimits(ReadSettings());
     return true;
 }
 
@@ -122,7 +120,7 @@ inline const std::array<double, 17>* P3Row(int ev, int tid){
 // The maps are read only while the event loop runs, so the lambdas are safe on several threads.
 inline ColumnAdder Plot3DColumns(){
     return [](ROOT::RDF::RNode n){
-        static const bool mapsLoaded = LoadPlot3DMaps(); // the 213M rows of AnglesRaw are read once, when ZdcColumns.cpp builds the columns
+        static const bool mapsLoaded = LoadPlot3DMaps(); // the 213M rows of AnglesRaw are read once, when CutPlots.cpp (zdc) builds the columns
         if (!mapsLoaded) throw std::runtime_error("Plot3DColumns: the maps could not be loaded (cuts/cut_angles_all.root)");
         n = n.Define("isReco", [](int ev, int tid){return (Int_t)isReco(ev, tid);}, {"fEvent", "TrackID"})
              .Define("isRecoD", [](int ev, int tid){return (Int_t)isRecoD(ev, tid);}, {"fEvent", "TrackID"})
@@ -141,30 +139,27 @@ inline ColumnAdder Plot3DColumns(){
     };
 }
 
-// Rewrites the isReco/isRecoD/isRes2/thetaOk/rawVal/rawOk calls of a TTree::Draw expression or cut into the columns (or, on AnglesRaw, the aliases).
-// thetaOk has no column: it is BlockThetaOk (BlockLimits.h) of the recon block theta raw_11 and the recon vertex z raw_16.
+// Rewrites the isReco/isRecoD/isRes2/rawVal/rawOk calls of a TTree::Draw expression or cut into the columns (or, on AnglesRaw, the aliases).
 inline std::string P3(const std::string& s){
     static const std::regex fn(R"(\b(isRecoD|isReco|isRes2)\s*\(\s*fEvent\s*,\s*TrackID\s*\))");
-    static const std::regex theta(R"(\bthetaOk\s*\(\s*fEvent\s*,\s*TrackID\s*\))");
     static const std::regex val(R"(\brawVal\s*\(\s*fEvent\s*,\s*TrackID\s*,\s*(\d+)\s*\))");
     static const std::regex ok(R"(\brawOk\s*\(\s*fEvent\s*,\s*TrackID\s*,\s*(\d+)\s*\))");
     std::string o = std::regex_replace(s, fn, "($1==1)");
-    o = std::regex_replace(o, theta, "BlockThetaOk(raw_11, raw_16)");
     o = std::regex_replace(o, val, "raw_$1");
     o = std::regex_replace(o, ok, "(ok_$1==1)");
     return o;
 }
 
-// The same names on AnglesRaw, as TTree aliases of its own branches (no extra columns in the file): a row of AnglesRaw is one fitted proton, so isReco is its passQuality,
+// The same names on AnglesRaw, as TTree aliases of its own branches (no extra columns in the file): a row of AnglesRaw is one fitted proton, so every row is a reco proton (isReco = 1),
 // raw_k its k-th value of gRawVals (LoadPlot3DMaps) and ok_k whether that value is finite. P3() rewrites the Draw strings to these names for every tree.
 inline void Plot3DRawAliases(TTree* raw){
-    const char* val[17] = {"resRms", "resDRms", "impact", "impactD", "r2", "r2D", "nProtonsEv", "zOrderOK", "resHalfRatioD", "outTheta*TMath::RadToDeg()", "nHits",
+    const char* val[17] = {"resRms", "resDRms", "impact", "impactD", "r2", "r2D", "nProtonsEv", "1", "resHalfRatioD", "outTheta*TMath::RadToDeg()", "nHits",
                            "outDTheta*TMath::RadToDeg()", "firstXD", "firstYD", "outPhi*TMath::RadToDeg()", "outDPhi*TMath::RadToDeg()", "z_bx_reconVertexOut"}; // phi in 0 to 360 (ReconAngleAll.cpp)
     for (int k = 0; k < 17; k++){
         raw->SetAlias(Form("raw_%d", k), val[k]);
         raw->SetAlias(Form("ok_%d", k), Form("TMath::Finite(raw_%d)", k));
     }
-    raw->SetAlias("isReco", "passQuality");
-    raw->SetAlias("isRecoD", ("(passQuality==1 && (" + std::string(kBlockCut) + "))").c_str());
-    raw->SetAlias("isRes2", Form("(passQuality==1 && resDRms < %g)", kRes2Mm));
+    raw->SetAlias("isReco", "1");
+    raw->SetAlias("isRecoD", ("(" + std::string(kBlockCut) + ")").c_str());
+    raw->SetAlias("isRes2", Form("(resDRms < %g)", kRes2Mm));
 }
