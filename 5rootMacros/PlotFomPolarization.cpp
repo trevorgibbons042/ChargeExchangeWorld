@@ -31,7 +31,7 @@
 
 // 2D maps over theta ranges [lo, hi): x = lower bound, y = upper bound (hi > lo always, so only the upper triangle is filled). True KE or detector KE
 // (energy argument, trees with the _DE suffix), one set of
-// maps for the one cut, ke_all (no KE cut, KeCuts in CutFiles.h). The FOM is only in PlotCEPerBin.cpp (cumulative FOM plot).
+// maps for the one cut, ke_gt80 (no KE cut, KeCuts in CutFiles.h). The FOM is only in PlotCEPerBin.cpp (cumulative FOM plot).
 //   P maps, one per theta type (AP: the model equation at the CE t, same for both), plots/5_fomCalc/<1_reconTheta, 2_reconBlockTheta>/<ke>/ (recon block theta: block residual cut), files tagged apCE_<CE or recon> (recon protons: their
 //   phi is fit with A_eff = the mean A(recon theta) over all recon protons in the range, so the unpolarized non-CE protons pull P down): 5_P_fit_2d_<tag>.pdf and .csv, and 6_P_pct_error_2d_<tag>.pdf = |100 * (P_fit - PPValue) / PPValue| (PPValue from settings.csv),
 //   log color scale from 0.01 to 100:
@@ -189,7 +189,7 @@ void PlotFomPolarization(std::string energy = "fKEnergy"){ // energy: "fKEnergy"
     const std::string suffix = (energy == "fDEnergy") ? "_DE" : "";
     const std::string keLabel = (energy == "fDEnergy") ? "ZDC KE" : "true KE";
     const int nSlices = (int)std::round(kThetaMaxFP / kStep);
-    const std::vector<KeCut> kes = {KeCuts(keLabel).front()}; // CutFiles.h, the one cut ke_all (no KE cut, no residual cut folders)
+    const std::vector<KeCut> kes = {KeCuts(keLabel).front()}; // CutFiles.h, the one cut ke_gt80 (no KE cut, no residual cut folders)
     TCanvas c("cFomMaps", "", 1500, 1200);
     c.SetRightMargin(0.30); c.SetLeftMargin(0.12); c.SetBottomMargin(0.12);
 

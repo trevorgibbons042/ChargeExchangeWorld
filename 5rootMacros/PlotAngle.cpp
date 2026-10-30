@@ -83,7 +83,7 @@ static void DrawGroup(TCanvas* canvas, const std::string& groupDir, const std::v
                 // CE protons before any cut (the entry list is not set yet), for the share the cuts lose
                 const bool isAngles = s.tree->GetBranch("isFromCE"); // Angles tree = all recon protons, cut_APandT.root trees = CE protons only
                 const double nCEAll = isAngles ? s.tree->GetEntries("isFromCE == 1") : s.tree->GetEntries();
-                const bool anyCut = !cut.empty() || ke.dir != "ke_all" || s.block;
+                const bool anyCut = true; // the 80% KE cut (KeCuts, CutFiles.h) is on every plot
                 double ap = 0;
                 if (s.apTree) {
                     ApplyCut(s.apTree, ke.dir, s.block);

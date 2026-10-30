@@ -2,7 +2,7 @@
 """Tidies plots/ after the plot macros ran (called last by plot.sh; the macros read and append to their csv files while they run).
 
 1. Cut folders (ke_*, ke_cut_*) side by side in one area: their csv files with the same name and header become one csv in the area's
-   csv/ folder, with a first column "cut" naming the folder (ke_all/1_apCE/stats.csv -> <area>/csv/1_apCE_stats.csv, cut = ke_all).
+   csv/ folder, with a first column "cut" naming the folder (ke_gt80/1_apCE/stats.csv -> <area>/csv/1_apCE_stats.csv, cut = ke_gt80).
 2. Any other folder holding more than one csv file gets them moved into its own csv/ subfolder (folders already named *csv stay).
 3. A folder holding a single item (a plot or a folder) is removed and the item moves up into its parent, named <folder>_<item>
    (a csv/ folder with one file: the file keeps its name).
@@ -93,8 +93,8 @@ def lift_single_items(top):
             changed = True
 
 
-def lift_ke_all_into(parent):
-    for name in ("ke_all", "fom_polarization"): # a fresh file replaces the old one of the same name up in the folder
+def lift_ke_into(parent):
+    for name in ("ke_gt80", "fom_polarization"): # a fresh file replaces the old one of the same name up in the folder
         keDir = os.path.join(parent, name)
         if not os.path.isdir(keDir):
             continue
@@ -111,17 +111,17 @@ def lift_ke_all_into(parent):
             os.rmdir(keDir)
 
 
-def lift_ke_all(top):
-    """5_fomCalc (each theta set) and 3_ReconCalcVals have no KE cuts: the content of their ke_all folder moves up."""
+def lift_ke(top):
+    """5_fomCalc (each theta set) and 3_ReconCalcVals have no KE cuts: the content of their ke_gt80 folder moves up."""
     area = os.path.join(top, "5_fomCalc")
     if os.path.isdir(area):
         for name in os.listdir(area):
-            lift_ke_all_into(os.path.join(area, name))
-    lift_ke_all_into(os.path.join(top, "3_ReconCalcVals"))
+            lift_ke_into(os.path.join(area, name))
+    lift_ke_into(os.path.join(top, "3_ReconCalcVals"))
 
 
 def main(top):
-    lift_ke_all(top)
+    lift_ke(top)
     for d, dirs, _ in os.walk(top):
         merge_cut_folders(d)
     remove_empty(top)

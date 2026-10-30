@@ -226,7 +226,7 @@ def main(plots):
                 continue
             title = f"{cut if cut != '1_hitZDC' else '1_hitZDC (no cut)'}, {'ZDC KE > 80%' if ke80 else 'no KE cut'}"
             jobs.append((os.path.join(d, f), lines_for(row), title))
-    for sub, cut in FOM_CUTS.items(): # 5_fomCalc samples (ke_all, PlotFomPolarization.cpp): recon theta has no cut, recon block theta the block residual cut (kBlockCut, QualityCut.h)
+    for sub, cut in FOM_CUTS.items(): # 5_fomCalc samples (ke_gt80, PlotFomPolarization.cpp): recon theta has no cut, recon block theta the block residual cut (kBlockCut, QualityCut.h)
         for d, _, files in os.walk(os.path.join(plots, "5_fomCalc", sub)):
             for f in sorted(files):
                 if f.endswith(".pdf"):

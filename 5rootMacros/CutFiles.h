@@ -16,15 +16,10 @@
 // (ApplyCut) instead of cutting with a TTree::Draw string.
 struct KeCut {std::string dir, cut, label;}; // cut: the selection CutTrees.cpp applies, as a TTree::Draw string (finalKE is the KE of the tree's energy)
 
-// No KE cut, finalKE above 50 to 99% of the beam KE (kBeamKE, FitCore.h), then each again with the 2 mm block residual cut on top (QualityCut.h).
-// keLabel names the energy in the plot titles ("ZDC KE" or "true KE").
+// The one KE cut: finalKE above 80% of the beam KE (kBeamKE, FitCore.h). keLabel names the energy in the plot titles ("ZDC KE" or "true KE").
 static std::vector<KeCut> KeCuts(const std::string& keLabel = "KE"){
-    std::vector<KeCut> kes = {{"ke_all", "", "no " + keLabel + " cut"}};
-    for (int pct : {50, 60, 70, 80, 90, 95, 99}){
-        const std::string minKE = std::to_string((int)(kBeamKE * pct / 100.0));
-        kes.push_back({"ke_gt" + std::to_string(pct), "finalKE > " + minKE, keLabel + " > " + minKE + " MeV (" + std::to_string(pct) + "%)"});
-    }
-    return kes;
+    const std::string minKE = std::to_string((int)(kBeamKE * 80 / 100.0));
+    return {{"ke_gt80", "finalKE > " + minKE, keLabel + " > " + minKE + " MeV (80%)"}};
 }
 
 // Trees CutTrees.cpp writes lists for, per energy suffix ("" or "_DE"). The block lists (name + "_block", block residual cut too) only exist
@@ -64,7 +59,7 @@ static TEntryList* CutList(const std::string& dir, TTree* t, bool block = false,
 // GetEntries() without a selection still counts every entry.
 static void ApplyCut(TTree* t, const std::string& dir, bool block = false, const std::string& listName = ""){t->SetEntryList(CutList(dir, t, block, listName));}
 
-// The selection string CutTrees.cpp built the list of (dir, block) from: DrawPlan's listCut for a tree that has that list set. dir is a KeCuts() dir ("ke_all", ...).
+// The selection string CutTrees.cpp built the list of (dir, block) from: DrawPlan's listCut for a tree that has that list set. dir is the KeCuts() dir ("ke_gt80").
 static std::string ListCut(const std::string& dir, bool block){
     std::string cut;
     for (const auto& ke : KeCuts()) if (ke.dir == dir) cut = ke.cut;

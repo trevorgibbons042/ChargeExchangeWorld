@@ -21,7 +21,7 @@
 #include "FomCommon.h"
 
 // Running percent of CE protons among reconstructed protons up to each theta, 100 * sum N_CE / sum N over the 1_csv/ke_*.csv bins written by
-// PlotAngle.cpp, one curve per KE cut: ke_all/1_cumulative_ce_percent_log.pdf (log y axis only), beside the csv folder.
+// PlotAngle.cpp, one curve per KE cut: ke_gt80/1_cumulative_ce_percent_log.pdf (log y axis only), beside the csv folder.
 void PlotCEFraction(){
     ROOT::EnableImplicitMT(NThreads()); // implicit MT for the file reads (NThreads: ANA_NTHREADS, FitCore.h)
     gStyle->SetOptStat(0);
@@ -45,11 +45,11 @@ void PlotCEFraction(){
         return rows;
     };
 
-    // numbers behind each plot go to ke_all/stats.csv, shared with PlotFomCumulative.cpp: this macro replaces only its own rows (plot names starting "1_")
+    // numbers behind each plot go to ke_gt80/stats.csv, shared with PlotFomCumulative.cpp: this macro replaces only its own rows (plot names starting "1_")
     std::set<std::string> statsStarted;
     const std::string statsHeader = "plot,ke_cut,N,N_CE,pct_CE,fom";
     for (const auto& set : sets){
-        const std::string file = "plots/5_fomCalc/" + set + "/ke_all/stats.csv";
+        const std::string file = "plots/5_fomCalc/" + set + "/ke_gt80/stats.csv";
         std::ifstream in(file);
         std::string line, kept;
         while (std::getline(in, line)) if (!line.empty() && line[0] >= '2' && line != statsHeader) kept += line + "\n";
@@ -65,11 +65,11 @@ void PlotCEFraction(){
     c.SetLeftMargin(0.14); c.SetRightMargin(0.2); // room for the legend outside the graph
     for (const auto& set : sets){
         const std::string dir = "plots/5_fomCalc/" + set + "/";
-        gSystem->mkdir((dir + "ke_all").c_str(), true);
+        gSystem->mkdir((dir + "ke_gt80").c_str(), true);
         // Not cumulative: percent of the simulated neutrons whose CE proton lands in each theta bin, 100 * N_CE(bin) / N_neutrons (TotalNeutrons, settings.csv)
         {
             const double binW = 0.05, nNeutrons = ReadSettings().at("TotalNeutrons");
-            const auto rows = readCsv(dir + "1_csv/ke_all.csv");
+            const auto rows = readCsv(dir + "1_csv/ke_gt80.csv");
             const int nBins = (int)std::ceil(thetaMax / binW);
             std::vector<double> nCE(nBins, 0.0), nRecon(nBins, 0.0);
             for (const auto& r : rows){
@@ -84,7 +84,7 @@ void PlotCEFraction(){
             g.SetMarkerStyle(20); g.SetMarkerSize(0.6); g.SetLineWidth(1);
             g.Draw("APL");
             g.GetXaxis()->SetLimits(0, thetaMax);
-            c.SaveAs((dir + "ke_all/3_ce_percent_of_neutrons_per_bin.pdf").c_str());
+            c.SaveAs((dir + "ke_gt80/3_ce_percent_of_neutrons_per_bin.pdf").c_str());
 
             // The same, times A_y^2 at the bin center: t from theta (TFromAngle), A_y from t (APFromT, the model formula) with the run's APScale
             const double apScale = ReadSettings().at("APScale");
@@ -100,7 +100,7 @@ void PlotCEFraction(){
             gA2.SetMarkerStyle(20); gA2.SetMarkerSize(0.6); gA2.SetLineWidth(1);
             gA2.Draw("APL");
             gA2.GetXaxis()->SetLimits(0, thetaMax);
-            c.SaveAs((dir + "ke_all/4_ce_percent_x_A2_per_bin.pdf").c_str());
+            c.SaveAs((dir + "ke_gt80/4_ce_percent_x_A2_per_bin.pdf").c_str());
 
             // Running integral up to each bin: sum of N_CE / N_neutrons * A_y^2(theta) * delta theta (0.05 deg)
             TGraph gInt;
@@ -122,7 +122,7 @@ void PlotCEFraction(){
             finalValue.AddText("final value");
             finalValue.AddText(Form("%.4g", integral));
             finalValue.Draw();
-            c.SaveAs((dir + "ke_all/5_integral_ce_x_A2_dtheta.pdf").c_str());
+            c.SaveAs((dir + "ke_gt80/5_integral_ce_x_A2_dtheta.pdf").c_str());
 
             // Per theta bin, the share of the reconstructed protons that are CE (8_) and not CE (9_): 100 * N_CE / N_recon and 100 * (N_recon - N_CE) / N_recon
             for (const bool nonCE : {false, true}){
@@ -138,7 +138,7 @@ void PlotCEFraction(){
                 gShare.SetMarkerStyle(20); gShare.SetMarkerSize(0.6); gShare.SetLineWidth(1);
                 gShare.Draw("APL");
                 gShare.GetXaxis()->SetLimits(0, thetaMax);
-                c.SaveAs((dir + (nonCE ? "ke_all/2_nonce_percent_of_recon_per_bin.pdf" : "ke_all/1_ce_percent_of_recon_per_bin.pdf")).c_str());
+                c.SaveAs((dir + (nonCE ? "ke_gt80/2_nonce_percent_of_recon_per_bin.pdf" : "ke_gt80/1_ce_percent_of_recon_per_bin.pdf")).c_str());
             }
         }
     }
