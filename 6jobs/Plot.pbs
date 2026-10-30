@@ -33,7 +33,7 @@ case $STEP in
     calc)     macros=('CalcAPandT.cpp' 'CalcAPandT.cpp("fDEnergy")') ;;
     countce)  macros=('CountCE.cpp') ;;
     cuttrees) macros=('CutTrees.cpp') ;;
-    zdc)      macros=('ZdcColumns.cpp') ;; # cuts/cut_ZdcCE.root and cut_ZdcAllEv.root, read by Plot3D
+    zdc)      macros=('ZdcColumns.cpp' 'CutSamples.cpp') ;; # cuts/cut_ZdcCE.root and cut_ZdcAllEv.root, then one cut file per cut of 6_cuts, all read by Plot3D
     cuts)     macros=('Plot3D.cpp' 'QualityStudy.cpp') ;; # 1_position, 2_energy, 6_cuts
     fom)      macros=('PlotAngle.cpp("fDEnergy")' 'PlotCEFraction.cpp' 'PlotPolarization.cpp("fDEnergy")' 'PlotFomPolarization.cpp("fDEnergy")') ;; # 3_ReconCalcVals, 5_fomCalc
     ceblock)  macros=('PlotDiffPhiCuts.cpp(-180, -50, "fDEnergy")' 'GraphBlocks.cpp' 'CETCompare.cpp') ;; # 4_CEblock

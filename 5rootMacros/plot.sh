@@ -16,16 +16,17 @@ NCPU=${NCPUS:-$(nproc 2>/dev/null || sysctl -n hw.ncpu)}
 export ANA_NTHREADS=$NCPU
 
 total=$SECONDS
-run 'CutTrees.cpp' # cuts/<ke>.root: the shared KE cuts the plot macros read (CutFiles.h); only ke_all unless CUTTREES_ALL=1
+run 'CutTrees.cpp' # cuts/ke_gt80.root: the shared 80% KE cut the plot macros read (CutFiles.h)
 
 # Compile every macro once, at the same time, before the lanes (ACLiC): two lanes never build the same .so, and the lanes skip the dependency check. Not with ACLIC= (interpreted).
 if [ "${ACLIC-+O}" != "" ]; then
-    for m in ZdcColumns Plot3D QualityStudy PlotAngle PlotCEFraction PlotPolarization PlotFomPolarization PlotDiffPhiCuts GraphBlocks CETCompare SecondaryCE; do
+    for m in ZdcColumns CutSamples Plot3D QualityStudy PlotAngle PlotCEFraction PlotPolarization PlotFomPolarization PlotDiffPhiCuts GraphBlocks CETCompare SecondaryCE; do
         root -l -b -q -e ".L $m.cpp${ACLIC-+O}" > /dev/null 2>&1 &
     done
     wait
 fi
 run 'ZdcColumns.cpp' # cuts/cut_ZdcCE.root and cut_ZdcAllEv.root (the ZDC protons with the Plot3D columns) that Plot3D reads, with all the threads
+run 'CutSamples.cpp' # one cut file per cut of 6_cuts (cut_ResCuts.root, cut_zOrder.root, cut_KECUT80_CE.root, ...) that Plot3D reads, with all the threads
 
 export ANA_NTHREADS=$(( NCPU / 4 > 0 ? NCPU / 4 : 1 ))
 

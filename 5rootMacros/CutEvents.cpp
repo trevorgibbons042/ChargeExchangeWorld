@@ -43,13 +43,6 @@ void CutEvents(){
     auto inEvent = [&](int ev){return ceTracksInEvent.count(ev) > 0;};
     // track is a child of a charge exchange track in this event
     auto isParent = [&](int ev, int parent){return ceEventParent.count(((long long)ev << 32) | (unsigned int)parent) > 0;};
-    // event has a charge exchange track that is not this track's parent
-    auto isFake = [&](int ev, int parent){
-        auto it = ceTracksInEvent.find(ev);
-        if (it == ceTracksInEvent.end()) return false;
-        for (int id : it->second) {if (id != parent) return true;}
-        return false;
-    };
 
     ROOT::RDataFrame df(*events);
     ROOT::RDataFrame dfCEAll(*ChargeExchange);
@@ -61,21 +54,20 @@ void CutEvents(){
     ROOT::RDF::RSnapshotOptions lazy;
     lazy.fLazy = true;
 
-    const std::vector<std::string> cutFiles = {"cuts/cut_CE.root", "cuts/cut_ParentID.root", "cuts/cut_FakeID.root"};
+    const std::vector<std::string> cutFiles = {"cuts/cut_CE.root", "cuts/cut_ParentID.root"};
     const std::vector<std::string> treeNames = {events->GetName(), ChargeExchange->GetName()};
     auto tmpName = [](const std::string& tree, const std::string& cutFile){return "cuts/tmp_" + tree + "_" + cutFile.substr(5);}; // cutFile is cuts/<name>
 
     auto selectedEvent = df.Filter(inEvent, {"fEvent"});
     auto selectedParent = df.Filter(isParent, {"fEvent", "ParentID"});
-    auto selectedFake = df.Filter(isFake, {"fEvent", "ParentID"});
 
 
     std::vector<ROOT::RDF::RResultHandle> handles;
     auto queue = [&](auto& node, size_t tree, size_t cut){
         handles.emplace_back(node.Snapshot(treeNames[tree], tmpName(treeNames[tree], cutFiles[cut]), "", lazy));
     };
-    queue(selectedEvent, 0, 0);   queue(selectedParent, 0, 1);   queue(selectedFake, 0, 2);
-    queue(dfCE, 1, 0);            queue(dfCE, 1, 1);             queue(dfCE, 1, 2);
+    queue(selectedEvent, 0, 0);   queue(selectedParent, 0, 1);
+    queue(dfCE, 1, 0);            queue(dfCE, 1, 1);
     // Single-tree cut files (no merge step), see CutOpen.h: ZDC protons of every event, the ZDC and first tracker protons of the CE children, and the CE outside the carbon blocks.
     handles.emplace_back(df.Filter("boundaryType == 2 && pdg == 2212").Snapshot(treeNames[0], "cuts/cut_AllEvProtons.root", "", lazy));
     handles.emplace_back(selectedParent.Filter("boundaryType == 2 && pdg == 2212").Snapshot(treeNames[0], "cuts/cut_ParentZdc.root", "", lazy));

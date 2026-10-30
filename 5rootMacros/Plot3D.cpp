@@ -37,7 +37,7 @@
 
 // The maps (gRecoTracks, gRawVals, ...), isReco/rawVal/rawOk/thetaOk and the columns (cut_ZdcCE.root, cut_ZdcAllEv.root) or aliases (AnglesRaw) that replace them in the Draw cuts (P3) are in Plot3DCols.h.
 
-struct SampleCut {std::string dir, expr, label, onFolder;}; // see sampleCuts in Plot3D
+struct SampleCut {std::string dir, expr, label, onFolder, file;}; // see sampleCuts in Plot3D
 
 void Plot3D(){
     ROOT::EnableImplicitMT(NThreads()); // implicit MT for the file reads (NThreads: ANA_NTHREADS, FitCore.h)
@@ -58,7 +58,6 @@ void Plot3D(){
 
 
     TFile* File = TFile::Open("cuts/cut_CE.root", "READ");
-    TFile* FileFake = TFile::Open("cuts/cut_FakeID.root", "READ");
 
     TTree *events = (TTree*)File->Get("ParticleInfo");
     TTree *ChargeExchange = (TTree*)File->Get("ChargeExchange_values");
@@ -66,8 +65,6 @@ void Plot3D(){
     // events2: ZDC protons of the CE children (cut_ZdcCE.root) and eventsAllEv: ZDC protons of every event (cut_ZdcAllEv.root), with the Plot3D columns (Plot3DCols.h, ZdcColumns.cpp);
     // every Draw cut goes through P3() so isReco(fEvent, TrackID) etc. read those columns
     TTree *events2 = OpenCut("cuts/cut_ZdcCE.root", "ParticleInfo");
-    TTree *eventsFake = (TTree*)FileFake->Get("ParticleInfo");
-    TTree *ChargeExchangeFake = (TTree*)FileFake->Get("ChargeExchange_values");
 
     // every event, not only the CE events kept in cut_CE.root: third "all protons in all events" set next to CE protons and all protons in CE events
     TTree* eventsAllEv = OpenCut("cuts/cut_ZdcAllEv.root", "ParticleInfo");
@@ -256,14 +253,14 @@ void Plot3D(){
         // Cuts on the reconstructed protons, no KE cut, each in its own folder under 6_cuts: dir, extra Draw cut, label, and the info variable folder the cut is on
         // (those plots sit in the cut folder itself, the other variables in its 1_additionalinfo). The same KE plot as 1_hitZDC with the cut applied goes in 1_additionalinfo.
         const std::vector<SampleCut> sampleCuts = {
-            {"3_ResCuts/2mmCutResD", "isRes2(fEvent, TrackID)", "cut resDRms (block residual) < 2 mm", "3_ResCuts"},
-            {"4_nProtons/1_protonCut", "rawVal(fEvent, TrackID, 6) <= 1", "cut at most 1 proton with a track in the event", "4_nProtons"},
-            {"4_nProtons/2_protonCut", "rawVal(fEvent, TrackID, 6) <= 2", "cut at most 2 protons with a track in the event", "4_nProtons"},
-            {"5_zOrder/1_zOrderCut", "rawVal(fEvent, TrackID, 7) > 0.5", "cut planes hit in increasing z only", "5_zOrder"},
-            {"6_resHalf/1_resHalfCut", "rawVal(fEvent, TrackID, 8) <= 2", "cut residual of the hits after the first 2 / first 2 hits <= 2 (needs more than 2 hits)", "6_resHalf"},
-            {"9_firstHit/1_firstHitCut", "fabs(rawVal(fEvent, TrackID, 12)) <= 5 && fabs(rawVal(fEvent, TrackID, 13)) <= 5", "cut first tracker hit within x, y in [-5, 5] mm", "9_firstHit"},
-            {"8_nHits/1_nHitsCut", "rawVal(fEvent, TrackID, 10) >= 3 && rawVal(fEvent, TrackID, 10) <= 16", "cut 3 to 16 tracker hits", "8_nHits"},
-            {"10_thetacut/1_thetaCut", "thetaOk(fEvent, TrackID)", "cut recon block theta below the ZDC corner limit of its block", "10_thetacut"}};
+            {"3_ResCuts/2mmCutResD", "isRes2(fEvent, TrackID)", "cut resDRms (block residual) < 2 mm", "3_ResCuts", "cut_ResCuts"},
+            {"4_nProtons/1_protonCut", "rawVal(fEvent, TrackID, 6) <= 1", "cut at most 1 proton with a track in the event", "4_nProtons", "cut_nProtons1"},
+            {"4_nProtons/2_protonCut", "rawVal(fEvent, TrackID, 6) <= 2", "cut at most 2 protons with a track in the event", "4_nProtons", "cut_nProtons2"},
+            {"5_zOrder/1_zOrderCut", "rawVal(fEvent, TrackID, 7) > 0.5", "cut planes hit in increasing z only", "5_zOrder", "cut_zOrder"},
+            {"6_resHalf/1_resHalfCut", "rawVal(fEvent, TrackID, 8) <= 2", "cut residual of the hits after the first 2 / first 2 hits <= 2 (needs more than 2 hits)", "6_resHalf", "cut_resHalf"},
+            {"9_firstHit/1_firstHitCut", "fabs(rawVal(fEvent, TrackID, 12)) <= 5 && fabs(rawVal(fEvent, TrackID, 13)) <= 5", "cut first tracker hit within x, y in [-5, 5] mm", "9_firstHit", "cut_firstHit"},
+            {"8_nHits/1_nHitsCut", "rawVal(fEvent, TrackID, 10) >= 3 && rawVal(fEvent, TrackID, 10) <= 16", "cut 3 to 16 tracker hits", "8_nHits", "cut_nHits"},
+            {"10_thetacut/1_thetaCut", "thetaOk(fEvent, TrackID)", "cut recon block theta below the ZDC corner limit of its block", "10_thetacut", "cut_thetacut"}};
         { // the limits behind 10_thetacut
             gSystem->mkdir((folder_KEcuts + "10_thetacut").c_str(), true);
             FILE* lf = fopen((folder_KEcuts + "10_thetacut/block_theta_limits.csv").c_str(), "w");
@@ -277,6 +274,13 @@ void Plot3D(){
         TTree* rawT = OpenCut("cuts/cut_angles_all.root", "AnglesRaw"); // every fitted proton, the Plot3D columns are aliases of its branches (Plot3DRawAliases)
         if (rawT) Plot3DRawAliases(rawT);
         gROOT->cd();
+        // the rows of AnglesRaw that pass a cut of sampleCuts, from its cut file (CutSamples.cpp), with the same Plot3D aliases as rawT
+        auto cutTree = [&](const SampleCut& sc){
+            TTree* t = OpenCut("cuts/" + sc.file + ".root", "AnglesRaw");
+            if (t && !t->GetAlias("raw_0")) Plot3DRawAliases(t);
+            gROOT->cd();
+            return t;
+        };
         if (rawT) nCEreconTotal = rawT->GetEntries("isFromCE==1");
         const std::string rawCE = "isFromCE==1";
         std::vector<RankRow> rankRows; // every cut folder, with and without the 80% KE cut, for the rank_*.csv files below
@@ -359,8 +363,8 @@ void Plot3D(){
                 FILE* rf = fopen((folder_KEcuts + sc.dir + "/cut_ratios.csv").c_str(), ke80 ? "a" : "w");
                 if (!ke80) fprintf(rf, "sample,CE_recon_proton_in_cut,recon_proton_in_cut,CE_recon_proton_in_cut/recon_proton_in_cut,CE_protons_total,CE_recon_before_cut,CE_recon_proton_in_cut/CE_recon_before_cut,nonCE_recon_proton_in_cut,nonCE_recon_proton_in_cut/recon_proton_in_cut,FOM_theta,FOM_thetaBlock,P_phiRe,P_phiRe_err,P_phiReD,P_phiReD_err\n");
                 // without the 80% KE cut no ZDC hit is required (AnglesRaw); the ZDC KE cut needs the ZDC, so that row is CE recon protons that hit ZDC
-                TTree* tS = ke80 ? events2 : rawT;
-                const std::string qS = ke80 ? qCut : sc.expr, qSCE = ke80 ? qCut : rawCE + " && " + sc.expr;
+                TTree* tS = ke80 ? events2 : cutTree(sc); // the cut file holds only the rows that pass the cut
+                const std::string qS = ke80 ? qCut : "1", qSCE = ke80 ? qCut : rawCE;
                 const long long nCEc = tS->GetEntries(P3(qSCE).c_str()), nAllc = ke80 ? nAllq : tS->GetEntries(P3(qS).c_str());
                 double fom[2], pol[2], polErr[2]; fomStats(tS, qSCE, fom);
                 for (int j = 0; j < 2; j++) phiFit(tS, qSCE, j, "", "", &pol[j], &polErr[j]);
@@ -419,11 +423,11 @@ void Plot3D(){
         {
             struct PhiSet {std::string dir, expr; TTree* t; std::string base;}; // base: the sample the cut applies to (hit ZDC and reconstructed, or any fitted track for the cuts)
             std::vector<PhiSet> phiSets = {{"1_hitZDC", "", events2, zdcRecoAll}, {"2_KECUT80", " && fDEnergy > " + std::to_string(initialKE * 0.80), events2, zdcRecoAll}};
-            for (const auto& sc : sampleCuts) phiSets.push_back({sc.dir, " && " + sc.expr, rawT, rawCE});
+            for (const auto& sc : sampleCuts) phiSets.push_back({sc.dir, "", cutTree(sc), rawCE});
             for (const auto& ps : phiSets) for (int j = 0; j < 2; j++){ // j 0: phiRe at thetaRe, 1: phiReD at thetaReD
                 gSystem->mkdir((folder_KEcuts + ps.dir + "/2_phi_cosfit").c_str(), true);
                 double pol, polErr;
-                phiFit(ps.t, (ps.t == rawT ? std::string("1") : ps.base) + ps.expr, j, Form("%s, %s, %s phi distribution", ps.t == rawT ? "all recon protons in the cut" : "CE recon protons that hit ZDC", ps.dir.c_str(), j ? "recon block" : "recon"),
+                phiFit(ps.t, (ps.t != events2 ? std::string("1") : ps.base) + ps.expr, j, Form("%s, %s, %s phi distribution", ps.t != events2 ? "all recon protons in the cut" : "CE recon protons that hit ZDC", ps.dir.c_str(), j ? "recon block" : "recon"),
                        folder_KEcuts + ps.dir + (j ? "/2_phi_cosfit/4_phiReD_cosfit.pdf" : "/2_phi_cosfit/1_phiRe_cosfit.pdf"), &pol, &polErr);
                 { // P of the same fit for the protons from a start theta up to 5 deg (recon theta, or recon block theta for j 1), start in 0.05 deg steps: P vs start theta
                     const int kT = j ? 11 : 9, kPh = j ? 15 : 14;
@@ -542,10 +546,9 @@ void Plot3D(){
                 }
                 const SampleCut* sc = nullptr;
                 for (const auto& c : sampleCuts) if (c.dir == ic.first) sc = &c;
-                const std::string ke = (ic.second < 0 ? "" : " && fDEnergy > " + std::to_string(ic.second)) + (sc ? " && " + sc->expr : "")
-                                       + (sc && sc->dir.find("2mmCutResD") != std::string::npos && v.k == 0 ? " && rawVal(fEvent, TrackID, 0) < 2" : ""); // the true position residual plot is also cut on itself
+                const std::string ke = (ic.second < 0 ? "" : " && fDEnergy > " + std::to_string(ic.second)) + (sc && sc->dir.find("2mmCutResD") != std::string::npos && v.k == 0 ? " && rawVal(fEvent, TrackID, 0) < 2" : ""); // the true position residual plot is also cut on itself
                 const bool nz = sc != nullptr; // the cuts' plots use every fitted proton (AnglesRaw), the others the protons that hit the ZDC
-                TTree *tCE = nz ? rawT : events2, *tAll = nz ? rawT : eventsAllEv;
+                TTree *tCE = nz ? cutTree(*sc) : events2, *tAll = nz ? tCE : eventsAllEv;
                 const std::string bCE = nz ? rawCE : zdcRecoAll, bAll = nz ? "1" : zdcRecoAll, hitTxt = nz ? "" : " that hit ZDC";
                 const std::string cut = bCE + ke + " && rawOk(fEvent, TrackID, " + std::to_string(v.k) + ")", cutAll = bAll + ke + " && rawOk(fEvent, TrackID, " + std::to_string(v.k) + ")";
                 if (v.folder == "9_firstHit"){ // the first tracker hit is shown as xy plots (CE and all recon protons, 100 x 100 bins, log color scale) in place of the two 1D variables

@@ -40,7 +40,7 @@ void PlotDiffPhiCuts(double phiLo = -180, double phiHi = -50, std::string energy
     ROOT::EnableImplicitMT(NThreads());
     DrawPlan plan;
     // events in the phi diff window: block residual cut as the list string (CutTrees.cpp), the list itself is not set on the tree
-    auto cDiff = plan.C(diff, {"fEvent", "TrackID", "finalKE"}, Form("phiReD >= %g && phiReD < %g", phiLo, phiHi), ListCut("ke_all", true));
+    auto cDiff = plan.C(diff, {"fEvent", "TrackID", "finalKE"}, Form("phiReD >= %g && phiReD < %g", phiLo, phiHi), ListCut("ke_gt80", true));
     // Every recon proton that passes the quality cut (the rows of AnglesRaw in cut_angles_all.root with passQuality set, all events): (fEvent, TrackID) for the positions,
     // the KE of the energy (finalKE / finalKED), isFromCE and the block line fit quality (ReconAngleAll.cpp)
     TFile* fAng = TFile::Open("cuts/cut_angles_all.root", "READ");

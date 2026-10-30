@@ -149,7 +149,7 @@ void PlotPolarization(std::string energy = "fKEnergy"){ // energy: "fKEnergy" (t
     if (!ceFile || !all || !all->GetBranch("passQuality")){printf("PlotPolarization: cut_APandT.root or AnglesRaw with passQuality in cut_angles_all.root missing\n"); return;}
     const double nReconAll = (double)all->GetEntries("passQuality == 1"); // the recon protons of the Angles view, before any cut
 
-    const std::vector<KeCut> kes = {KeCuts(keLabel).front()}; // CutFiles.h, the one cut ke_all: no KE and no residual cut folders
+    const std::vector<KeCut> kes = {KeCuts(keLabel).front()}; // CutFiles.h, the one cut ke_gt80: no KE and no residual cut folders
 
     // block: the block position set, which only takes the block AP and the block residual cut (kBlockCut, QualityCut.h); the recon set takes AP from CE and from recon
     struct PosSet {std::string dir, name, ceTree, theta, phi, ap, allTheta, allPhi; bool block;};

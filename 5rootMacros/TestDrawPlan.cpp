@@ -7,7 +7,7 @@
 #include "DrawPlan.h"
 
 // T2 (spec F): DrawPlan requests against TTree::Draw on the same tree: class, name, bins, all bin contents including under/overflow, GetEntries, GetMean/GetStdDev bit-equal (%a),
-// line/fill/marker attributes, Cols element-wise, N, a model histogram, a weighted request, a listCut request. Needs a run folder with cuts/cut_APandT.root and cuts/ke_all.root.
+// line/fill/marker attributes, Cols element-wise, N, a model histogram, a weighted request, a listCut request. Needs a run folder with cuts/cut_APandT.root and cuts/ke_gt80.root.
 // Run: root -l -b -q TestDrawPlan.cpp   (DRAWPLAN_FALLBACK=1 forces the plain Draw path, which must then match trivially)
 static int gBad = 0;
 static void Check(bool ok, const char* what){if (!ok){printf("  MISMATCH: %s\n", what); gBad++;}}
@@ -44,13 +44,13 @@ void TestDrawPlan(){
     auto h4 = plan.H(t, b + ">>hM", c + " > 0.2", "", &model);
     auto h5 = plan.H(t, a + ">>hW(100,0,30000)", "(" + c + " > 0.2)*0.5", "", nullptr, true);
     auto h6 = plan.H(t, a + ">>hL(100,0,30000)", "", kBlockCut); // listCut without a list set on the tree
-    auto h7 = plan.H(t, a + ">>hE(100,0,30000)", c + " < 4", ListCut("ke_all", true)); // the tree has the ke_all block list set below (CutTrees.cpp)
+    auto h7 = plan.H(t, a + ">>hE(100,0,30000)", c + " < 4", ListCut("ke_gt80", true)); // the tree has the ke_gt80 block list set below (CutTrees.cpp)
     auto n1 = plan.N(t, c + " > 1");
     auto cs = plan.C(t, {a, b}, c + " > 1");
-    ApplyCut(t, "ke_all", true); // the list stays on the tree while DrawPlan runs: Run() must ignore it, ListCut stands for it
+    ApplyCut(t, "ke_gt80", true); // the list stays on the tree while DrawPlan runs: Run() must ignore it, ListCut stands for it
     plan.Run();
     t->SetEntryList(nullptr);
-    ApplyCut(t, "ke_all", true);
+    ApplyCut(t, "ke_gt80", true);
     t->Draw((a + ">>rE(100,0,30000)").c_str(), (c + " < 4").c_str(), "goff"); TH1* r7 = (TH1*)gDirectory->Get("rE");
     SameHist(h7.Get(), r7, "listCut vs the tree's entry list");
     printf("tree list restored after Run: %d\n", t->GetEntryList() != nullptr);

@@ -29,16 +29,12 @@ void CutTrees(){
     if (!raw->GetBranch("passQuality")){Error("CutTrees", "AnglesRaw has no passQuality branch (rerun ReconAngleAll.cpp)"); return;}
 
     gSystem->mkdir("cuts", true);
-    // Only the ke_all lists are read by any macro (CutFiles.h); the 7 ke_gt* files are built only when CUTTREES_ALL=1.
-    const bool all = std::getenv("CUTTREES_ALL") && std::string(std::getenv("CUTTREES_ALL")) == "1";
-    auto kes = KeCuts();
-    if (!all) kes.resize(1);
-    for (const auto& ke : kes){
+    for (const auto& ke : KeCuts()){
         TFile out(("cuts/" + ke.dir + ".root").c_str(), "RECREATE");
         for (const auto& j : jobs){
             for (const bool block : {false, true}){
                 if (block && std::find(kBlockTrees.begin(), kBlockTrees.end(), j.base) == kBlockTrees.end()) continue;
-                std::string cut = KeCutFor(ke.cut, j.sfx);
+                std::string cut = KeCutFor(ke.cut, j.t == raw ? j.sfx : ""); // the _DE trees of cut_APandT.root hold the detector KE in finalKE, AnglesRaw in finalKED
                 if (block) cut = cut.empty() ? kBlockCut : cut + " && " + kBlockCut;
                 if (!j.sel.empty()) cut = cut.empty() ? j.sel : j.sel + " && " + cut;
                 const std::string name = j.name + (block ? "_block" : "");
