@@ -12,10 +12,10 @@ rsync -a --exclude __pycache__ ../5rootMacros/ "../build/root/$RUN/" || exit 1 #
 cut=$(submit CutTrees cuttrees "$2" 128)
 # the ZDC proton cut files with the Plot3D columns (cut_ZdcCE.root, cut_ZdcAllEv.root), after CutTrees
 zdc=$(submit ZdcCols zdc "$cut" 128)
-# the lanes, after CutTrees writes cuts/<ke>.root and ZdcColumns writes its cut files
+# the lanes start after CutTrees writes cuts/<ke>.root; only the cuts lane (Plot3D) reads the ZdcColumns files, so a ZdcColumns failure holds back that lane alone
 cuts=$(submit Cuts cuts "$zdc")
-fom=$(submit Fom fom "$zdc")
-ce=$(submit CEblock ceblock "$zdc")
-sec=$(submit SecCE secce "$zdc")
-# tidy, side box and crop once every lane is done
-submit Pdfs pdfs "$cuts:$fom:$ce:$sec"
+fom=$(submit Fom fom "$cut")
+ce=$(submit CEblock ceblock "$cut")
+sec=$(submit SecCE secce "$cut")
+# tidy, side box and crop once every lane has ended, so the pdfs of the lanes that worked are still finished when one failed
+DEPKIND=afterany submit Pdfs pdfs "$cuts:$fom:$ce:$sec"
