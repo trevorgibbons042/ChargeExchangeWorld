@@ -39,6 +39,10 @@
 
 struct SampleCut {std::string dir, expr, label, onFolder, file;}; // see sampleCuts in Plot3D
 
+// Plot3D has four independent parts that each write their own plots/ folders: 1 position, energy, 2_KECUT80 and 1_hitZDC; 2 the cut ratios and rank csv files of the 6_cuts folders;
+// 3 their 1_additionalinfo plots; 4 their phi fits. P3_PART=n runs part n only, so the four can run as four processes side by side (Plot.pbs, plot.sh). Without it all four run.
+static bool RunPart(int n){const char* e = std::getenv("P3_PART"); return !e || !*e || std::atoi(e) == n;}
+
 void Plot3D(){
     ROOT::EnableImplicitMT(NThreads()); // implicit MT for the file reads (NThreads: ANA_NTHREADS, FitCore.h)
     std::string folder = "plots";
@@ -62,13 +66,14 @@ void Plot3D(){
     TTree *events = (TTree*)File->Get("ParticleInfo");
     TTree *ChargeExchange = (TTree*)File->Get("ChargeExchange_values");
 
-    // events2: ZDC protons of the CE children (cut_ZdcCE.root) and eventsAllEv: ZDC protons of every event (cut_ZdcAllEv.root), with the Plot3D columns (Plot3DCols.h, ZdcColumns.cpp);
+    // events2: ZDC protons of the CE children (cut_ZdcCE.root) and eventsAllEv: ZDC protons of every event that have a reconstructed track (cut_hitZDC_AllEv.root, CutSamples.cpp: every cut on
+    // it asks for isReco, so its rows are the same as cut_ZdcAllEv.root with isReco), with the Plot3D columns (Plot3DCols.h, ZdcColumns.cpp);
     // every Draw cut goes through P3() so isReco(fEvent, TrackID) etc. read those columns
     TTree *events2 = OpenCut("cuts/cut_ZdcCE.root", "ParticleInfo");
 
     // every event, not only the CE events kept in cut_CE.root: third "all protons in all events" set next to CE protons and all protons in CE events
-    TTree* eventsAllEv = OpenCut("cuts/cut_ZdcAllEv.root", "ParticleInfo");
-    if (!events2 || !eventsAllEv){Error("Plot3D", "missing cuts/cut_ZdcCE.root or cut_ZdcAllEv.root (run ZdcColumns.cpp first)"); return;}
+    TTree* eventsAllEv = OpenCut("cuts/cut_hitZDC_AllEv.root", "ParticleInfo");
+    if (!events2 || !eventsAllEv){Error("Plot3D", "missing cuts/cut_ZdcCE.root or cut_hitZDC_AllEv.root (run ZdcColumns.cpp and CutSamples.cpp first)"); return;}
 
 
     if (Graph == 1){
@@ -124,7 +129,7 @@ void Plot3D(){
         // Position plots have no KE cut: 1_position/1_true/ and 1_position/2_block/
         std::vector<std::pair<std::string, std::string>> posKes = {{"", ""}}; // unused folder, extra cut
         std::vector<std::string> posKeLabels = {""};
-        for (size_t pk = 0; pk < posKes.size(); pk++){
+        if (RunPart(1)) for (size_t pk = 0; pk < posKes.size(); pk++){
             const std::string folder_pos = folder + "/1_position/1_true/", folder_posD = folder + "/1_position/2_block/";
             const std::string zdcReco = zdcRecoAll + posKes[pk].second, zdcRecoD = zdcRecoDAll + posKes[pk].second;
             const std::string xySlice = zdcReco + " && fabs(fY) < 2", xySliceD = zdcRecoD + " && fabs(fDy) < 2";
@@ -162,7 +167,7 @@ void Plot3D(){
         auto binSpec = [](const KERange& r){return std::string(Form("(100,%g,%g)", r.lo, r.hi));};
 
         // 2_energy/ holds the energy plots, with the KE cut folders ke_cut_<pct>/ next to them
-        {
+        if (RunPart(1)) {
             const std::string folder_smear = folder + "/2_energy/";
             gSystem->mkdir(folder_smear.c_str(), true);
             const std::string zdcProtonsE = zdcProtons, zdcRecoE = zdcReco;
@@ -215,7 +220,7 @@ void Plot3D(){
         struct CutEnergy {std::string branch, dir, label;};
         std::vector<CutEnergy> cutEnergies;
         if (events->GetBranch("fDEnergy")) cutEnergies.push_back({"fDEnergy", "KEDetector", "ZDC KE"});
-        for (int pct : {80}){
+        if (RunPart(1)) for (int pct : {80}){
             const std::string zdcReco = zdcRecoAll;
             std::string cut = std::to_string(initialKE * pct / 100.0);
             std::string pctStr = std::to_string(pct) + "% of initial KE";
@@ -344,6 +349,7 @@ void Plot3D(){
         };
         TChain ceAllChain("ChargeExchange_values"); ceAllChain.Add("output0_t*.root"); // every charge exchange the sim made (all rows of every raw file), counted once
         const Long64_t nCEallZdcAll = ceAllChain.GetEntries();
+        if (RunPart(2)){
         for (const auto& e : cutEnergies) for (const bool ke80 : {false, true}){ // the uncut sample (1_hitZDC) is in every ranking as the baseline
             const std::string q = zdcRecoAll + (ke80 ? " && " + e.branch + " > " + std::to_string(initialKE * 0.80) : "");
             double fom[2], pol[2], polErr[2]; fomStats(events2, q, fom);
@@ -418,9 +424,11 @@ void Plot3D(){
             }
         }
 
+        } // part 2
+
         // phi cos fits in every cut folder, like 3_ReconCalcVals/2_phiRe_cosfit.pdf but for the CE recon protons of the cut at their recon phi and recon block phi:
         // N(phi) = N0 (1 + P <A> cos(phi)), N0 = entries / 50 bins fixed, <A> = mean model A_y at the recon (block) theta of those protons fixed, only P fitted
-        {
+        if (RunPart(4)) {
             struct PhiSet {std::string dir, expr; TTree* t; std::string base;}; // base: the sample the cut applies to (hit ZDC and reconstructed, or any fitted track for the cuts)
             std::vector<PhiSet> phiSets = {{"1_hitZDC", "", events2, zdcRecoAll}, {"2_KECUT80", " && fDEnergy > " + std::to_string(initialKE * 0.80), events2, zdcRecoAll}};
             for (const auto& sc : sampleCuts) phiSets.push_back({sc.dir, "", cutTree(sc), rawCE});
@@ -492,7 +500,7 @@ void Plot3D(){
         }
 
         // recon protons that hit the ZDC, all KE (no cut): CE protons and every recon proton of all events
-        for (const auto& e : cutEnergies) for (const auto& r : keRanges){
+        if (RunPart(1)) for (const auto& e : cutEnergies) for (const auto& r : keRanges){
             std::string folder_hit = folder_KEcuts + "1_hitZDC/";
             gSystem->mkdir(folder_hit.c_str(), true);
             drawPlot(events2, e.branch + ">>hHitCE" + binSpec(r), zdcRecoAll, e.label + " of Protons that hit the ZDC, CE recon protons that hit ZDC vs all events recon;" + e.label + " (MeV);Count", folder_hit + "1_real_vs_recon_" + e.dir + r.tag + ".pdf", "", [&](TH1* h){
@@ -534,7 +542,7 @@ void Plot3D(){
                 : std::pair<double, double>{vals[size_t(0.01 * vals.size())], vals[std::min(vals.size() - 1, size_t(0.99 * vals.size()))]};
             return quantileCache[k] = q;
         };
-        if (rawT && rawT->GetAlias("raw_0") && rawT->GetEntries() > 0){
+        if (RunPart(3) && rawT && rawT->GetAlias("raw_0") && rawT->GetEntries() > 0){
             std::vector<std::pair<std::string, double>> infoCuts = {{"1_hitZDC", -1.0}}; // (folder, KE cut in MeV, -1 none)
             for (int pct : {80}) infoCuts.push_back({"2_KECUT" + std::to_string(pct), initialKE * pct / 100.0});
             for (const auto& sc : sampleCuts) infoCuts.push_back({sc.dir, -1.0}); // no KE cut: what each cut does to every variable
@@ -593,38 +601,6 @@ void Plot3D(){
                 canvas->SetLogy(0);
                 delete hCE; delete hRec;
             }
-        }
-
-        // Angles at the ZDC in degrees, protons only, computed from the ParticleInfo position at the ZDC boundary.
-        // True position = (fX, fY, fZ), block position = (fDx, fDy, fDz).
-        // events = all protons in CE events (cut_CE.root), events2 = CE protons, same ParentID (cut_ParentID.root).
-        // Zoom = theta < zoomThetaMax; the phi zoom only keeps those small-theta protons.
-        const double zoomThetaMax = 0.5; // degrees
-        const std::string zdcProtonCut = "boundaryType == 2 && pdg == 2212";
-        const std::string zoomLabel = ", theta < " + std::to_string(zoomThetaMax).substr(0, 3) + " deg";
-        auto drawAngle = [&](TTree* t, const std::string& expr, const std::string& cut, const std::string& title, const std::string& file){
-            drawPlot(t, expr, cut, title + ";Angle (degrees);Count", folder_pos + file);
-        };
-        struct PosSet {std::string x, y, z, where, tag; int thetaNum;};
-        const std::vector<PosSet> posSets = {{"fX", "fY", "fZ", "ZDC", "", 1}, {"fDx", "fDy", "fDz", "ZDC block", "_block", 3}};
-        const bool doTheta = false; // theta/phi plots skipped for now
-        if (doTheta) for (const auto& p : posSets) {
-            const std::string thetaExpr = "TMath::ACos(" + p.z + "/sqrt(" + p.x + "*" + p.x + "+" + p.y + "*" + p.y + "+" + p.z + "*" + p.z + "))*TMath::RadToDeg()";
-            const std::string phiExpr = "fmod(TMath::ATan2(" + p.y + "," + p.x + ")*TMath::RadToDeg()+360,360)";
-            const std::string zoomCut = zdcProtonCut + " && " + thetaExpr + " < " + std::to_string(zoomThetaMax);
-            const std::string th = "3_", ph = "4_", n = std::to_string(p.thetaNum), n2 = std::to_string(p.thetaNum + 1);
-            const std::string hs = p.tag.empty() ? "" : "Block";
-
-            drawAngle(events2, thetaExpr + ">>hTheta" + hs + "CE(100,0,1.5)", zdcProtonCut, "Theta at " + p.where + ", CE protons", th + n + "_theta" + p.tag + "_parentid_CE.pdf");
-            drawAngle(events2, thetaExpr + ">>hTheta" + hs + "ZoomCE(100,0,0.5)", zdcProtonCut, "Theta at " + p.where + ", CE protons" + zoomLabel, th + n2 + "_theta" + p.tag + "_parentid_zoom_CE.pdf");
-
-            drawAngle(events2, phiExpr + ">>hPhi" + hs + "ZDCCE(100,0,360)", zdcProtonCut, "Phi at " + p.where + ", CE protons", ph + n + "_phi" + p.tag + "_parentid_CE.pdf");
-            drawAngle(events2, phiExpr + ">>hPhi" + hs + "ZDCZoomCE(100,0,360)", zoomCut, "Phi at " + p.where + ", CE protons" + zoomLabel, ph + n2 + "_phi" + p.tag + "_parentid_zoom_CE.pdf");
-
-            drawAngle(eventsAllEv, thetaExpr + ">>hTheta" + hs + "AllEv(100,0,1.5)", zdcProtonCut + " && isReco(fEvent, TrackID)", "Theta at " + p.where + ", all recon protons", th + n + "_theta" + p.tag + "_recon.pdf");
-            drawAngle(eventsAllEv, thetaExpr + ">>hTheta" + hs + "ZoomAllEv(100,0,0.5)", zdcProtonCut + " && isReco(fEvent, TrackID)", "Theta at " + p.where + ", all recon protons" + zoomLabel, th + n2 + "_theta" + p.tag + "_zoom_recon.pdf");
-            drawAngle(eventsAllEv, phiExpr + ">>hPhi" + hs + "ZDCAllEv(100,0,360)", zdcProtonCut + " && isReco(fEvent, TrackID)", "Phi at " + p.where + ", all recon protons", ph + n + "_phi" + p.tag + "_recon.pdf");
-            drawAngle(eventsAllEv, phiExpr + ">>hPhi" + hs + "ZDCZoomAllEv(100,0,360)", zoomCut + " && isReco(fEvent, TrackID)", "Phi at " + p.where + ", all recon protons" + zoomLabel, ph + n2 + "_phi" + p.tag + "_zoom_recon.pdf");
         }
 
     }

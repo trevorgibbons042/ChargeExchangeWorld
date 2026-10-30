@@ -34,7 +34,7 @@ case $STEP in
     countce)  macros=('CountCE.cpp') ;;
     cuttrees) macros=('CutTrees.cpp') ;;
     zdc)      macros=('ZdcColumns.cpp' 'CutSamples.cpp') ;; # cuts/cut_ZdcCE.root and cut_ZdcAllEv.root, then one cut file per cut of 6_cuts, all read by Plot3D
-    cuts)     macros=('Plot3D.cpp' 'QualityStudy.cpp') ;; # 1_position, 2_energy, 6_cuts
+    cuts)     macros=('Plot3D.cpp' 'QualityStudy.cpp') ;; # 1_position, 2_energy, 6_cuts; Plot3D runs its four parts as four processes (below)
     fom)      macros=('PlotAngle.cpp("fDEnergy")' 'PlotCEFraction.cpp' 'PlotPolarization.cpp("fDEnergy")' 'PlotFomPolarization.cpp("fDEnergy")') ;; # 3_ReconCalcVals, 5_fomCalc
     ceblock)  macros=('PlotDiffPhiCuts.cpp(-180, -50, "fDEnergy")' 'GraphBlocks.cpp' 'CETCompare.cpp') ;; # 4_CEblock
     secce)    macros=('SecondaryCE.cpp') ;; # 7_secondaryCE
@@ -44,6 +44,17 @@ esac
 
 for m in "${macros[@]}"; do
     echo "=== $m $(date +%H:%M:%S)"
+    if [ "$m" = Plot3D.cpp ]; then
+        # the four independent parts of Plot3D (P3_PART, Plot3D.cpp) side by side, a quarter of the threads each
+        export ANA_NTHREADS=$(( ${NCPUS:-16} / 4 > 0 ? ${NCPUS:-16} / 4 : 1 ))
+        for part in 1 2 3 4; do
+            ( P3_PART=$part root -l -b -q "${m/.cpp/.cpp${ACLIC-+O}}" > Plot3D_part$part.log 2>&1; echo "part $part exit $?" ) &
+        done
+        wait
+        tail -n 3 Plot3D_part*.log
+        export ANA_NTHREADS=${NCPUS:-16}
+        continue
+    fi
     time root -l -b -q "${m/.cpp/.cpp${ACLIC-+O}}" # compiled with ACLiC (+O) unless ACLIC= (empty)
 done
 

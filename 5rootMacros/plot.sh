@@ -32,8 +32,9 @@ export ANA_NTHREADS=$(( NCPU / 4 > 0 ? NCPU / 4 : 1 ))
 
 # Lanes run at the same time. A lane holds the macros that write into the same plots/ folders (stats.csv and fit_values.csv are
 # truncated per folder) or read another's csv files, in order; no two lanes share a folder.
-{ # 1_position, 2_energy, 6_cuts
-    run 'Plot3D.cpp'
+{ # 1_position, 2_energy, 6_cuts: the four independent parts of Plot3D (P3_PART, Plot3D.cpp) side by side, then QualityStudy
+    for part in 1 2 3 4; do (export P3_PART=$part; run 'Plot3D.cpp') & done
+    wait
     run 'QualityStudy.cpp'
 } &
 { # 3_ReconCalcVals, 5_fomCalc: PlotCEFraction and PlotFomPolarization read the FOM tables PlotAngle writes (FomCommon.h)
