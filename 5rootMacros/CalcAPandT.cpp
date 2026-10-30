@@ -92,7 +92,7 @@ void CalcAPandT(std::string energy = "fKEnergy"){ // energy: "fKEnergy" (true KE
     double outAPReDDIFF;
     double outFOMReDDIFF;
     int outPassResD; // block residual cut (QualityCut.h), only on the block trees: the block plots cut on passResD == 1
-    double outResDRms; // block fit residual of the track, on every tree: the <ke>_res2mm cuts (kRes2Cut, QualityCut.h)
+    double outResDRms; // block fit residual of the track, on every tree: CutTrees.cpp cuts it into the block lists (kBlockCut, QualityCut.h)
 
     outTree->Branch("TrackID", &outTrackID);
     outTree->Branch("PDG", &outPDG);

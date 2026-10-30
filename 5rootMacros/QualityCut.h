@@ -21,12 +21,9 @@ static double ResidualCut(double fallback)
 static const double kMaxResidualMm = 1e9, kMaxResidualDMm = ResidualCut(2.0);
 static const double kMaxImpactMm = 16.2162, kMaxImpactDMm = 16.5846;
 static const std::string kBlockCut = "resDRms <= " + std::to_string(kMaxResidualDMm); // TTree::Draw cut for every block position quantity
-// Every KE cut also comes as a twin with this tighter block residual cut on top (folder <ke>_res2mm), on every plot that has KE cuts.
+// The 2 mm block residual limit of the 3_ResCuts/2mmCutResD cut (CutSamples.cpp, Plot3D.cpp).
 // resDRms is a branch of AnglesRaw (ReconAngleAll.cpp) and of every cut_APandT.root tree (CalcAPandT.cpp).
 static const double kRes2Mm = 2.0;
-static const char* const kRes2Cut = "resDRms < 2";
-static const char* const kRes2Dir = "_res2mm";
-static const char* const kRes2Label = ", block residual < 2 mm";
 
 inline bool PassesQuality(double res, double impact, double impactD)
 {

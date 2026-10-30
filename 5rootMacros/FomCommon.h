@@ -14,7 +14,7 @@
 
 // Lists, labels and helpers shared by the plots under plots/5_fomCalc (PlotFomCumulative.cpp, PlotCEFraction.cpp).
 static const std::vector<std::string> kSets = {"1_reconTheta", "2_reconBlockTheta"};
-// every KE cut, then each again with the 2 mm block residual cut (_res2mm, QualityCut.h); the csv files of all of them come from PlotAngle.cpp
+// the KE cut (CutFiles.h); its csv file comes from PlotAngle.cpp
 static const std::vector<std::string> kKes = {"ke_gt80"}; // the FOM plots have the 80% KE cut and no residual cut folders
 static const int kColors[] = {kBlack, kRed, kBlue, kGreen + 2, kMagenta, kOrange + 7, kCyan + 2, kGray + 2};
 static const std::map<std::string, std::string> kSetName = {{"1_reconTheta", "true position"}, {"2_reconBlockTheta", "block position"}};
@@ -40,16 +40,3 @@ static double ReadThetaMax(){
     return f.empty() ? 0.0 : std::stod(f);
 }
 
-// The plot drawn on c (mg already drawn) again on a log y axis, to logPath. The axis starts at half the smallest positive point.
-static void SaveLogCopy(TCanvas& c, TMultiGraph& mg, const std::string& logPath){
-    double minPos = 1e300;
-    for (TObject* o : *mg.GetListOfGraphs()){
-        TGraph* g = static_cast<TGraph*>(o);
-        for (int i = 0; i < g->GetN(); i++) if (g->GetY()[i] > 0) minPos = std::min(minPos, g->GetY()[i]);
-    }
-    if (minPos >= 1e300) return;
-    mg.SetMinimum(minPos / 2);
-    c.SetLogy(1); c.Modified(); c.Update();
-    c.SaveAs(logPath.c_str());
-    c.SetLogy(0);
-}
