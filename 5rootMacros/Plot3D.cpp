@@ -41,7 +41,10 @@ struct SampleCut {std::string dir, expr, label, onFolder, file;}; // see sampleC
 
 // Plot3D has four independent parts that each write their own plots/ folders: 1 position, energy, 2_KECUT80 and 1_hitZDC; 2 the cut ratios and rank csv files of the 6_cuts folders;
 // 3 their 1_additionalinfo plots; 4 their phi fits. P3_PART=n runs part n only, so the four can run as four processes side by side (Plot.pbs, plot.sh). Without it all four run.
+// Part 2 is one process per cut with P3_CUT=i (0: the 1_hitZDC baseline, 1 to 8: sampleCuts in order), each writing its rank rows to cuts/rank_rows_<i>.tsv; part 5 reads those
+// files and writes the rank_*.csv files. Without P3_PART all of it runs in one process.
 static bool RunPart(int n){const char* e = std::getenv("P3_PART"); return !e || !*e || std::atoi(e) == n;}
+static bool RunCut(int i){const char* e = std::getenv("P3_CUT"); return !e || !*e || std::atoi(e) == i;}
 
 void Plot3D(){
     ROOT::EnableImplicitMT(NThreads()); // implicit MT for the file reads (NThreads: ANA_NTHREADS, FitCore.h)
@@ -349,8 +352,8 @@ void Plot3D(){
         };
         TChain ceAllChain("ChargeExchange_values"); ceAllChain.Add("output0_t*.root"); // every charge exchange the sim made (all rows of every raw file), counted once
         const Long64_t nCEallZdcAll = ceAllChain.GetEntries();
-        if (RunPart(2)){
-        for (const auto& e : cutEnergies) for (const bool ke80 : {false, true}){ // the uncut sample (1_hitZDC) is in every ranking as the baseline
+        if (RunPart(2) || RunPart(5)){
+        if (RunPart(2) && RunCut(0)) for (const auto& e : cutEnergies) for (const bool ke80 : {false, true}){ // the uncut sample (1_hitZDC) is in every ranking as the baseline
             const std::string q = zdcRecoAll + (ke80 ? " && " + e.branch + " > " + std::to_string(initialKE * 0.80) : "");
             double fom[2], pol[2], polErr[2]; fomStats(events2, q, fom);
             for (int j = 0; j < 2; j++) phiFit(events2, q, j, "", "", &pol[j], &polErr[j]);
@@ -358,6 +361,7 @@ void Plot3D(){
                                 nCEreconTotal, {fom[0], fom[1]}, {pol[0], pol[1]}, {polErr[0], polErr[1]}});
         }
         for (const auto& sc : sampleCuts) for (const auto& e : cutEnergies) for (const bool ke80 : {false, true}){ // 0_KE_hitZDC (the cut and hitting the ZDC) and 0_KE_KECUT80 (also the 80% KE cut)
+            if (!RunPart(2) || !RunCut(int(&sc - &sampleCuts[0]) + 1)) continue;
             const std::string folder_res = folder_KEcuts + sc.dir + "/1_additionalinfo/";
             const double cutVal = initialKE * 0.80; // the 80% KE cut of 2_KECUT80
             const std::string qCut = zdcRecoAll + " && " + sc.expr + (ke80 ? " && " + e.branch + " > " + std::to_string(cutVal) : "");
@@ -396,7 +400,34 @@ void Plot3D(){
             }
         }
 
-        { // the cut folders ranked by each column of cut_ratios.csv (best first, nonCE / CE lowest first), in 6_cuts: rank_<column>.csv, every column in every file
+        const char* partEnv = std::getenv("P3_PART");
+        const bool splitRank = partEnv && std::atoi(partEnv) == 2 && std::getenv("P3_CUT") && *std::getenv("P3_CUT"); // one process of part 2: its rows go to a file
+        const bool aggregate = partEnv && std::atoi(partEnv) == 5; // part 5: the rows of every part 2 process
+        const auto rowFile = [](int i){return "cuts/rank_rows_" + std::to_string(i) + ".tsv";};
+        if (splitRank){
+            FILE* rf = fopen(rowFile(std::atoi(std::getenv("P3_CUT"))).c_str(), "w");
+            for (const auto& r : rankRows)
+                fprintf(rf, "%s\t%s\t%.17g\t%.17g\t%.17g\t%.17g\t%.17g\t%.17g\t%.17g\t%.17g\t%.17g\t%.17g\n", r.cut.c_str(), r.sample.c_str(), r.nCEin, r.nAllIn, r.nCEtotal, r.nCEreconBefore,
+                        r.fom[0], r.fom[1], r.pol[0], r.pol[1], r.polErr[0], r.polErr[1]);
+            fclose(rf);
+        }
+        if (aggregate){
+            rankRows.clear();
+            for (int i = 0; i <= (int)sampleCuts.size(); i++){
+                std::ifstream in(rowFile(i));
+                if (!in){Error("Plot3D", "%s missing: run the part 2 process of cut %d first", rowFile(i).c_str(), i); return;}
+                std::string line;
+                while (std::getline(in, line)){
+                    std::vector<std::string> f;
+                    std::stringstream ss(line);
+                    for (std::string x; std::getline(ss, x, '\t');) f.push_back(x);
+                    if (f.size() != 12) continue;
+                    RankRow r{f[0], f[1], std::stod(f[2]), std::stod(f[3]), std::stod(f[4]), std::stod(f[5]), {std::stod(f[6]), std::stod(f[7])}, {std::stod(f[8]), std::stod(f[9])}, {std::stod(f[10]), std::stod(f[11])}};
+                    rankRows.push_back(r);
+                }
+            }
+        }
+        if (!splitRank){ // the cut folders ranked by each column of cut_ratios.csv (best first, nonCE / CE lowest first), in 6_cuts: rank_<column>.csv, every column in every file
             using Get = double (*)(const RankRow&);
             struct Col {const char* name; Get v; bool lowBest;};
             const Col cols[] = {
