@@ -42,8 +42,8 @@ struct SampleCut {std::string dir, expr, label, onFolder, file;}; // see sampleC
 
 // Plot3D has four independent parts that each write their own plots/ folders: 1 position, energy, 2_KECUT80 and 1_hitZDC; 2 the cut ratios and rank csv files of the 6_cuts folders;
 // 3 their 1_additionalinfo plots; 4 their phi fits. P3_PART=n runs part n only, so the four can run as four processes side by side (Plot.pbs, plot.sh). Without it all four run.
-// Part 2 is one process per cut with P3_CUT=i (0: the 1_hitZDC baseline, 1 to 8: sampleCuts in order), each writing its rank rows to cuts/rank_rows_<i>.tsv; part 5 reads those
-// files and writes the rank_*.csv files. Without P3_PART all of it runs in one process.
+// Part 2 is one process per cut with P3_CUT=i (0: the 1_hitZDC baseline, 1 to 9: sampleCuts in order), each writing its rank rows to cuts/rank_rows_<i>.tsv; part 5 reads those
+// files and writes the rank_*.csv files. Parts 3 and 4 also take P3_CUT=i to do one cut folder only (0: 1_hitZDC and 2_KECUT80). Without P3_PART all of it runs in one process.
 static bool RunPart(int n){const char* e = std::getenv("P3_PART"); return !e || !*e || std::atoi(e) == n;}
 static bool RunCut(int i){const char* e = std::getenv("P3_CUT"); return !e || !*e || std::atoi(e) == i;}
 
@@ -268,7 +268,9 @@ void Plot3D(){
             {"6_resHalf/1_resHalfCut", "rawVal(fEvent, TrackID, 8) <= 2", "cut residual of the hits after the first 2 / first 2 hits <= 2 (needs more than 2 hits)", "6_resHalf", "cut_resHalf"},
             {"9_firstHit/1_firstHitCut", "fabs(rawVal(fEvent, TrackID, 12)) <= 5 && fabs(rawVal(fEvent, TrackID, 13)) <= 5", "cut first tracker hit within x, y in [-5, 5] mm", "9_firstHit", "cut_firstHit"},
             {"8_nHits/1_nHitsCut", "rawVal(fEvent, TrackID, 10) >= 3 && rawVal(fEvent, TrackID, 10) <= 16", "cut 3 to 16 tracker hits", "8_nHits", "cut_nHits"},
-            {"10_thetacut/1_thetaCut", "thetaOk(fEvent, TrackID)", "cut recon block theta below the ZDC corner limit of its block", "10_thetacut", "cut_thetacut"}};
+            {"10_thetacut/1_thetaCut", "thetaOk(fEvent, TrackID)", "cut recon block theta below the ZDC corner limit of its block", "10_thetacut", "cut_thetacut"},
+            {"11_combined/1_combinedCut", "rawVal(fEvent, TrackID, 6) <= 1 && rawVal(fEvent, TrackID, 7) > 0.5 && (rawVal(fEvent, TrackID, 10) == 4 || rawVal(fEvent, TrackID, 10) == 8 || rawVal(fEvent, TrackID, 10) == 12 || rawVal(fEvent, TrackID, 10) == 16)",
+             "cut at most 1 proton with a track in the event, planes hit in increasing z, 4, 8, 12 or 16 tracker hits", "11_combined", "cut_combo1p"}};
         { // the limits behind 10_thetacut
             gSystem->mkdir((folder_KEcuts + "10_thetacut").c_str(), true);
             FILE* lf = fopen((folder_KEcuts + "10_thetacut/block_theta_limits.csv").c_str(), "w");
@@ -466,6 +468,7 @@ void Plot3D(){
             std::vector<PhiSet> phiSets = {{"1_hitZDC", "", events2, zdcRecoAll}, {"2_KECUT80", " && fDEnergy > " + std::to_string(initialKE * 0.80), events2, zdcRecoAll}};
             for (const auto& sc : sampleCuts) phiSets.push_back({sc.dir, "", cutTree(sc), rawCE});
             for (const auto& ps : phiSets) for (int j = 0; j < 2; j++){ // j 0: phiRe at thetaRe, 1: phiReD at thetaReD
+                if (const int pi = int(&ps - &phiSets[0]); !RunCut(pi < 2 ? 0 : pi - 1)) continue; // P3_CUT: 0 the first two sets, i the sampleCuts[i - 1] set
                 gSystem->mkdir((folder_KEcuts + ps.dir + "/2_phi_cosfit").c_str(), true);
                 double pol, polErr;
                 phiFit(ps.t, (ps.t != events2 ? std::string("1") : ps.base) + ps.expr, j, Form("%s, %s, %s phi distribution", ps.t != events2 ? "all recon protons in the cut" : "CE recon protons that hit ZDC", ps.dir.c_str(), j ? "recon block" : "recon"),
@@ -577,6 +580,7 @@ void Plot3D(){
             for (int pct : {80}) infoCuts.push_back({"2_KECUT" + std::to_string(pct), initialKE * pct / 100.0});
             for (const auto& sc : sampleCuts) infoCuts.push_back({sc.dir, -1.0}); // no KE cut: what each cut does to every variable
             for (const auto& ic : infoCuts) for (const auto& v : kInfoVars){
+                if (const int ii = int(&ic - &infoCuts[0]); !RunCut(ii < 2 ? 0 : ii - 1)) continue; // P3_CUT: 0 the first two folders, i the sampleCuts[i - 1] folder
                 double lo = v.lo, hi = v.hi;
                 if (lo >= hi){
                     const auto [q1, q99] = quantiles(v.k);

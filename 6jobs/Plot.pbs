@@ -45,10 +45,10 @@ esac
 for m in "${macros[@]}"; do
     echo "=== $m $(date +%H:%M:%S)"
     if [ "$m" = Plot3D.cpp ]; then
-        # the independent parts of Plot3D (P3_PART, P3_CUT, Plot3D.cpp) side by side: parts 1, 3 and 4, and part 2 once per cut (0 to 8), then part 5 ranks the cuts
+        # the independent parts of Plot3D (P3_PART, P3_CUT, Plot3D.cpp) side by side: parts 1, 3 and 4, and part 2 once per cut (0 to 9), then part 5 ranks the cuts
         export ANA_NTHREADS=$(( ${NCPUS:-16} / 12 > 0 ? ${NCPUS:-16} / 12 : 1 ))
-        for run in 1 3 4 2:0 2:1 2:2 2:3 2:4 2:5 2:6 2:7 2:8; do
-            ( P3_PART=${run%%:*} P3_CUT=${run#*:} root -l -b -q "${m/.cpp/.cpp${ACLIC-+O}}" > Plot3D_part${run/:/_}.log 2>&1; echo "part $run exit $?" ) &
+        for run in 1 3 4 2:0 2:1 2:2 2:3 2:4 2:5 2:6 2:7 2:8 2:9; do
+            ( cut=; [[ $run == *:* ]] && cut=${run#*:}; P3_PART=${run%%:*} P3_CUT=$cut root -l -b -q "${m/.cpp/.cpp${ACLIC-+O}}" > Plot3D_part${run/:/_}.log 2>&1; echo "part $run exit $?" ) &
         done
         wait
         P3_PART=5 P3_CUT= root -l -b -q "${m/.cpp/.cpp${ACLIC-+O}}" > Plot3D_part5.log 2>&1
