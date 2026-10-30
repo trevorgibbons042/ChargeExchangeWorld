@@ -43,12 +43,6 @@ inline bool rawOk(int fEvent, int trackID, int k){
 }
 inline double rawVal(int fEvent, int trackID, int k){return gRawVals.at({fEvent, trackID})[k];}
 
-// True if the recon block theta (k 11) is within the limit of the block nearest the recon vertex z (k 16), BlockLimits.h.
-inline bool thetaOk(int fEvent, int trackID){
-    const auto it = gRawVals.find({fEvent, trackID});
-    return it != gRawVals.end() && BlockThetaOk(it->second[11], it->second[16]);
-}
-
 // Fills the maps above from cuts/cut_angles_all.root and the block limits from settings.csv. False (with an Error) if the file or tree is missing.
 inline bool LoadPlot3DMaps(){
     TFile* fReco = TFile::Open("cuts/cut_angles_all.root", "READ");
@@ -100,7 +94,7 @@ inline const std::array<double, 17>* P3Row(int ev, int tid){
     return lastRow;
 }
 
-// Adds isReco, isRecoD, isRes2, thetaOk (Int_t 0/1), raw_0..raw_16 (Double_t, NaN if the key is missing) and ok_0..ok_16 (Int_t, the rawOk logic).
+// Adds isReco, isRecoD, isRes2 (Int_t 0/1), raw_0..raw_16 (Double_t, NaN if the key is missing) and ok_0..ok_16 (Int_t, the rawOk logic).
 // The maps are read only while the event loop runs, so the lambdas are safe on several threads.
 inline ColumnAdder Plot3DColumns(){
     return [](ROOT::RDF::RNode n){
@@ -108,11 +102,7 @@ inline ColumnAdder Plot3DColumns(){
         if (!mapsLoaded) throw std::runtime_error("Plot3DColumns: the maps could not be loaded (cuts/cut_angles_all.root)");
         n = n.Define("isReco", [](int ev, int tid){return (Int_t)isReco(ev, tid);}, {"fEvent", "TrackID"})
              .Define("isRecoD", [](int ev, int tid){return (Int_t)isRecoD(ev, tid);}, {"fEvent", "TrackID"})
-             .Define("isRes2", [](int ev, int tid){return (Int_t)isRes2(ev, tid);}, {"fEvent", "TrackID"})
-             .Define("thetaOk", [](int ev, int tid){
-                 const auto* r = P3Row(ev, tid);
-                 return (Int_t)(r && BlockThetaOk((*r)[11], (*r)[16]));
-             }, {"fEvent", "TrackID"});
+             .Define("isRes2", [](int ev, int tid){return (Int_t)isRes2(ev, tid);}, {"fEvent", "TrackID"});
         for (int k = 0; k < 17; k++){
             n = n.Define("raw_" + std::to_string(k), [k](int ev, int tid){
                 const auto* r = P3Row(ev, tid);
@@ -128,11 +118,14 @@ inline ColumnAdder Plot3DColumns(){
 }
 
 // Rewrites the isReco/isRecoD/isRes2/thetaOk/rawVal/rawOk calls of a TTree::Draw expression or cut into the columns (or, on AnglesRaw, the aliases).
+// thetaOk has no column: it is BlockThetaOk (BlockLimits.h) of the recon block theta raw_11 and the recon vertex z raw_16.
 inline std::string P3(const std::string& s){
-    static const std::regex fn(R"(\b(isRecoD|isReco|isRes2|thetaOk)\s*\(\s*fEvent\s*,\s*TrackID\s*\))");
+    static const std::regex fn(R"(\b(isRecoD|isReco|isRes2)\s*\(\s*fEvent\s*,\s*TrackID\s*\))");
+    static const std::regex theta(R"(\bthetaOk\s*\(\s*fEvent\s*,\s*TrackID\s*\))");
     static const std::regex val(R"(\brawVal\s*\(\s*fEvent\s*,\s*TrackID\s*,\s*(\d+)\s*\))");
     static const std::regex ok(R"(\brawOk\s*\(\s*fEvent\s*,\s*TrackID\s*,\s*(\d+)\s*\))");
     std::string o = std::regex_replace(s, fn, "($1==1)");
+    o = std::regex_replace(o, theta, "BlockThetaOk(raw_11, raw_16)");
     o = std::regex_replace(o, val, "raw_$1");
     o = std::regex_replace(o, ok, "(ok_$1==1)");
     return o;
@@ -150,5 +143,4 @@ inline void Plot3DRawAliases(TTree* raw){
     raw->SetAlias("isReco", "passQuality");
     raw->SetAlias("isRecoD", ("(passQuality==1 && (" + std::string(kBlockCut) + "))").c_str());
     raw->SetAlias("isRes2", Form("(passQuality==1 && resDRms < %g)", kRes2Mm));
-    raw->SetAlias("thetaOk", "BlockThetaOk(raw_11, raw_16)");
 }

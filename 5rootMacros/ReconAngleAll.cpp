@@ -1,7 +1,9 @@
 #include <TFile.h>
+#include <ROOT/TBufferMerger.hxx>
 #include <TChain.h>
 #include <TTree.h>
 #include <ROOT/RDataFrame.hxx>
+#include <ROOT/TTreeProcessorMT.hxx>
 
 #include <algorithm>
 #include <cmath>
@@ -147,6 +149,7 @@ static double ImpactToAxis(double x0, double y0, double bx, double by){
 // One pass fits every proton and writes the tree AnglesRaw with the true (finalKE) and the detector (finalKED) KE of the track end.
 void ReconAngleAll(){
     ROOT::EnableImplicitMT(NThreads());
+    ROOT::TTreeProcessorMT::SetTasksPerWorkerHint(4); // a raw file is split into 4 tasks per thread, so one file keeps all the threads busy
 
     // CE neutrons (same selection as CutEvents.cpp): event -> CE track IDs.
     // the carbon-block CE come from cuts/cut_CE.root (CarbonCeCut, CutOpen.h): every row passes, no filter
@@ -162,78 +165,22 @@ void ReconAngleAll(){
         for (auto &[ev, ids] : m) ceTracks[ev].insert(ids.begin(), ids.end());
     }
 
-    TFile *outFile = new TFile("cuts/cut_angles_all.root", "RECREATE");
-    // The one proton tree: every recon proton before the quality cut (QualityStudy.cpp). The old trees Angles, AnglesCE and their _DE copies are views of it
+    // One proton tree: every recon proton before the quality cut (QualityStudy.cpp). The old trees Angles, AnglesCE and their _DE copies are views of it
     // (AngleSelection, CutFiles.h): passQuality, inCE pick the rows, finalKE / finalKED the true / detector KE.
-    TTree *outTree = new TTree("AnglesRaw", "Reconstructed Angles, every recon proton before the quality cut");
+    // The file is written through a TBufferMerger: the shards fill their own trees on all the threads (see the write below).
+    ROOT::TBufferMerger merger("cuts/cut_angles_all.root", "RECREATE");
 
-    int outTrackID, outPDG, outEventID, fParentID;
-    double outTheta, outPhi, outDTheta, outDPhi;
-    double x0Out, y0Out, bxOut, byOut;
-    double x0DOut, y0DOut, bxDOut, byDOut;
-    double xVertexOut, yVertexOut, zVertexOut;
-    double z_bx_reconVertexOut, z_by_reconVertexOut;
-    double z_bx_reconVertexDIFFOut, z_by_reconVertexDIFFOut;
-    double finalKE, finalKED; // true and detector KE of the track end
-    double resRms, resDRms, impact, impactD; // quality variables, see QualityCut.h
-    double r2, r2D; // R^2 of the line fit (true and block position), plotted by QualityStudy.cpp, not cut on
-    double firstXD = NAN, firstYD = NAN; // block position (mm) of the first tracker hit (lowest z)
-    int nProtonsEv, zOrderOK, nHits; // protons with a track in the event, planes hit in increasing z (1/0), tracker hits (block points)
-    double resHalfRatioD; // block residual of the tracker hits after the first 2 over the first 2 hits, NAN with 2 or fewer hits
-    int passResD = 1; // block residual cut, cut on only by the block plots (QualityCut.h)
-    int isFromCE;
-    int passQuality, inCE; // z order and quality cut passed (1/0), event has a carbon CE (1/0)
-
-    {
-        TTree *tree = outTree;
-        tree->Branch("TrackID", &outTrackID);
-        tree->Branch("PDG", &outPDG);
-        tree->Branch("fEvent", &outEventID);
-        tree->Branch("outTheta", &outTheta);
-        tree->Branch("outPhi", &outPhi);
-        tree->Branch("outDTheta", &outDTheta);
-        tree->Branch("outDPhi", &outDPhi);
-        tree->Branch("x0Out", &x0Out);
-        tree->Branch("y0Out", &y0Out);
-        tree->Branch("bxOut", &bxOut);
-        tree->Branch("byOut", &byOut);
-        tree->Branch("x0DOut", &x0DOut);
-        tree->Branch("y0DOut", &y0DOut);
-        tree->Branch("bxDOut", &bxDOut);
-        tree->Branch("byDOut", &byDOut);
-        tree->Branch("finalKE", &finalKE);
-        tree->Branch("finalKED", &finalKED);
-        tree->Branch("passQuality", &passQuality);
-        tree->Branch("inCE", &inCE);
-        tree->Branch("ParentID", &fParentID);
-        tree->Branch("xVertexOut", &xVertexOut);
-        tree->Branch("yVertexOut", &yVertexOut);
-        tree->Branch("zVertexOut", &zVertexOut);
-        tree->Branch("z_bx_reconVertexOut", &z_bx_reconVertexOut);
-        tree->Branch("z_by_reconVertexOut", &z_by_reconVertexOut);
-        tree->Branch("z_bx_reconVertexDIFFOut", &z_bx_reconVertexDIFFOut);
-        tree->Branch("z_by_reconVertexDIFFOut", &z_by_reconVertexDIFFOut);
-        tree->Branch("isFromCE", &isFromCE);
-        tree->Branch("resRms", &resRms);
-        tree->Branch("resDRms", &resDRms);
-        tree->Branch("impact", &impact);
-        tree->Branch("impactD", &impactD);
-        tree->Branch("r2", &r2);
-        tree->Branch("r2D", &r2D);
-        tree->Branch("passResD", &passResD);
-        tree->Branch("nProtonsEv", &nProtonsEv);
-        tree->Branch("zOrderOK", &zOrderOK);
-        tree->Branch("nHits", &nHits);
-        tree->Branch("firstXD", &firstXD); tree->Branch("firstYD", &firstYD);
-        tree->Branch("resHalfRatioD", &resHalfRatioD);
-    }
-
-    // One raw file at a time: an event, and so every track, lives in a single output0_t<thread>.root, so the tracks of a file are complete
-    // and only that file's proton points are held in memory (all files at once does not fit at 100M events).
+    // A group of raw files at a time (ANA_FILES_PER_PASS, default 32): an event, and so every track, lives in a single output0_t<thread>.root, so the tracks of a group are complete
+    // and only that group's proton points are held in memory (all files at once does not fit at 100M events). One file alone cannot keep all the threads busy.
     TChain rawFiles("ParticleInfo");
     rawFiles.Add("output0_t*.root");
-    for (const TObject* rawFile : *rawFiles.GetListOfFiles()) {
-        ROOT::RDataFrame df("ParticleInfo", rawFile->GetTitle());
+    const unsigned filesPerPass = std::getenv("ANA_FILES_PER_PASS") ? std::max(1, std::atoi(std::getenv("ANA_FILES_PER_PASS"))) : 32;
+    std::vector<std::string> rawNames;
+    for (const TObject* rawFile : *rawFiles.GetListOfFiles()) rawNames.push_back(rawFile->GetTitle());
+    for (size_t first = 0; first < rawNames.size(); first += filesPerPass) {
+        TChain group("ParticleInfo");
+        for (size_t i = first; i < std::min(rawNames.size(), first + filesPerPass); i++) group.Add(rawNames[i].c_str());
+        ROOT::RDataFrame df(group);
 
         std::vector<std::map<std::tuple<int, int, int>, Track>> slotTracks(df.GetNSlots());
         // boundaryType 2 is the ZDC row, left out of the fit points; protons that never reach the ZDC are reconstructed too
@@ -257,16 +204,24 @@ void ReconAngleAll(){
         const unsigned nShards = NThreads();
         std::vector<std::vector<Row>> shardRows(nShards);
         ROOT::TThreadExecutor pool;
+        // Sort the tracks of every slot into the bucket of their shard once, one slot per thread: a shard then reads only its own buckets
+        // (a shard that looked through every slot map for its keys would scan all the tracks, nShards times over).
+        using KeyTrack = std::pair<std::tuple<int, int, int>, Track>;
+        std::vector<std::vector<std::vector<KeyTrack>>> buckets(slotTracks.size(), std::vector<std::vector<KeyTrack>>(nShards));
+        pool.Foreach([&](unsigned slot){
+            for (auto &[key, t] : slotTracks[slot]) buckets[slot][(unsigned)std::get<0>(key) % nShards].emplace_back(key, std::move(t));
+            slotTracks[slot].clear();
+        }, ROOT::TSeqU((unsigned)slotTracks.size()));
         pool.Foreach([&](unsigned shard){
             // Points are sorted and de-duplicated per track below, so the merge order does not matter.
-            // Each key is taken by exactly one shard, so its Track is moved out of the slot map, not copied.
+            // Each key is taken by exactly one shard, so its Track is moved out of its bucket, not copied.
             std::map<std::tuple<int, int, int>, Track> tracks;
-            for (auto &slotMap : slotTracks) {
-                for (auto &[key, t] : slotMap) {
-                    if ((unsigned)std::get<0>(key) % nShards != shard) continue;
-                    auto it = tracks.find(key);
-                    if (it == tracks.end()) tracks.emplace(key, std::move(t)); else it->second.append(t);
+            for (auto &slotBuckets : buckets) {
+                for (auto &kt : slotBuckets[shard]) {
+                    auto it = tracks.find(kt.first);
+                    if (it == tracks.end()) tracks.emplace(kt.first, std::move(kt.second)); else it->second.append(kt.second);
                 }
+                slotBuckets[shard].clear(); slotBuckets[shard].shrink_to_fit();
             }
 
             std::map<int, int> nProtonsInEvent;
@@ -374,9 +329,70 @@ void ReconAngleAll(){
         }, ROOT::TSeqU(nShards));
         slotTracks.clear();
 
-        // TTree::Fill is not thread-safe: the branch variables are set and the trees filled one row at a time.
-        for (auto &rows : shardRows) {
-            for (const Row &r : rows) {
+        // TTree::Fill is not thread-safe: every shard fills a TTree of its own in a file the TBufferMerger gives it, in parallel, and the merger appends them into AnglesRaw.
+        // A file's rows come from the shards in the order they finish, nothing reads them by position.
+        ROOT::TThreadExecutor writePool;
+        writePool.Foreach([&](unsigned shard){
+            auto outFile = merger.GetFile();
+            TTree *tree = new TTree("AnglesRaw", "Reconstructed Angles, every recon proton before the quality cut");
+        int outTrackID, outPDG, outEventID, fParentID;
+        double outTheta, outPhi, outDTheta, outDPhi;
+        double x0Out, y0Out, bxOut, byOut;
+        double x0DOut, y0DOut, bxDOut, byDOut;
+        double xVertexOut, yVertexOut, zVertexOut;
+        double z_bx_reconVertexOut, z_by_reconVertexOut;
+        double z_bx_reconVertexDIFFOut, z_by_reconVertexDIFFOut;
+        double finalKE, finalKED; // true and detector KE of the track end
+        double resRms, resDRms, impact, impactD; // quality variables, see QualityCut.h
+        double r2, r2D; // R^2 of the line fit (true and block position), plotted by QualityStudy.cpp, not cut on
+        double firstXD = NAN, firstYD = NAN; // block position (mm) of the first tracker hit (lowest z)
+        int nProtonsEv, zOrderOK, nHits; // protons with a track in the event, planes hit in increasing z (1/0), tracker hits (block points)
+        double resHalfRatioD; // block residual of the tracker hits after the first 2 over the first 2 hits, NAN with 2 or fewer hits
+        int passResD = 1; // block residual cut, cut on only by the block plots (QualityCut.h)
+        int isFromCE;
+        int passQuality, inCE; // z order and quality cut passed (1/0), event has a carbon CE (1/0)
+            
+    tree->Branch("TrackID", &outTrackID);
+    tree->Branch("PDG", &outPDG);
+    tree->Branch("fEvent", &outEventID);
+    tree->Branch("outTheta", &outTheta);
+    tree->Branch("outPhi", &outPhi);
+    tree->Branch("outDTheta", &outDTheta);
+    tree->Branch("outDPhi", &outDPhi);
+    tree->Branch("x0Out", &x0Out);
+    tree->Branch("y0Out", &y0Out);
+    tree->Branch("bxOut", &bxOut);
+    tree->Branch("byOut", &byOut);
+    tree->Branch("x0DOut", &x0DOut);
+    tree->Branch("y0DOut", &y0DOut);
+    tree->Branch("bxDOut", &bxDOut);
+    tree->Branch("byDOut", &byDOut);
+    tree->Branch("finalKE", &finalKE);
+    tree->Branch("finalKED", &finalKED);
+    tree->Branch("passQuality", &passQuality);
+    tree->Branch("inCE", &inCE);
+    tree->Branch("ParentID", &fParentID);
+    tree->Branch("xVertexOut", &xVertexOut);
+    tree->Branch("yVertexOut", &yVertexOut);
+    tree->Branch("zVertexOut", &zVertexOut);
+    tree->Branch("z_bx_reconVertexOut", &z_bx_reconVertexOut);
+    tree->Branch("z_by_reconVertexOut", &z_by_reconVertexOut);
+    tree->Branch("z_bx_reconVertexDIFFOut", &z_bx_reconVertexDIFFOut);
+    tree->Branch("z_by_reconVertexDIFFOut", &z_by_reconVertexDIFFOut);
+    tree->Branch("isFromCE", &isFromCE);
+    tree->Branch("resRms", &resRms);
+    tree->Branch("resDRms", &resDRms);
+    tree->Branch("impact", &impact);
+    tree->Branch("impactD", &impactD);
+    tree->Branch("r2", &r2);
+    tree->Branch("r2D", &r2D);
+    tree->Branch("passResD", &passResD);
+    tree->Branch("nProtonsEv", &nProtonsEv);
+    tree->Branch("zOrderOK", &zOrderOK);
+    tree->Branch("nHits", &nHits);
+    tree->Branch("firstXD", &firstXD); tree->Branch("firstYD", &firstYD);
+    tree->Branch("resHalfRatioD", &resHalfRatioD);
+            for (const Row &r : shardRows[shard]) {
                 outTheta = r.theta; outPhi = r.phi; outDTheta = r.dTheta; outDPhi = r.dPhi;
                 outEventID = r.eventID; outTrackID = r.trackID; outPDG = r.pdg;
                 xVertexOut = r.xVertex; yVertexOut = r.yVertex; zVertexOut = r.zVertex;
@@ -392,13 +408,10 @@ void ReconAngleAll(){
 
                 passQuality = r.zOrderOK && r.passQuality ? 1 : 0; // out of order tracks and tracks that fail the quality cut stay in the tree for the plots, the views drop them
                 inCE = r.inCE;
-                outTree->Fill();
+                tree->Fill();
             }
-            rows.clear(); rows.shrink_to_fit();
-        }
+            outFile->Write();
+            shardRows[shard].clear(); shardRows[shard].shrink_to_fit();
+        }, ROOT::TSeqU(nShards));
     }
-
-    outFile->cd();
-    outTree->Write();
-    outFile->Close();
 }

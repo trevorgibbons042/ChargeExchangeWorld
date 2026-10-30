@@ -9,7 +9,7 @@
 #include "Plot3DCols.h"
 
 // Writes the two ZDC proton cut files Plot3D.cpp draws from: cut_ZdcCE.root (the ZDC protons of the CE children, cut_ParentZdc.root) and cut_ZdcAllEv.root (the ZDC protons
-// of every event, cut_AllEvProtons.root), each row with the Plot3D columns of its reconstructed track (isReco, isRecoD, isRes2, thetaOk, raw_0..16, ok_0..16, Plot3DCols.h).
+// of every event, cut_AllEvProtons.root), each row with the Plot3D columns of its reconstructed track (isReco, isRecoD, isRes2, raw_0..16, ok_0..16, Plot3DCols.h).
 // Run after CutEvents.cpp and ReconAngleAll.cpp, with all the threads: the maps of AnglesRaw are read once (serial), then both files are written in one parallel pass.
 void ZdcColumns(){
     ROOT::EnableImplicitMT(NThreads());

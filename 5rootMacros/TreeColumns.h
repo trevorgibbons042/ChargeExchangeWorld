@@ -22,7 +22,8 @@
 #include <utility>
 #include <vector>
 
-// Multithreaded replacement for TTree::Draw(exprs, cut, "goff") and for GetEntry loops: one RDataFrame event loop on all the threads (ROOT::EnableImplicitMT(NThreads()) first, FitCore.h)
+// Multithreaded replacement for TTree::Draw(exprs, cut, "goff") and for GetEntry loops: one RDataFrame event loop on all the threads (ROOT::EnableImplicitMT(NThreads()) first, FitCore.h),
+// on one thread for a tree with several clusters (rdfentry_ is wrong under implicit MT there, SerialScope in FitCore.h)
 // copies expressions of the tree out as columns. Like TTree::Draw it sees the TEntryList set on t (ApplyCut, CutFiles.h) and the friends of t, written "Friend.branch" in the expressions.
 // The rows come back in entry order, one vector per expression, so a fill or a sum over them runs in the same order as the serial Draw loop did.
 // T is double or std::string (CECreator: "std::string(CECreator.data())"). filter is an optional row selection, a C++ expression like a TTree::Draw cut.
@@ -55,9 +56,12 @@ inline std::string ColumnsExpr(TTree* t, std::string expr, std::map<std::string,
     return expr;
 }
 
+#include "FitCore.h" // SerialScope: a multi-cluster tree is read on one thread, rdfentry_ is wrong under implicit MT there
+
 template <class T = double>
 inline std::vector<std::vector<T>> Columns(TTree* t, const std::vector<std::string>& exprs, const std::string& filter = ""){
     static_assert(std::is_same<T, double>::value || std::is_same<T, std::string>::value, "Columns: T is double or std::string");
+    SerialScope serial(t); // the RDataFrame and its lazy Takes below all run inside it
     const std::string type = std::is_same<T, double>::value ? "double" : "std::string";
     using Row = std::pair<ULong64_t, T>; // (entry, value): the entries put the rows of the threads back in order
     std::map<std::string, std::string> aliases;

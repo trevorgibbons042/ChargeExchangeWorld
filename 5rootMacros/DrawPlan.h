@@ -3,7 +3,8 @@
 //   book:   h = plan.H(tree, "e1:e2>>name(nx,lo,hi,ny,lo,hi)", selection, listCut), n = plan.N(tree, selection), c = plan.C(tree, {"e1", "e2"}, selection)
 //   run:    plan.Run()   one event loop per tree (ROOT::EnableImplicitMT(NThreads())), values collected with their entry numbers
 //   render: h.Get(), n.Get(), c.V(0) ... the histograms are filled on the main thread in entry order, the order TTree::Draw fills in, so the stats sums match it.
-// All TH1/TH2 filling, fits and graphics stay on the main thread; only the event loop is multithreaded. A request that cannot be translated (or if rdfentry_ is not the TTree entry number)
+// All TH1/TH2 filling, fits and graphics stay on the main thread; only the event loop is multithreaded, except for a tree with several clusters (rdfentry_ is wrong under implicit MT there,
+// SerialScope in FitCore.h): its loop runs on one thread. A request that cannot be translated (or if rdfentry_ is still not the TTree entry number)
 // runs as the plain TTree::Draw on the main thread during Run(), with a one-time warning. The fallback draws with the effective selection (selection and listCut), so the caller does not
 // need to set the TEntryList on the tree; listCut is the string the list stands for.
 #include <TError.h>
@@ -196,6 +197,7 @@ namespace DrawPlanImpl {
 inline bool EntryNumberOk(DrawPlan& plan, TTree* t){
     auto it = plan.entryOk.find(t);
     if (it != plan.entryOk.end()) return it->second == 1;
+    SerialScope serial(t); // the check reads the tree the way Run() will, one thread for a tree with several clusters
     bool ok = false;
     try {
         // Up to 3 scalar leaves, continuous ones (Double_t, Float_t) first: a leaf like fEvent repeats over neighbouring entries, so a small entry offset would pass on it alone.
@@ -278,7 +280,7 @@ inline void DrawPlan::Run(){
     // 1. book one filter node + one row collector (or Count) per group, all run together
     struct Booked {std::shared_ptr<Group> g; std::vector<std::vector<double>>* buf = nullptr; std::shared_ptr<ROOT::RDF::RResultPtr<ULong64_t>> cnt; std::shared_ptr<ROOT::RDF::RResultPtr<std::vector<std::vector<double>>>> rows;};
     std::vector<Booked> booked;
-    std::vector<ROOT::RDF::RResultHandle> handles;
+    std::vector<ROOT::RDF::RResultHandle> handles, handlesSerial; // serial: trees with several clusters, whose rdfentry_ is only exact on one thread (SerialScope, FitCore.h)
     std::vector<std::unique_ptr<ROOT::RDataFrame>> dfs;
     std::map<TTree*, TEntryList*> savedLists;
     auto pending = groups;
@@ -292,7 +294,9 @@ inline void DrawPlan::Run(){
         if (ForceFallback() || !EntryNumberOk(*this, g->tree)){g->failed = true; continue;}
         try {
             if (!savedLists.count(g->tree)){savedLists[g->tree] = g->tree->GetEntryList(); g->tree->SetEntryList(nullptr);} // the list is in the selection (listCut)
-            dfs.emplace_back(new ROOT::RDataFrame(*g->tree));
+            const bool serial = MultiCluster(g->tree);
+            {SerialScope scope(g->tree); dfs.emplace_back(new ROOT::RDataFrame(*g->tree));} // the number of slots is fixed when the RDataFrame is built
+            auto& hv = serial ? handlesSerial : handles;
             ROOT::RDF::RNode node = *dfs.back();
             std::string wexpr;
             if (g->weighted){ // the selection is the weight: entries with weight 0 are dropped
@@ -300,7 +304,7 @@ inline void DrawPlan::Run(){
             } else if (!g->sel.empty()) node = node.Filter(g->sel + " != 0");
             Booked b; b.g = g;
             if (!g->needRows){ // N only
-                b.cnt = std::make_shared<ROOT::RDF::RResultPtr<ULong64_t>>(node.Count()); handles.push_back(*b.cnt);
+                b.cnt = std::make_shared<ROOT::RDF::RResultPtr<ULong64_t>>(node.Count()); hv.push_back(*b.cnt);
             } else {
                 std::string list = "ROOT::RVecD{(double)rdfentry_";
                 for (size_t i = 0; i < g->exprs.size(); i++) list += ", (double)(" + g->exprs[i] + ")";
@@ -332,7 +336,7 @@ inline void DrawPlan::Run(){
                                             }
                                         },
                                         "__v", Cols2D());
-                b.rows = std::make_shared<ROOT::RDF::RResultPtr<Cols2D>>(r); handles.push_back(r);
+                b.rows = std::make_shared<ROOT::RDF::RResultPtr<Cols2D>>(r); hv.push_back(r);
             }
             booked.push_back(b);
         } catch (const std::exception& e){
@@ -341,8 +345,11 @@ inline void DrawPlan::Run(){
         }
     }
     bool ranOk = true;
-    if (!handles.empty()){
-        try { ROOT::RDF::RunGraphs(handles); }
+    if (!handles.empty() || !handlesSerial.empty()){
+        try {
+            if (!handles.empty()) ROOT::RDF::RunGraphs(handles);
+            if (!handlesSerial.empty()){SerialScope scope(true); ROOT::RDF::RunGraphs(handlesSerial);} // built with one slot, so run with implicit MT off as well
+        }
         catch (const std::exception& e){ranOk = false; Warning("DrawPlan", "event loop failed (%s): plain TTree::Draw for every request", e.what());}
     }
     for (auto& kv : savedLists) kv.first->SetEntryList(kv.second);
