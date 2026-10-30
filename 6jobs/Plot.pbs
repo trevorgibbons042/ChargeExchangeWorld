@@ -27,7 +27,7 @@ echo Run folder: $RUN, step: $STEP
 # The same lanes as plot.sh: a lane holds the macros that write into the same plots/ folders or read another's csv files
 case $STEP in
     cuttrees) macros=('CutTrees.cpp') ;;
-    caches)   macros=('BuildCaches.cpp') ;; # the cut caches (CutCache.h) every lane reads, built once
+    zdc)      macros=('ZdcColumns.cpp') ;; # cuts/cut_ZdcCE.root and cut_ZdcAllEv.root, read by Plot3D
     cuts)     macros=('Plot3D.cpp' 'QualityStudy.cpp') ;; # 1_position, 2_energy, 6_cuts
     fom)      macros=('PlotAngle.cpp("fDEnergy")' 'PlotCEFraction.cpp' 'PlotPolarization.cpp("fDEnergy")' 'PlotFomPolarization.cpp("fDEnergy")') ;; # 3_ReconCalcVals, 5_fomCalc
     ceblock)  macros=('PlotDiffPhiCuts.cpp(-180, -50, "fDEnergy")' 'GraphBlocks.cpp' 'CETCompare.cpp') ;; # 4_CEblock

@@ -30,12 +30,12 @@
 #include <TStyle.h>
 
 #include "BlockLimits.h"
-#include "CutCache.h"
+#include "CutOpen.h"
 #include "FitCore.h"
 #include "Plot3DCols.h"
 #include "QualityCut.h"
 
-// The maps (gRecoTracks, gRawVals, ...), isReco/rawVal/rawOk/thetaOk and the cached p3d_v1 columns that replace them in the Draw cuts (P3) are in Plot3DCols.h.
+// The maps (gRecoTracks, gRawVals, ...), isReco/rawVal/rawOk/thetaOk and the columns (cut_ZdcCE.root, cut_ZdcAllEv.root) or aliases (AnglesRaw) that replace them in the Draw cuts (P3) are in Plot3DCols.h.
 
 struct SampleCut {std::string dir, expr, label, onFolder;}; // see sampleCuts in Plot3D
 
@@ -54,7 +54,7 @@ void Plot3D(){
 
     double Graph = 1;
 
-    FillBlockLimits(ReadSettings()); // the maps are loaded only when a cache is built (Plot3DColumns), not on a cache hit
+    FillBlockLimits(ReadSettings()); // the maps are loaded by ZdcColumns.cpp (Plot3DColumns), not here
 
 
     TFile* File = TFile::Open("cuts/cut_CE.root", "READ");
@@ -63,16 +63,15 @@ void Plot3D(){
     TTree *events = (TTree*)File->Get("ParticleInfo");
     TTree *ChargeExchange = (TTree*)File->Get("ChargeExchange_values");
 
-    // events2: ZDC protons of the CE children (cut_ParentID.root) and eventsAllEv: ZDC protons of every event (cut_AllEvProtons.root), both from the cut cache with the p3d_v1 columns (Plot3DCols.h);
+    // events2: ZDC protons of the CE children (cut_ZdcCE.root) and eventsAllEv: ZDC protons of every event (cut_ZdcAllEv.root), with the Plot3D columns (Plot3DCols.h, ZdcColumns.cpp);
     // every Draw cut goes through P3() so isReco(fEvent, TrackID) etc. read those columns
-    CacheTree cacheCE = Plot3DCE(), cacheAllEv = Plot3DAllEv();
-    TTree *events2 = cacheCE.tree;
+    TTree *events2 = OpenCut("cuts/cut_ZdcCE.root", "ParticleInfo");
     TTree *eventsFake = (TTree*)FileFake->Get("ParticleInfo");
     TTree *ChargeExchangeFake = (TTree*)FileFake->Get("ChargeExchange_values");
 
     // every event, not only the CE events kept in cut_CE.root: third "all protons in all events" set next to CE protons and all protons in CE events
-    TTree* eventsAllEv = cacheAllEv.tree;
-    if (!events2 || !eventsAllEv){Error("Plot3D", "missing cut caches (run CutEvents.cpp first)"); return;}
+    TTree* eventsAllEv = OpenCut("cuts/cut_ZdcAllEv.root", "ParticleInfo");
+    if (!events2 || !eventsAllEv){Error("Plot3D", "missing cuts/cut_ZdcCE.root or cut_ZdcAllEv.root (run ZdcColumns.cpp first)"); return;}
 
 
     if (Graph == 1){
@@ -275,8 +274,8 @@ void Plot3D(){
         struct RankRow {std::string cut, sample; double nCEin, nAllIn, nCEtotal, nCEreconBefore, fom[2], pol[2], polErr[2];}; // fom, pol (fitted P), polErr: [0] recon theta / phi, [1] recon block theta / phi
         double nCEreconTotal = 0; // every CE proton with a fitted track (AnglesRaw, isFromCE), no ZDC requirement: CE_before of the QualityStudy csv files, the CE_recon_before_cut of the csv files
         // AnglesRaw: every proton with a fitted track, ZDC hit or not. The cut folders count, fit and plot these (no ZDC requirement), except with the 80% ZDC KE cut.
-        CacheTree cacheRaw = Plot3DRaw(); // AnglesRaw + the p3d_v1 columns
-        TTree* rawT = cacheRaw.tree;
+        TTree* rawT = OpenCut("cuts/cut_angles_all.root", "AnglesRaw"); // every fitted proton, the Plot3D columns are aliases of its branches (Plot3DRawAliases)
+        if (rawT) Plot3DRawAliases(rawT);
         gROOT->cd();
         if (rawT) nCEreconTotal = rawT->GetEntries("isFromCE==1");
         const std::string rawCE = "isFromCE==1";
@@ -531,7 +530,7 @@ void Plot3D(){
                 : std::pair<double, double>{vals[size_t(0.01 * vals.size())], vals[std::min(vals.size() - 1, size_t(0.99 * vals.size()))]};
             return quantileCache[k] = q;
         };
-        if (rawT && rawT->GetBranch("raw_0") && rawT->GetEntries() > 0){
+        if (rawT && rawT->GetAlias("raw_0") && rawT->GetEntries() > 0){
             std::vector<std::pair<std::string, double>> infoCuts = {{"1_hitZDC", -1.0}}; // (folder, KE cut in MeV, -1 none)
             for (int pct : {80}) infoCuts.push_back({"2_KECUT" + std::to_string(pct), initialKE * pct / 100.0});
             for (const auto& sc : sampleCuts) infoCuts.push_back({sc.dir, -1.0}); // no KE cut: what each cut does to every variable

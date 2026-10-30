@@ -15,7 +15,7 @@
 #include <string>
 #include <utility>
 
-#include "CutCache.h"
+#include "CutOpen.h"
 #include "DrawPlan.h"
 #include "FitCore.h"
 #include "CutFiles.h"
@@ -32,10 +32,9 @@ void PlotDiffPhiCuts(double phiLo = -180, double phiHi = -50, std::string energy
 
     TFile* fAP = TFile::Open("cuts/cut_APandT.root", "READ");
     TTree* diff = (TTree*)fAP->Get(("CalcValsReDDIFF" + suffix).c_str());
-    // ZDC protons of the CE children, from the cut cache (CutCache.h, built from the seed cut_ParentID.root): every row passes the ZDC proton cut
-    const CacheTree cachePos = GetCutTree("output0_t*.root", "ParticleInfo", {"@isParentCE", "boundaryType == 2 && pdg == 2212"});
-    TTree* pos = cachePos.tree;
-    if (!diff || !pos){Error("PlotDiffPhiCuts", "missing tree in cut_APandT.root or cut_ParentID.root"); return;}
+    // ZDC protons of the CE children, cuts/cut_ParentZdc.root (CutOpen.h): every row passes the ZDC proton cut
+    TTree* pos = OpenCut("cuts/cut_ParentZdc.root", "ParticleInfo");
+    if (!diff || !pos){Error("PlotDiffPhiCuts", "missing tree in cut_APandT.root or cut_ParentZdc.root"); return;}
 
     // Every column pull of this macro is booked here and collected in one multithreaded pass per tree (DrawPlan.h), the render code below reads the columns in entry order.
     ROOT::EnableImplicitMT(NThreads());
@@ -51,10 +50,9 @@ void PlotDiffPhiCuts(double phiLo = -180, double phiHi = -50, std::string energy
     auto cAng = plan.C(ang, {"fEvent", "TrackID", KeVar(suffix), "isFromCE", "resDRms", "r2D", "impactD", "outPhi", "outDPhi"}, angSel);
     DrawPlan::Cols cEx;
     if (ang->GetBranch("nProtonsEv")) cEx = plan.C(ang, {"resRms", "impact", "r2", "nProtonsEv", "zOrderOK", "resHalfRatioD", "outTheta*180/TMath::Pi()", "outDTheta*180/TMath::Pi()", "nHits"}, angSel);
-    // ZDC protons of the CE children (pos) and of every event (allEv), the cut caches: every row passes the ZDC proton cut
-    const CacheTree cacheAllEv = GetCutTree("output0_t*.root", "ParticleInfo", {"boundaryType == 2 && pdg == 2212"});
-    TTree* allEv = cacheAllEv.tree;
-    if (!allEv){Error("PlotDiffPhiCuts", "ParticleInfo cut caches missing (run CutEvents.cpp)"); return;}
+    // ZDC protons of the CE children (pos) and of every event (allEv), the cut files: every row passes the ZDC proton cut
+    TTree* allEv = OpenCut("cuts/cut_AllEvProtons.root", "ParticleInfo");
+    if (!allEv){Error("PlotDiffPhiCuts", "cuts/cut_AllEvProtons.root missing (run CutEvents.cpp)"); return;}
     auto cPos = plan.C(pos, {"fEvent", "ParentID", "fDx", "fDy", "fX", "fY", "TrackID"});
     auto cAllEv = plan.C(allEv, {"fEvent", "TrackID", "fDx", "fDy", "fX", "fY"});
     plan.Run();

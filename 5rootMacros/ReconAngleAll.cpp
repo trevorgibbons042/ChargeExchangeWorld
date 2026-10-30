@@ -13,7 +13,7 @@
 #include <vector>
 
 #include "QualityCut.h"
-#include "CutCache.h"
+#include "CutOpen.h"
 #include "FitCore.h"
 
 struct FitResult {double x0, y0, bx, by;
@@ -149,10 +149,10 @@ void ReconAngleAll(){
     ROOT::EnableImplicitMT(NThreads());
 
     // CE neutrons (same selection as CutEvents.cpp): event -> CE track IDs.
-    // the carbon-block CE come from the cut cache of CarbonCeCut (the seed cut_CE.root, CutCache.h): every row passes, no filter
-    const CacheTree ceCarbon = GetCutTree("output0_t*.root", "ChargeExchange_values", {CarbonCeCut()});
-    if (!ceCarbon.tree){Error("ReconAngleAll", "no cut cache for the carbon CE (run CutEvents.cpp)"); return;}
-    ROOT::RDataFrame dfCE(*ceCarbon.tree);
+    // the carbon-block CE come from cuts/cut_CE.root (CarbonCeCut, CutOpen.h): every row passes, no filter
+    TTree* ceCarbon = OpenCut("cuts/cut_CE.root", "ChargeExchange_values");
+    if (!ceCarbon){Error("ReconAngleAll", "no cuts/cut_CE.root (run CutEvents.cpp)"); return;}
+    ROOT::RDataFrame dfCE(*ceCarbon);
     std::vector<std::map<int, std::set<int>>> slotCeTracks(dfCE.GetNSlots());
     dfCE.ForeachSlot([&](unsigned slot, int eventID, int trackID){
         slotCeTracks[slot][eventID].insert(trackID);

@@ -26,7 +26,7 @@
 
 #include "FitCore.h"
 #include <TROOT.h>
-#include "CutCache.h"
+#include "CutOpen.h"
 #include "CutFiles.h"
 
 
@@ -372,9 +372,8 @@ void PlotAngle(std::string energy = "fKEnergy"){ // energy: "fKEnergy" (true KE)
         const std::string phiDir = foldermain.substr(0, foldermain.size() - 1) + "/" + keAll.front().dir + "/";
         gSystem->mkdir(phiDir.c_str(), true);
         // CE protons: every carbon-block CE of the sim (ChargeExchange_values, lab phi of the proton at the reaction), not only the ones with a recon track
-        // every carbon-block CE of the sim: the cut cache of CarbonCeCut (seed cut_CE.root), so every row passes and the cut is empty
-        const CacheTree cacheCE = GetCutTree("output0_t*.root", "ChargeExchange_values", {CarbonCeCut()});
-        TTree* rawCE = cacheCE.tree;
+        // every carbon-block CE of the sim: cuts/cut_CE.root (CarbonCeCut, CutOpen.h), so every row passes and the cut is empty
+        TTree* rawCE = OpenCut("cuts/cut_CE.root", "ChargeExchange_values");
         gROOT->cd();
         const std::string ceCut = "";
         const Long64_t nRaw = rawCE->Draw("LastAP", ceCut.c_str(), "goff");
