@@ -242,116 +242,159 @@ void ReconAngleAll(){
             double x, double y, double z, double xD, double yD, double zD, double KE, double KED, int ParentID, ULong64_t entry){
             slotTracks[slot][{eventID, trackID, pdg}].push(x, y, z, xD, yD, zD, KE, ParentID, KED, entry);
         }, {"fEvent", "TrackID", "pdg", "fX", "fY", "fZ", "fDx", "fDy", "fDz", "fKEnergy", "fDEnergy", "ParentID", "rdfentry_"});
-        // Points are sorted and de-duplicated per track below, so the merge order does not matter.
-        std::map<std::tuple<int, int, int>, Track> tracks;
-        for (auto &slotMap : slotTracks) {
-            for (auto &[key, t] : slotMap) tracks[key].append(t);
-        }
-
-        std::map<int, int> nProtonsInEvent;
-        for (const auto &kv : tracks) nProtonsInEvent[std::get<0>(kv.first)]++;
-
-        for (auto &kv : tracks) {
-            const auto &key = kv.first;
-            Track &t = kv.second; // not a structured binding: the sort lambdas below capture it, which C++17 does not allow for a binding
-            // Tracker hit order: rows in ParticleInfo come in the order the track hit them, fDz (zD) is the tracker plane z.
-            // Planes must be hit with strictly increasing z (repeat rows of the same plane are fine); 4 to 2 to 3 or 4 to 3 is dropped.
-            {
-                std::vector<std::size_t> hits;
-                for (std::size_t i = 0; i < t.size(); i++) {if (t.zD[i] != 0.0) {hits.push_back(i);}}
-                std::sort(hits.begin(), hits.end(), [&](std::size_t a, std::size_t b){return t.entry[a] < t.entry[b];});
-                bool outOfOrder = false;
-                for (std::size_t i = 1; i < hits.size() && !outOfOrder; i++) {
-                    if (t.zD[hits[i]] < t.zD[hits[i - 1]]) {outOfOrder = true;}
-                }
-                zOrderOK = outOfOrder ? 0 : 1; // out of order tracks stay in AnglesRaw for the plots, the other trees drop them below
-            }
-            { // points sorted by z (then x, y), repeats of the same position dropped
-                std::vector<std::size_t> order(t.size());
-                for (std::size_t i = 0; i < order.size(); i++) order[i] = i;
-                std::sort(order.begin(), order.end(), [&](std::size_t a, std::size_t b){
-                    if (t.z[a] != t.z[b]) return t.z[a] < t.z[b];
-                    if (t.x[a] != t.x[b]) return t.x[a] < t.x[b];
-                    return t.y[a] < t.y[b];
-                });
-                order.erase(std::unique(order.begin(), order.end(), [&](std::size_t a, std::size_t b){
-                    return t.x[a]  == t.x[b]  && t.y[a]  == t.y[b]  && t.z[a]  == t.z[b] &&
-                           t.xD[a] == t.xD[b] && t.yD[a] == t.yD[b] && t.zD[a] == t.zD[b];
-                }), order.end());
-                t = t.select(order);
-            }
-
-            if (t.size() < 2) {continue;}
-
-            const std::size_t endPoint   = std::max_element(t.z.begin(), t.z.end()) - t.z.begin();
-            const std::size_t startPoint = std::min_element(t.z.begin(), t.z.end()) - t.z.begin();
-
-            FitResult fit = fitTrack(t);
-            if (!std::isfinite(fit.bx)  || !std::isfinite(fit.by))  {continue;}
-            if (!std::isfinite(fit.bxD) || !std::isfinite(fit.byD)) {continue;}
-
-            outTheta = std::atan2(std::hypot(fit.bx, fit.by), 1.0);
-            outPhi   = std::atan2(fit.by, fit.bx);
-            if (outPhi < 0) {outPhi += 2.0 * M_PI;}
-
-            outDTheta = std::atan2(std::hypot(fit.bxD, fit.byD), 1.0);
-            outDPhi   = std::atan2(fit.byD, fit.bxD);
-            if (outDPhi < 0) {outDPhi += 2.0 * M_PI;}
-
-            outEventID = std::get<0>(key);
-            outTrackID = std::get<1>(key);
-            outPDG     = std::get<2>(key);
-
-            xVertexOut = t.x[startPoint];
-            yVertexOut = t.y[startPoint];
-            zVertexOut = t.z[startPoint];
-
-            x0Out = fit.x0;   y0Out = fit.y0;   bxOut = fit.bx;   byOut = fit.by;
-            x0DOut = fit.x0D; y0DOut = fit.y0D; bxDOut = fit.bxD; byDOut = fit.byD;
-
-            finalKE   = t.KE[endPoint];
-            finalKED  = t.KED[endPoint];
-            fParentID = t.ParentID[endPoint];
-
-            z_bx_reconVertexOut = (fit.bxD != 0) ? -fit.x0D/fit.bxD : 0;
-            z_by_reconVertexOut = (fit.byD != 0) ? -fit.y0D/fit.byD : 0;
-            z_bx_reconVertexDIFFOut = zVertexOut - z_bx_reconVertexOut;
-            z_by_reconVertexDIFFOut = zVertexOut - z_by_reconVertexOut;
-
-            auto ce = ceTracks.find(outEventID);
-            isFromCE = (ce != ceTracks.end() && ce->second.count(fParentID)) ? 1 : 0;
-
-            resRms  = ResidualRms(t, fit.x0, fit.y0, fit.bx, fit.by, false);
-            resDRms = ResidualRms(t, fit.x0D, fit.y0D, fit.bxD, fit.byD, true);
-            impact  = ImpactToAxis(fit.x0, fit.y0, fit.bx, fit.by);
-            impactD = ImpactToAxis(fit.x0D, fit.y0D, fit.bxD, fit.byD);
-            r2  = RSquared(t, fit.x0, fit.y0, fit.bx, fit.by, false);
-            r2D = RSquared(t, fit.x0D, fit.y0D, fit.bxD, fit.byD, true);
-
-            passResD = PassesBlockResidual(resDRms) ? 1 : 0; // block plots only, see QualityCut.h
-
-            outEventID = std::get<0>(key);
-            nProtonsEv = nProtonsInEvent[outEventID];
-            {
-                std::vector<std::size_t> blockHits; // tracker hits by z
-                for (std::size_t i = 0; i < t.size(); i++) {if (t.zD[i] != 0.0) {blockHits.push_back(i);}}
-                std::sort(blockHits.begin(), blockHits.end(), [&](std::size_t a, std::size_t b){return t.zD[a] < t.zD[b];});
-                nHits = (int)blockHits.size();
-                firstXD = nHits ? t.xD[blockHits.front()] : NAN; firstYD = nHits ? t.yD[blockHits.front()] : NAN;
-                resHalfRatioD = NAN;
-                if (nHits > 2) {
-                    const Track first = t.select({blockHits.begin(), blockHits.begin() + 2}), second = t.select({blockHits.begin() + 2, blockHits.end()});
-                    const double r1 = ResidualRms(first, fit.x0D, fit.y0D, fit.bxD, fit.byD, true), r2h = ResidualRms(second, fit.x0D, fit.y0D, fit.bxD, fit.byD, true);
-                    if (r1 > 0) {resHalfRatioD = r2h / r1;}
+        // The merge and the fits run on every thread: tracks are sharded by event (all tracks of an event land in one shard, so the per-event
+        // proton count is complete per shard), each shard builds its tracks, fits them and keeps the results as rows. Only the TTree fills below are serial.
+        struct Row {
+            int trackID, pdg, eventID, parentID, isFromCE, inCE, passResD, nProtonsEv, zOrderOK, nHits;
+            bool passQuality;
+            double theta, phi, dTheta, dPhi, x0, y0, bx, by, x0D, y0D, bxD, byD, finalKE, finalKED;
+            double xVertex, yVertex, zVertex, zBxRecon, zByRecon, zBxReconDIFF, zByReconDIFF;
+            double resRms, resDRms, impact, impactD, r2, r2D, firstXD, firstYD, resHalfRatioD;
+        };
+        const unsigned nShards = NThreads();
+        std::vector<std::vector<Row>> shardRows(nShards);
+        ROOT::TThreadExecutor pool;
+        pool.Foreach([&](unsigned shard){
+            // Points are sorted and de-duplicated per track below, so the merge order does not matter.
+            // Each key is taken by exactly one shard, so its Track is moved out of the slot map, not copied.
+            std::map<std::tuple<int, int, int>, Track> tracks;
+            for (auto &slotMap : slotTracks) {
+                for (auto &[key, t] : slotMap) {
+                    if ((unsigned)std::get<0>(key) % nShards != shard) continue;
+                    auto it = tracks.find(key);
+                    if (it == tracks.end()) tracks.emplace(key, std::move(t)); else it->second.append(t);
                 }
             }
 
-            outTreeRaw->Fill();
-            if (!zOrderOK) {continue;}
-            if (!PassesQuality(resRms, impact, impactD)) {continue;}
-            outTree->Fill();
-            outTreeDE->Fill();
-            if (ce != ceTracks.end()) {outTreeCE->Fill(); outTreeCEDE->Fill();}
+            std::map<int, int> nProtonsInEvent;
+            for (const auto &kv : tracks) nProtonsInEvent[std::get<0>(kv.first)]++;
+
+            std::vector<Row> &rows = shardRows[shard];
+            for (auto &kv : tracks) {
+                const auto &key = kv.first;
+                Track &t = kv.second; // not a structured binding: the sort lambdas below capture it, which C++17 does not allow for a binding
+                Row r;
+                // Tracker hit order: rows in ParticleInfo come in the order the track hit them, fDz (zD) is the tracker plane z.
+                // Planes must be hit with strictly increasing z (repeat rows of the same plane are fine); 4 to 2 to 3 or 4 to 3 is dropped.
+                {
+                    std::vector<std::size_t> hits;
+                    for (std::size_t i = 0; i < t.size(); i++) {if (t.zD[i] != 0.0) {hits.push_back(i);}}
+                    std::sort(hits.begin(), hits.end(), [&](std::size_t a, std::size_t b){return t.entry[a] < t.entry[b];});
+                    bool outOfOrder = false;
+                    for (std::size_t i = 1; i < hits.size() && !outOfOrder; i++) {
+                        if (t.zD[hits[i]] < t.zD[hits[i - 1]]) {outOfOrder = true;}
+                    }
+                    r.zOrderOK = outOfOrder ? 0 : 1; // out of order tracks stay in AnglesRaw for the plots, the other trees drop them below
+                }
+                { // points sorted by z (then x, y), repeats of the same position dropped
+                    std::vector<std::size_t> order(t.size());
+                    for (std::size_t i = 0; i < order.size(); i++) order[i] = i;
+                    std::sort(order.begin(), order.end(), [&](std::size_t a, std::size_t b){
+                        if (t.z[a] != t.z[b]) return t.z[a] < t.z[b];
+                        if (t.x[a] != t.x[b]) return t.x[a] < t.x[b];
+                        return t.y[a] < t.y[b];
+                    });
+                    order.erase(std::unique(order.begin(), order.end(), [&](std::size_t a, std::size_t b){
+                        return t.x[a]  == t.x[b]  && t.y[a]  == t.y[b]  && t.z[a]  == t.z[b] &&
+                               t.xD[a] == t.xD[b] && t.yD[a] == t.yD[b] && t.zD[a] == t.zD[b];
+                    }), order.end());
+                    t = t.select(order);
+                }
+
+                if (t.size() < 2) {continue;}
+
+                const std::size_t endPoint   = std::max_element(t.z.begin(), t.z.end()) - t.z.begin();
+                const std::size_t startPoint = std::min_element(t.z.begin(), t.z.end()) - t.z.begin();
+
+                FitResult fit = fitTrack(t);
+                if (!std::isfinite(fit.bx)  || !std::isfinite(fit.by))  {continue;}
+                if (!std::isfinite(fit.bxD) || !std::isfinite(fit.byD)) {continue;}
+
+                r.theta = std::atan2(std::hypot(fit.bx, fit.by), 1.0);
+                r.phi   = std::atan2(fit.by, fit.bx);
+                if (r.phi < 0) {r.phi += 2.0 * M_PI;}
+
+                r.dTheta = std::atan2(std::hypot(fit.bxD, fit.byD), 1.0);
+                r.dPhi   = std::atan2(fit.byD, fit.bxD);
+                if (r.dPhi < 0) {r.dPhi += 2.0 * M_PI;}
+
+                r.eventID = std::get<0>(key);
+                r.trackID = std::get<1>(key);
+                r.pdg     = std::get<2>(key);
+
+                r.xVertex = t.x[startPoint];
+                r.yVertex = t.y[startPoint];
+                r.zVertex = t.z[startPoint];
+
+                r.x0 = fit.x0;   r.y0 = fit.y0;   r.bx = fit.bx;   r.by = fit.by;
+                r.x0D = fit.x0D; r.y0D = fit.y0D; r.bxD = fit.bxD; r.byD = fit.byD;
+
+                r.finalKE  = t.KE[endPoint];
+                r.finalKED = t.KED[endPoint];
+                r.parentID = t.ParentID[endPoint];
+
+                r.zBxRecon = (fit.bxD != 0) ? -fit.x0D/fit.bxD : 0;
+                r.zByRecon = (fit.byD != 0) ? -fit.y0D/fit.byD : 0;
+                r.zBxReconDIFF = r.zVertex - r.zBxRecon;
+                r.zByReconDIFF = r.zVertex - r.zByRecon;
+
+                auto ce = ceTracks.find(r.eventID);
+                r.isFromCE = (ce != ceTracks.end() && ce->second.count(r.parentID)) ? 1 : 0;
+                r.inCE = (ce != ceTracks.end()) ? 1 : 0;
+
+                r.resRms  = ResidualRms(t, fit.x0, fit.y0, fit.bx, fit.by, false);
+                r.resDRms = ResidualRms(t, fit.x0D, fit.y0D, fit.bxD, fit.byD, true);
+                r.impact  = ImpactToAxis(fit.x0, fit.y0, fit.bx, fit.by);
+                r.impactD = ImpactToAxis(fit.x0D, fit.y0D, fit.bxD, fit.byD);
+                r.r2  = RSquared(t, fit.x0, fit.y0, fit.bx, fit.by, false);
+                r.r2D = RSquared(t, fit.x0D, fit.y0D, fit.bxD, fit.byD, true);
+
+                r.passResD = PassesBlockResidual(r.resDRms) ? 1 : 0; // block plots only, see QualityCut.h
+                r.passQuality = PassesQuality(r.resRms, r.impact, r.impactD);
+
+                r.nProtonsEv = nProtonsInEvent[r.eventID];
+                {
+                    std::vector<std::size_t> blockHits; // tracker hits by z
+                    for (std::size_t i = 0; i < t.size(); i++) {if (t.zD[i] != 0.0) {blockHits.push_back(i);}}
+                    std::sort(blockHits.begin(), blockHits.end(), [&](std::size_t a, std::size_t b){return t.zD[a] < t.zD[b];});
+                    r.nHits = (int)blockHits.size();
+                    r.firstXD = r.nHits ? t.xD[blockHits.front()] : NAN; r.firstYD = r.nHits ? t.yD[blockHits.front()] : NAN;
+                    r.resHalfRatioD = NAN;
+                    if (r.nHits > 2) {
+                        const Track first = t.select({blockHits.begin(), blockHits.begin() + 2}), second = t.select({blockHits.begin() + 2, blockHits.end()});
+                        const double r1 = ResidualRms(first, fit.x0D, fit.y0D, fit.bxD, fit.byD, true), r2h = ResidualRms(second, fit.x0D, fit.y0D, fit.bxD, fit.byD, true);
+                        if (r1 > 0) {r.resHalfRatioD = r2h / r1;}
+                    }
+                }
+                rows.push_back(r);
+            }
+        }, ROOT::TSeqU(nShards));
+        slotTracks.clear();
+
+        // TTree::Fill is not thread-safe: the branch variables are set and the trees filled one row at a time.
+        for (auto &rows : shardRows) {
+            for (const Row &r : rows) {
+                outTheta = r.theta; outPhi = r.phi; outDTheta = r.dTheta; outDPhi = r.dPhi;
+                outEventID = r.eventID; outTrackID = r.trackID; outPDG = r.pdg;
+                xVertexOut = r.xVertex; yVertexOut = r.yVertex; zVertexOut = r.zVertex;
+                x0Out = r.x0;   y0Out = r.y0;   bxOut = r.bx;   byOut = r.by;
+                x0DOut = r.x0D; y0DOut = r.y0D; bxDOut = r.bxD; byDOut = r.byD;
+                finalKE = r.finalKE; finalKED = r.finalKED; fParentID = r.parentID;
+                z_bx_reconVertexOut = r.zBxRecon; z_by_reconVertexOut = r.zByRecon;
+                z_bx_reconVertexDIFFOut = r.zBxReconDIFF; z_by_reconVertexDIFFOut = r.zByReconDIFF;
+                isFromCE = r.isFromCE;
+                resRms = r.resRms; resDRms = r.resDRms; impact = r.impact; impactD = r.impactD; r2 = r.r2; r2D = r.r2D;
+                passResD = r.passResD; nProtonsEv = r.nProtonsEv; zOrderOK = r.zOrderOK; nHits = r.nHits;
+                firstXD = r.firstXD; firstYD = r.firstYD; resHalfRatioD = r.resHalfRatioD;
+
+                outTreeRaw->Fill();
+                if (!r.zOrderOK) {continue;}
+                if (!r.passQuality) {continue;}
+                outTree->Fill();
+                outTreeDE->Fill();
+                if (r.inCE) {outTreeCE->Fill(); outTreeCEDE->Fill();}
+            }
+            rows.clear(); rows.shrink_to_fit();
         }
     }
 
