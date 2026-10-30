@@ -4,6 +4,7 @@ source ~/.zshrc
 # (0: 1_hitZDC and 2_KECUT80, 1 to 9: sampleCuts in order, 9 is the mega cut, 11_megaCut/1_megaCut). Needs the cuts/ files of run.sh (ZdcColumns,
 # CutSamples, CutTrees) and, for the rank_*.csv files, cuts/rank_rows_0 to 8.tsv of an earlier full plot.sh. Same ACLIC switch as plot.sh.
 i=${1:?usage: zsh plot_cut.sh <cut number, 0 to 9>}
+export ACLIC=${ACLIC-} # interpreted by default, like Plot.pbs: ACLiC-compiled macros fail to load on the cluster ROOT (runStaticInitializersOnce), and three processes would build the same .so. ACLIC=+O compiles.
 
 run(){
     local start=$SECONDS
