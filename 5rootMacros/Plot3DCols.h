@@ -7,9 +7,11 @@
 #include <TMath.h>
 #include <TTree.h>
 #include <ROOT/RDataFrame.hxx>
+#include <ROOT/TThreadExecutor.hxx>
 
 #include <algorithm>
 #include <functional>
+#include <iterator>
 #include <array>
 #include <cmath>
 #include <limits>
@@ -44,43 +46,65 @@ inline bool rawOk(int fEvent, int trackID, int k){
 inline double rawVal(int fEvent, int trackID, int k){return gRawVals.at({fEvent, trackID})[k];}
 
 // Fills the maps above from cuts/cut_angles_all.root and the block limits from settings.csv. False (with an Error) if the file or tree is missing.
+// one fitted proton of AnglesRaw while LoadPlot3DMaps builds the maps: its key, which sets it belongs to (bits: reco, reco block, res2) and its 17 values
+struct P3Item {std::pair<int, int> key; unsigned char flags; std::array<double, 17> a;};
 inline bool LoadPlot3DMaps(){
     TFile* fReco = TFile::Open("cuts/cut_angles_all.root", "READ");
     TTree* raw = fReco ? (TTree*)fReco->Get("AnglesRaw") : nullptr;
     if (!raw || !raw->GetBranch("passQuality")){Error("Plot3D", "missing AnglesRaw tree with passQuality in cut_angles_all.root (run ReconAngleAll.cpp first)"); return false;}
-    int ev, tid, passQuality = 0;
-    // one pass over AnglesRaw, each entry read once: the reconstructed tracks are the rows that pass the quality cut (the old Angles tree), gRawVals has every row
+    // one pass over AnglesRaw, each entry read once and on all the threads (RDataFrame): the reconstructed tracks are the rows that pass the quality cut (the old Angles tree), gRawVals has every row.
+    // Every slot collects its rows in a vector, the vectors are sorted and merged on all the threads, and the maps are built in key order (insertion at the end, no tree search), one map per thread.
     const bool withRaw = raw->GetBranch("nProtonsEv") != nullptr;
-    double v[17] = {0}; double& resDRms = v[1]; double thetaRad = 0, thetaBlockRad = 0, phiRad = 0, phiBlockRad = 0; int nP = 0, zOk = 0, nH = 0;
-    raw->SetBranchStatus("*", 0);
-    for (const char* b : {"fEvent", "TrackID", "resDRms", "passQuality"}) raw->SetBranchStatus(b, 1);
-    raw->SetBranchAddress("fEvent", &ev); raw->SetBranchAddress("TrackID", &tid);
-    raw->SetBranchAddress("passQuality", &passQuality);
-    if (!withRaw) raw->SetBranchAddress("resDRms", &resDRms);
+    const unsigned char kReco = 1, kRecoD = 2, kRes2 = 4;
+    ROOT::RDataFrame df(*raw);
+    std::vector<std::vector<P3Item>> parts(df.GetNSlots());
+    auto flagsOf = [&](int pq, double resDRms){
+        return (unsigned char)(pq ? (kReco | (PassesBlockResidual(resDRms) ? kRecoD : 0) | (resDRms < kRes2Mm ? kRes2 : 0)) : 0);
+    };
     if (withRaw){
-        for (const char* b : {"resRms", "impact", "impactD", "r2", "r2D", "nProtonsEv", "zOrderOK", "nHits", "outPhi", "outDPhi", "firstXD", "firstYD", "z_bx_reconVertexOut", "resHalfRatioD", "outTheta", "outDTheta"}) raw->SetBranchStatus(b, 1);
-        const char* dn[6] = {"resRms", "resDRms", "impact", "impactD", "r2", "r2D"};
-        for (int i = 0; i < 6; i++) raw->SetBranchAddress(dn[i], &v[i]); // v[1] is resDRms
-        raw->SetBranchAddress("nProtonsEv", &nP); raw->SetBranchAddress("zOrderOK", &zOk); raw->SetBranchAddress("nHits", &nH);
-        raw->SetBranchAddress("outPhi", &phiRad); raw->SetBranchAddress("outDPhi", &phiBlockRad);
-        raw->SetBranchAddress("firstXD", &v[12]); raw->SetBranchAddress("firstYD", &v[13]);
-        raw->SetBranchAddress("z_bx_reconVertexOut", &v[16]); raw->SetBranchAddress("resHalfRatioD", &v[8]); raw->SetBranchAddress("outTheta", &thetaRad); raw->SetBranchAddress("outDTheta", &thetaBlockRad);
-    }
-    for (Long64_t i = 0; i < raw->GetEntries(); i++){
-        raw->GetEntry(i);
-        if (passQuality){
-            gRecoTracks.insert({ev, tid});
-            if (PassesBlockResidual(resDRms)) gRecoTracksD.insert({ev, tid});
-            if (resDRms < kRes2Mm) gRes2Tracks.insert({ev, tid});
-        }
-        if (withRaw){
-            v[14] = (phiRad < 0 ? phiRad + 2 * TMath::Pi() : phiRad) * TMath::RadToDeg(); v[15] = (phiBlockRad < 0 ? phiBlockRad + 2 * TMath::Pi() : phiBlockRad) * TMath::RadToDeg();
-            v[6] = nP; v[7] = zOk; v[9] = thetaRad * TMath::RadToDeg(); v[10] = nH; v[11] = thetaBlockRad * TMath::RadToDeg();
-            std::array<double, 17> a; std::copy(v, v + 17, a.begin());
-            gRawVals[{ev, tid}] = a;
-        }
+        const double rad = TMath::RadToDeg(), twoPi = 2 * TMath::Pi();
+        df.ForeachSlot([&](unsigned slot, int ev, int tid, int pq, double resRms, double resDRms, double impact, double impactD, double r2, double r2D, int nP, int zOk, int nH,
+                           double phiRad, double phiBlockRad, double firstXD, double firstYD, double zRecon, double resHalfRatioD, double thetaRad, double thetaBlockRad){
+            P3Item it; it.key = {ev, tid}; it.flags = flagsOf(pq, resDRms);
+            double* v = it.a.data();
+            v[0] = resRms; v[1] = resDRms; v[2] = impact; v[3] = impactD; v[4] = r2; v[5] = r2D;
+            v[6] = nP; v[7] = zOk; v[8] = resHalfRatioD; v[9] = thetaRad * rad; v[10] = nH; v[11] = thetaBlockRad * rad; v[12] = firstXD; v[13] = firstYD;
+            v[14] = (phiRad < 0 ? phiRad + twoPi : phiRad) * rad; v[15] = (phiBlockRad < 0 ? phiBlockRad + twoPi : phiBlockRad) * rad; v[16] = zRecon;
+            parts[slot].push_back(it);
+        }, {"fEvent", "TrackID", "passQuality", "resRms", "resDRms", "impact", "impactD", "r2", "r2D", "nProtonsEv", "zOrderOK", "nHits",
+            "outPhi", "outDPhi", "firstXD", "firstYD", "z_bx_reconVertexOut", "resHalfRatioD", "outTheta", "outDTheta"});
+    } else {
+        df.ForeachSlot([&](unsigned slot, int ev, int tid, int pq, double resDRms){
+            if (!pq) return;
+            P3Item it; it.key = {ev, tid}; it.flags = flagsOf(pq, resDRms); it.a.fill(0); it.a[1] = resDRms;
+            parts[slot].push_back(it);
+        }, {"fEvent", "TrackID", "passQuality", "resDRms"});
     }
     fReco->Close();
+
+    ROOT::TThreadExecutor pool;
+    const auto byKey = [](const P3Item& x, const P3Item& y){return x.key < y.key;};
+    const unsigned n = (unsigned)parts.size();
+    pool.Foreach([&](unsigned s){std::sort(parts[s].begin(), parts[s].end(), byKey);}, ROOT::TSeqU(n));
+    for (unsigned step = 1; step < n; step *= 2){
+        pool.Foreach([&](unsigned k){
+            const unsigned i = k * 2 * step;
+            if (i + step >= n) return;
+            std::vector<P3Item> merged;
+            merged.reserve(parts[i].size() + parts[i + step].size());
+            std::merge(parts[i].begin(), parts[i].end(), parts[i + step].begin(), parts[i + step].end(), std::back_inserter(merged), byKey);
+            parts[i].swap(merged);
+            std::vector<P3Item>().swap(parts[i + step]);
+        }, ROOT::TSeqU((n + 2 * step - 1) / (2 * step)));
+    }
+    const std::vector<P3Item>& all = parts[0];
+    pool.Foreach([&](unsigned which){
+        if (which == 0){ if (withRaw) for (const P3Item& it : all) gRawVals.emplace_hint(gRawVals.end(), it.key, it.a); return; }
+        std::set<std::pair<int, int>>& target = which == 1 ? gRecoTracks : which == 2 ? gRecoTracksD : gRes2Tracks;
+        const unsigned char bit = which == 1 ? kReco : which == 2 ? kRecoD : kRes2;
+        for (const P3Item& it : all) if (it.flags & bit) target.emplace_hint(target.end(), it.key);
+    }, ROOT::TSeqU(4u));
+    std::vector<P3Item>().swap(parts[0]);
     FillBlockLimits(ReadSettings());
     return true;
 }
