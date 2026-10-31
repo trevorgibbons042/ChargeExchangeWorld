@@ -11,7 +11,7 @@ rsync -a --exclude __pycache__ ../5rootMacros/ "../build/root/$RUN/" || exit 1 #
 # CutPlots (KE cut lists, ZDC proton cut files, sample cut files) is on the critical path, ahead of every lane: all the cores
 cut=$(submit CutPlots cuttrees "$2" 128)
 # the lanes start after CutPlots has written the cuts/ files
-cuts=$(submit Cuts cuts "$cut")
+cuts=$(submit Cuts cuts "$cut" 128) # Plot3D runs nine processes side by side (Plot.pbs): a whole node
 fom=$(submit Fom fom "$cut")
 ce=$(submit CEblock ceblock "$cut")
 sec=$(submit SecCE secce "$cut")

@@ -44,15 +44,17 @@ esac
 for m in "${macros[@]}"; do
     echo "=== $m $(date +%H:%M:%S)"
     if [ "$m" = Plot3D.cpp ]; then
-        # the independent parts of Plot3D (P3_PART, P3_CUT, Plot3D.cpp) side by side: parts 1, 3 and 4, and part 2 once per cut (0 to 5), then part 5 ranks the cuts
-        export ANA_NTHREADS=$(( ${NCPUS:-16} / 12 > 0 ? ${NCPUS:-16} / 12 : 1 ))
-        for run in 1 3 4 2:0 2:1 2:2 2:3 2:4 2:5; do
+        # the independent parts of Plot3D (P3_PART, P3_CUT, Plot3D.cpp) side by side, one process each: parts 1, 3 and 4, and part 2 once per cut (0 to 5), then part 5 ranks the cuts
+        # the cores are split evenly over the processes (128 cpus: 9 processes of 14 threads), part 5 and QualityStudy then take all of them
+        parts=(1 3 4 2:0 2:1 2:2 2:3 2:4 2:5)
+        export ANA_NTHREADS=$(( ${NCPUS:-16} / ${#parts[@]} > 0 ? ${NCPUS:-16} / ${#parts[@]} : 1 ))
+        for run in "${parts[@]}"; do
             ( cut=; [[ $run == *:* ]] && cut=${run#*:}; P3_PART=${run%%:*} P3_CUT=$cut root -l -b -q "${m/.cpp/.cpp${ACLIC-+O}}" > Plot3D_part${run/:/_}.log 2>&1; echo "part $run exit $?" ) &
         done
         wait
+        export ANA_NTHREADS=${NCPUS:-16}
         P3_PART=5 P3_CUT= root -l -b -q "${m/.cpp/.cpp${ACLIC-+O}}" > Plot3D_part5.log 2>&1
         tail -n 3 Plot3D_part*.log
-        export ANA_NTHREADS=${NCPUS:-16}
         continue
     fi
     time root -l -b -q "${m/.cpp/.cpp${ACLIC-+O}}" # compiled with ACLiC (+O) unless ACLIC= (empty)
