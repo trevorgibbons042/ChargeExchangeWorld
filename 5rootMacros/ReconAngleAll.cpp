@@ -31,17 +31,16 @@ struct Track {
     std::vector<int> ParentID;
     std::vector<ULong64_t> entry;
     std::size_t size() const {return z.size();}
+    void clear(){ // empties the track and keeps the capacity, so one Track serves every track of a shard without new allocations
+        x.clear(); y.clear(); z.clear(); xD.clear(); yD.clear(); zD.clear();
+        KE.clear(); KED.clear(); ParentID.clear(); entry.clear();
+    }
     void push(double x_, double y_, double z_, double xD_, double yD_, double zD_, double KE_, int parent, double KED_, ULong64_t entry_){
         x.push_back(x_); y.push_back(y_); z.push_back(z_); xD.push_back(xD_); yD.push_back(yD_); zD.push_back(zD_);
         KE.push_back(KE_); ParentID.push_back(parent); KED.push_back(KED_); entry.push_back(entry_);
     }
     void append(const Track& o){
         for (std::size_t i = 0; i < o.size(); i++) push(o.x[i], o.y[i], o.z[i], o.xD[i], o.yD[i], o.zD[i], o.KE[i], o.ParentID[i], o.KED[i], o.entry[i]);
-    }
-    Track select(const std::vector<std::size_t>& idx) const { // the points idx, in that order
-        Track t;
-        for (std::size_t i : idx) t.push(x[i], y[i], z[i], xD[i], yD[i], zD[i], KE[i], ParentID[i], KED[i], entry[i]);
-        return t;
     }
 };
 
@@ -112,36 +111,38 @@ FitResult fitTrack(const Track& t){
     return fit;
 }
 
-// RMS transverse distance (mm) of the points to the fitted line x = x0 + bx z, y = y0 + by z. block: only the detector block points (zD != 0), at their block positions.
-static double ResidualRms(const Track& t, double x0, double y0, double bx, double by, bool block){
-    double sum = 0.0; int n = 0;
-    for (std::size_t i = 0; i < t.size(); i++) {
-        const double x = block ? t.xD[i] : t.x[i], y = block ? t.yD[i] : t.y[i], z = block ? t.zD[i] : t.z[i];
-        if (block && z == 0.0) {continue;}
-        sum += std::pow(x - (x0 + bx * z), 2) + std::pow(y - (y0 + by * z), 2);
-        n++;
-    }
-    return n > 0 ? std::sqrt(sum / n) : NAN;
-}
-
-// R^2 of the same line fit, x and y together: 1 - sum of squared residuals / sum of squared deviations from the mean hit position.
-// Same points as ResidualRms. NAN with fewer than 3 points or no spread.
-static double RSquared(const Track& t, double x0, double y0, double bx, double by, bool block){
+// RMS transverse distance (mm) of the points to the fitted line x = x0 + bx z, y = y0 + by z, and the R^2 of the same line fit, x and y together:
+// 1 - sum of squared residuals / sum of squared deviations from the mean hit position. block: only the detector block points (zD != 0), at their block positions.
+// rms is NAN with no points; r2 is NAN with fewer than 3 points or no spread. One function for both: the mean position and the residuals are one pass each.
+static void FitQuality(const Track& t, double x0, double y0, double bx, double by, bool block, double& rms, double& r2){
     double sx = 0, sy = 0; int n = 0;
     for (std::size_t i = 0; i < t.size(); i++) {
         if (block && t.zD[i] == 0.0) {continue;}
         sx += block ? t.xD[i] : t.x[i]; sy += block ? t.yD[i] : t.y[i]; n++;
     }
-    if (n < 3) {return NAN;}
+    if (n == 0) {rms = NAN; r2 = NAN; return;}
     const double mx = sx / n, my = sy / n;
     double ssRes = 0, ssTot = 0;
     for (std::size_t i = 0; i < t.size(); i++) {
+        if (block && t.zD[i] == 0.0) {continue;}
         const double x = block ? t.xD[i] : t.x[i], y = block ? t.yD[i] : t.y[i], z = block ? t.zD[i] : t.z[i];
-        if (block && z == 0.0) {continue;}
-        ssRes += std::pow(x - (x0 + bx * z), 2) + std::pow(y - (y0 + by * z), 2);
-        ssTot += std::pow(x - mx, 2) + std::pow(y - my, 2);
+        const double rx = x - (x0 + bx * z), ry = y - (y0 + by * z);
+        ssRes += rx * rx + ry * ry;
+        ssTot += (x - mx) * (x - mx) + (y - my) * (y - my);
     }
-    return ssTot > 0 ? 1.0 - ssRes / ssTot : NAN;
+    rms = std::sqrt(ssRes / n);
+    r2 = (n >= 3 && ssTot > 0) ? 1.0 - ssRes / ssTot : NAN;
+}
+
+// RMS transverse distance (mm) of the block hits hits[lo] to hits[hi - 1] (indices into t, all with zD != 0) to the line x = x0 + bx z, y = y0 + by z, at their block positions. NAN with no hits.
+static double ResidualRmsHits(const Track& t, const std::vector<std::size_t>& hits, std::size_t lo, std::size_t hi, double x0, double y0, double bx, double by){
+    double sum = 0.0;
+    for (std::size_t k = lo; k < hi; k++) {
+        const std::size_t i = hits[k];
+        const double rx = t.xD[i] - (x0 + bx * t.zD[i]), ry = t.yD[i] - (y0 + by * t.zD[i]);
+        sum += rx * rx + ry * ry;
+    }
+    return hi > lo ? std::sqrt(sum / (hi - lo)) : NAN;
 }
 
 // Closest approach (mm) of the line x = x0 + bx z, y = y0 + by z to the beam axis (x = y = 0).
@@ -184,13 +185,16 @@ void ReconAngleAll(){
     const unsigned filesPerPass = std::getenv("ANA_FILES_PER_PASS") ? std::max(1, std::atoi(std::getenv("ANA_FILES_PER_PASS"))) : 32;
     std::vector<std::string> rawNames;
     for (const TObject* rawFile : *rawFiles.GetListOfFiles()) rawNames.push_back(rawFile->GetTitle());
+    const unsigned nShards = NThreads();
     for (size_t first = 0; first < rawNames.size(); first += filesPerPass) {
         TChain group("ParticleInfo");
         for (size_t i = first; i < std::min(rawNames.size(), first + filesPerPass); i++) group.Add(rawNames[i].c_str());
         ROOT::RDataFrame df(group);
 
         const auto tRead0 = Clock::now();
-        std::vector<std::vector<Point>> slotPoints(df.GetNSlots());
+        // The read puts every point straight into the bucket of its shard (event % nShards) of its slot: all the tracks of an event land in one shard, so the per-event
+        // proton count is complete per shard, and a shard reads only its own buckets (a shard that looked through every point of every slot would scan all of them, nShards times over).
+        std::vector<std::vector<std::vector<Point>>> buckets(df.GetNSlots(), std::vector<std::vector<Point>>(nShards));
         // boundaryType 2 is the ZDC row, left out of the fit points; protons that never reach the ZDC are reconstructed too
         // The selection is a typed Filter lambda, not a Filter string: a string Filter is JIT-compiled, which fails on a ROOT whose cling cannot materialize libc++ symbols (the Mac).
         // A Filter node, unlike a test inside the ForeachSlot lambda, reads the other branches only for rows that pass (protons), not for every particle row.
@@ -198,31 +202,23 @@ void ReconAngleAll(){
           .ForeachSlot([&](unsigned slot,
             int eventID, int trackID, int pdg,
             double x, double y, double z, double xD, double yD, double zD, double KE, double KED, int ParentID, ULong64_t entry){
-            slotPoints[slot].push_back({eventID, trackID, pdg, ParentID, x, y, z, xD, yD, zD, KE, KED, entry});
+            buckets[slot][(unsigned)eventID % nShards].push_back({eventID, trackID, pdg, ParentID, x, y, z, xD, yD, zD, KE, KED, entry});
         }, {"fEvent", "TrackID", "pdg", "fX", "fY", "fZ", "fDx", "fDy", "fDz", "fKEnergy", "fDEnergy", "ParentID", "rdfentry_"});
-        // The merge and the fits run on every thread: tracks are sharded by event (all tracks of an event land in one shard, so the per-event
-        // proton count is complete per shard), each shard builds its tracks, fits them and keeps the results as rows. Only the TTree fills below are serial.
+        // The fits run on every thread: each shard builds its tracks, fits them and keeps the results as rows. Only the TTree fills below are serial.
         struct Row {
             int trackID, pdg, eventID, parentID, isFromCE, inCE, passResD, nProtonsEv, nHits;
             double theta, phi, dTheta, dPhi, x0, y0, bx, by, x0D, y0D, bxD, byD, finalKE, finalKED;
             double xVertex, yVertex, zVertex, zBxRecon, zByRecon, zBxReconDIFF, zByReconDIFF;
             double resRms, resDRms, impact, impactD, r2, r2D, firstXD, firstYD, resHalfRatioD;
         };
-        const unsigned nShards = NThreads();
         std::vector<std::vector<Row>> shardRows(nShards);
         const auto tFit0 = Clock::now(); // the event loop above is the read
         ROOT::TThreadExecutor pool;
-        // Sort the points of every slot into the bucket of their shard once, one slot per thread: a shard then reads only its own buckets
-        // (a shard that looked through every point of every slot would scan all of them, nShards times over).
-        std::vector<std::vector<std::vector<Point>>> buckets(slotPoints.size(), std::vector<std::vector<Point>>(nShards));
-        pool.Foreach([&](unsigned slot){
-            for (const Point &p : slotPoints[slot]) buckets[slot][(unsigned)p.eventID % nShards].push_back(p);
-            slotPoints[slot].clear(); slotPoints[slot].shrink_to_fit();
-        }, ROOT::TSeqU((unsigned)slotPoints.size()));
         pool.Foreach([&](unsigned shard){
             // Points are sorted and de-duplicated per track below, so the merge order does not matter.
             // Every point of an event is in the buckets of one shard, so the shard builds its tracks alone: its points go in one flat vector, sorted by track
             // and then by z (then x, y, ...), so a track is a run of rows with its points already in order. That is cheaper than a std::map of growing vectors.
+            // pdg is 2212 for every point (the Filter of the read), so it is not part of the sort or of the track key.
             std::vector<Point> pts;
             std::size_t nPts = 0;
             for (const auto &slotBuckets : buckets) nPts += slotBuckets[shard].size();
@@ -231,33 +227,42 @@ void ReconAngleAll(){
                 pts.insert(pts.end(), slotBuckets[shard].begin(), slotBuckets[shard].end());
                 slotBuckets[shard].clear(); slotBuckets[shard].shrink_to_fit();
             }
-            std::sort(pts.begin(), pts.end(), [](const Point &a, const Point &b){
-                return std::tie(a.eventID, a.trackID, a.pdg, a.z, a.x, a.y, a.zD, a.xD, a.yD, a.entry) < std::tie(b.eventID, b.trackID, b.pdg, b.z, b.x, b.y, b.zD, b.xD, b.yD, b.entry);
+            // The sort moves 24-byte keys (event and track packed in one word, then z), not the Points. The other position fields only break ties,
+            // so points of equal z keep the order of the full comparison.
+            struct Key {ULong64_t track; double z; std::uint32_t idx;};
+            std::vector<Key> keys(pts.size());
+            for (std::size_t i = 0; i < pts.size(); i++) {
+                keys[i] = {(ULong64_t(std::uint32_t(pts[i].eventID)) << 32) | std::uint32_t(pts[i].trackID), pts[i].z, std::uint32_t(i)};
+            }
+            std::sort(keys.begin(), keys.end(), [&](const Key &a, const Key &b){
+                if (a.track != b.track) return a.track < b.track;
+                if (a.z != b.z) return a.z < b.z;
+                const Point &p = pts[a.idx], &q = pts[b.idx];
+                return std::tie(p.x, p.y, p.zD, p.xD, p.yD, p.entry) < std::tie(q.x, q.y, q.zD, q.xD, q.yD, q.entry);
             });
+            auto at = [&](std::size_t i) -> const Point& {return pts[keys[i].idx];}; // the i-th point in sorted order
             // the runs of one track (begin, end), and the number of tracks of the event of each: every run counts, also one that is dropped below
             std::vector<std::pair<std::size_t, std::size_t>> runs;
-            for (std::size_t i = 0, j; i < pts.size(); i = j) {
-                for (j = i + 1; j < pts.size() && pts[j].eventID == pts[i].eventID && pts[j].trackID == pts[i].trackID && pts[j].pdg == pts[i].pdg; j++) {}
+            for (std::size_t i = 0, j; i < keys.size(); i = j) {
+                for (j = i + 1; j < keys.size() && keys[j].track == keys[i].track; j++) {}
                 runs.emplace_back(i, j);
             }
             std::vector<int> nProtonsInEvent(runs.size());
             for (std::size_t i = 0, j; i < runs.size(); i = j) {
-                for (j = i + 1; j < runs.size() && pts[runs[j].first].eventID == pts[runs[i].first].eventID; j++) {}
+                for (j = i + 1; j < runs.size() && (keys[runs[j].first].track >> 32) == (keys[runs[i].first].track >> 32); j++) {}
                 for (std::size_t k = i; k < j; k++) nProtonsInEvent[k] = int(j - i);
             }
 
             std::vector<Row> &rows = shardRows[shard];
+            Track t; // the points of the track in z order, repeats of the same position dropped; one Track for the whole shard, emptied for every track
+            std::vector<std::size_t> blockHits; // tracker hits by z, reused the same way
             for (std::size_t run = 0; run < runs.size(); run++) {
-                const auto key = std::make_tuple(pts[runs[run].first].eventID, pts[runs[run].first].trackID, pts[runs[run].first].pdg);
-                Track t; // the points of the track in z order, repeats of the same position dropped
-                t.x.reserve(runs[run].second - runs[run].first); t.y.reserve(runs[run].second - runs[run].first); t.z.reserve(runs[run].second - runs[run].first);
-                t.xD.reserve(runs[run].second - runs[run].first); t.yD.reserve(runs[run].second - runs[run].first); t.zD.reserve(runs[run].second - runs[run].first);
-                t.KE.reserve(runs[run].second - runs[run].first); t.KED.reserve(runs[run].second - runs[run].first);
-                t.ParentID.reserve(runs[run].second - runs[run].first); t.entry.reserve(runs[run].second - runs[run].first);
+                const auto key = std::make_tuple(at(runs[run].first).eventID, at(runs[run].first).trackID, at(runs[run].first).pdg);
+                t.clear();
                 for (std::size_t i = runs[run].first; i < runs[run].second; i++) {
-                    const Point &p = pts[i];
+                    const Point &p = at(i);
                     if (i > runs[run].first) {
-                        const Point &q = pts[i - 1];
+                        const Point &q = at(i - 1);
                         if (p.x == q.x && p.y == q.y && p.z == q.z && p.xD == q.xD && p.yD == q.yD && p.zD == q.zD) continue;
                     }
                     t.push(p.x, p.y, p.z, p.xD, p.yD, p.zD, p.KE, p.parentID, p.KED, p.entry);
@@ -304,26 +309,23 @@ void ReconAngleAll(){
                 r.isFromCE = (ce != ceTracks.end() && ce->second.count(r.parentID)) ? 1 : 0;
                 r.inCE = (ce != ceTracks.end()) ? 1 : 0;
 
-                r.resRms  = ResidualRms(t, fit.x0, fit.y0, fit.bx, fit.by, false);
-                r.resDRms = ResidualRms(t, fit.x0D, fit.y0D, fit.bxD, fit.byD, true);
+                FitQuality(t, fit.x0, fit.y0, fit.bx, fit.by, false, r.resRms, r.r2);
+                FitQuality(t, fit.x0D, fit.y0D, fit.bxD, fit.byD, true, r.resDRms, r.r2D);
                 r.impact  = ImpactToAxis(fit.x0, fit.y0, fit.bx, fit.by);
                 r.impactD = ImpactToAxis(fit.x0D, fit.y0D, fit.bxD, fit.byD);
-                r.r2  = RSquared(t, fit.x0, fit.y0, fit.bx, fit.by, false);
-                r.r2D = RSquared(t, fit.x0D, fit.y0D, fit.bxD, fit.byD, true);
 
                 r.passResD = PassesBlockResidual(r.resDRms) ? 1 : 0; // block plots only, see QualityCut.h
 
                 r.nProtonsEv = nProtonsInEvent[run];
                 {
-                    std::vector<std::size_t> blockHits; // tracker hits by z
+                    blockHits.clear();
                     for (std::size_t i = 0; i < t.size(); i++) {if (t.zD[i] != 0.0) {blockHits.push_back(i);}}
                     std::sort(blockHits.begin(), blockHits.end(), [&](std::size_t a, std::size_t b){return t.zD[a] < t.zD[b];});
                     r.nHits = (int)blockHits.size();
                     r.firstXD = r.nHits ? t.xD[blockHits.front()] : NAN; r.firstYD = r.nHits ? t.yD[blockHits.front()] : NAN;
                     r.resHalfRatioD = NAN;
                     if (r.nHits > 2) {
-                        const Track first = t.select({blockHits.begin(), blockHits.begin() + 2}), second = t.select({blockHits.begin() + 2, blockHits.end()});
-                        const double r1 = ResidualRms(first, fit.x0D, fit.y0D, fit.bxD, fit.byD, true), r2h = ResidualRms(second, fit.x0D, fit.y0D, fit.bxD, fit.byD, true);
+                        const double r1 = ResidualRmsHits(t, blockHits, 0, 2, fit.x0D, fit.y0D, fit.bxD, fit.byD), r2h = ResidualRmsHits(t, blockHits, 2, blockHits.size(), fit.x0D, fit.y0D, fit.bxD, fit.byD);
                         if (r1 > 0) {r.resHalfRatioD = r2h / r1;}
                     }
                 }
@@ -354,7 +356,7 @@ void ReconAngleAll(){
         int passResD = 1; // block residual cut, cut on only by the block plots (QualityCut.h)
         int isFromCE;
         int inCE; // event has a carbon CE (1/0)
-            
+
     tree->Branch("TrackID", &outTrackID);
     tree->Branch("PDG", &outPDG);
     tree->Branch("fEvent", &outEventID);
