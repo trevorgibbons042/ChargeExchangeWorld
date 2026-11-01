@@ -20,27 +20,29 @@
 #include <chrono>
 
 // One proton point as the read pass sees it. The read keeps these flat per slot; the tracks are built from them later, in parallel (a std::map per slot made the read as slow as the fits).
-struct Point {int eventID, trackID, pdg, parentID; double x, y, z, xD, yD, zD, KE, KED; ULong64_t entry;};
+struct Point {int eventID, trackID, pdg, parentID; double x, y, z, xD, yD, zD; ULong64_t entry;};
+// The ZDC row of a proton (boundaryType 2), the only place a KE is taken from: key is the event in the high 32 bits and the trackID in the low 32 bits, KE the true KE and KED the smeared one.
+struct ZdcHit {ULong64_t key; double KE, KED;};
 
 struct FitResult {double x0, y0, bx, by;
     double x0D, y0D, bxD, byD;};
-// The points of one track as a struct of arrays: point i is (x[i], y[i], z[i], ...), one array per quantity. KE: true KE, KED: detector KE,
+// The points of one track as a struct of arrays: point i is (x[i], y[i], z[i], ...), one array per quantity.
 // entry: row number in ParticleInfo (rows of a track are written in the order it hit them).
 struct Track {
-    std::vector<double> x, y, z, xD, yD, zD, KE, KED;
+    std::vector<double> x, y, z, xD, yD, zD;
     std::vector<int> ParentID;
     std::vector<ULong64_t> entry;
     std::size_t size() const {return z.size();}
     void clear(){ // empties the track and keeps the capacity, so one Track serves every track of a shard without new allocations
         x.clear(); y.clear(); z.clear(); xD.clear(); yD.clear(); zD.clear();
-        KE.clear(); KED.clear(); ParentID.clear(); entry.clear();
+        ParentID.clear(); entry.clear();
     }
-    void push(double x_, double y_, double z_, double xD_, double yD_, double zD_, double KE_, int parent, double KED_, ULong64_t entry_){
+    void push(double x_, double y_, double z_, double xD_, double yD_, double zD_, int parent, ULong64_t entry_){
         x.push_back(x_); y.push_back(y_); z.push_back(z_); xD.push_back(xD_); yD.push_back(yD_); zD.push_back(zD_);
-        KE.push_back(KE_); ParentID.push_back(parent); KED.push_back(KED_); entry.push_back(entry_);
+        ParentID.push_back(parent); entry.push_back(entry_);
     }
     void append(const Track& o){
-        for (std::size_t i = 0; i < o.size(); i++) push(o.x[i], o.y[i], o.z[i], o.xD[i], o.yD[i], o.zD[i], o.KE[i], o.ParentID[i], o.KED[i], o.entry[i]);
+        for (std::size_t i = 0; i < o.size(); i++) push(o.x[i], o.y[i], o.z[i], o.xD[i], o.yD[i], o.zD[i], o.ParentID[i], o.entry[i]);
     }
 };
 
@@ -151,7 +153,7 @@ static double ImpactToAxis(double x0, double y0, double bx, double by){
     return slope > 0 ? std::fabs(x0 * by - y0 * bx) / slope : std::hypot(x0, y0);
 }
 
-// One pass fits every proton and writes the tree AnglesRaw with the true (finalKE) and the detector (finalKED) KE of the track end.
+// One pass fits every proton and writes the tree AnglesRaw with the true (finalKE) and the smeared (finalKED) KE at the ZDC, NAN for a track that never hit the ZDC.
 void ReconAngleAll(){
     using Clock = std::chrono::steady_clock;
     const auto tStart = Clock::now();
@@ -174,7 +176,7 @@ void ReconAngleAll(){
     }
 
     // One proton tree: every recon proton before the quality cut (QualityStudy.cpp). The old trees Angles, AnglesCE and their _DE copies are views of it
-    // (AngleSelection, CutFiles.h): inCE picks the rows, finalKE / finalKED the true / detector KE.
+    // (AngleSelection, CutFiles.h): inCE picks the rows, finalKE / finalKED the true / smeared ZDC KE.
     // The file is written through a TBufferMerger: the shards fill their own trees on all the threads (see the write below).
     ROOT::TBufferMerger merger("cuts/cut_angles_all.root", "RECREATE");
 
@@ -195,15 +197,20 @@ void ReconAngleAll(){
         // The read puts every point straight into the bucket of its shard (event % nShards) of its slot: all the tracks of an event land in one shard, so the per-event
         // proton count is complete per shard, and a shard reads only its own buckets (a shard that looked through every point of every slot would scan all of them, nShards times over).
         std::vector<std::vector<std::vector<Point>>> buckets(df.GetNSlots(), std::vector<std::vector<Point>>(nShards));
-        // boundaryType 1 (tracker exit, older sim runs only) and 2 (ZDC) are left out of the fit points, so a tracker hit is its entry row (boundaryType 0) only; protons that never reach the ZDC are reconstructed too
+        // boundaryType 1 (tracker exit, older sim runs only) is left out. A ZDC row (boundaryType 2) is not a fit point: it goes to zdcBuckets, the only source of a KE (the trackers give none),
+        // so a tracker hit is its entry row (boundaryType 0) only; particles that never reach the ZDC are reconstructed too, with KE NAN.
+        // The sim writes only charged particles (6detector.cc, 9stepping.cc), so every pdg passes: no pdg test here.
         // The selection is a typed Filter lambda, not a Filter string: a string Filter is JIT-compiled, which fails on a ROOT whose cling cannot materialize libc++ symbols (the Mac).
-        // A Filter node, unlike a test inside the ForeachSlot lambda, reads the other branches only for rows that pass (protons), not for every particle row.
-        df.Filter([](int pdg, int boundaryType){return pdg == 2212 && boundaryType != 1 && boundaryType != 2;}, {"pdg", "boundaryType"})
+        // A Filter node, unlike a test inside the ForeachSlot lambda, reads the other branches only for rows that pass, not for every particle row.
+        std::vector<std::vector<std::vector<ZdcHit>>> zdcBuckets(df.GetNSlots(), std::vector<std::vector<ZdcHit>>(nShards));
+        df.Filter([](int boundaryType){return boundaryType != 1;}, {"boundaryType"})
           .ForeachSlot([&](unsigned slot,
-            int eventID, int trackID, int pdg,
+            int boundaryType, int eventID, int trackID, int pdg,
             double x, double y, double z, double xD, double yD, double zD, double KE, double KED, int ParentID, ULong64_t entry){
-            buckets[slot][(unsigned)eventID % nShards].push_back({eventID, trackID, pdg, ParentID, x, y, z, xD, yD, zD, KE, KED, entry});
-        }, {"fEvent", "TrackID", "pdg", "fX", "fY", "fZ", "fDx", "fDy", "fDz", "fKEnergy", "fDEnergy", "ParentID", "rdfentry_"});
+            const unsigned shard = (unsigned)eventID % nShards;
+            if (boundaryType == 2) {zdcBuckets[slot][shard].push_back({(ULong64_t(std::uint32_t(eventID)) << 32) | std::uint32_t(trackID), KE, KED}); return;}
+            buckets[slot][shard].push_back({eventID, trackID, pdg, ParentID, x, y, z, xD, yD, zD, entry});
+        }, {"boundaryType", "fEvent", "TrackID", "pdg", "fX", "fY", "fZ", "fDx", "fDy", "fDz", "fKEnergy", "fDEnergy", "ParentID", "rdfentry_"});
         // The fits run on every thread: each shard builds its tracks, fits them and keeps the results as rows. Only the TTree fills below are serial.
         struct Row {
             int trackID, pdg, eventID, parentID, isFromCE, inCE, passResD, nProtonsEv, nHits;
@@ -218,7 +225,7 @@ void ReconAngleAll(){
             // Points are sorted and de-duplicated per track below, so the merge order does not matter.
             // Every point of an event is in the buckets of one shard, so the shard builds its tracks alone: its points go in one flat vector, sorted by track
             // and then by z (then x, y, ...), so a track is a run of rows with its points already in order. That is cheaper than a std::map of growing vectors.
-            // pdg is 2212 for every point (the Filter of the read), so it is not part of the sort or of the track key.
+            // pdg is not part of the sort or of the track key: a trackID is unique within an event, so it fixes the particle.
             std::vector<Point> pts;
             std::size_t nPts = 0;
             for (const auto &slotBuckets : buckets) nPts += slotBuckets[shard].size();
@@ -227,6 +234,13 @@ void ReconAngleAll(){
                 pts.insert(pts.end(), slotBuckets[shard].begin(), slotBuckets[shard].end());
                 slotBuckets[shard].clear(); slotBuckets[shard].shrink_to_fit();
             }
+            // The ZDC rows of the shard, sorted by track key: a track's KE is looked up here, a track without a row never hit the ZDC. A particle is killed at the ZDC, so a track has one row.
+            std::vector<ZdcHit> zdc;
+            for (auto &slotZdc : zdcBuckets) {
+                zdc.insert(zdc.end(), slotZdc[shard].begin(), slotZdc[shard].end());
+                slotZdc[shard].clear(); slotZdc[shard].shrink_to_fit();
+            }
+            std::sort(zdc.begin(), zdc.end(), [](const ZdcHit &a, const ZdcHit &b){return a.key < b.key;});
             // The sort moves 24-byte keys (event and track packed in one word, then z), not the Points. The other position fields only break ties,
             // so points of equal z keep the order of the full comparison.
             struct Key {ULong64_t track; double z; std::uint32_t idx;};
@@ -265,7 +279,7 @@ void ReconAngleAll(){
                         const Point &q = at(i - 1);
                         if (p.x == q.x && p.y == q.y && p.z == q.z && p.xD == q.xD && p.yD == q.yD && p.zD == q.zD) continue;
                     }
-                    t.push(p.x, p.y, p.z, p.xD, p.yD, p.zD, p.KE, p.parentID, p.KED, p.entry);
+                    t.push(p.x, p.y, p.z, p.xD, p.yD, p.zD, p.parentID, p.entry);
                 }
                 Row r;
                 if (t.size() < 2) {continue;}
@@ -296,8 +310,12 @@ void ReconAngleAll(){
                 r.x0 = fit.x0;   r.y0 = fit.y0;   r.bx = fit.bx;   r.by = fit.by;
                 r.x0D = fit.x0D; r.y0D = fit.y0D; r.bxD = fit.bxD; r.byD = fit.byD;
 
-                r.finalKE  = t.KE[endPoint];
-                r.finalKED = t.KED[endPoint];
+                // KE only from the ZDC row of this track (true KE and the smeared one); NAN when the track never hit the ZDC
+                const ULong64_t trackKey = (ULong64_t(std::uint32_t(r.eventID)) << 32) | std::uint32_t(r.trackID);
+                const auto zdcRow = std::lower_bound(zdc.begin(), zdc.end(), trackKey, [](const ZdcHit &h, ULong64_t k){return h.key < k;});
+                const bool hitZdc = zdcRow != zdc.end() && zdcRow->key == trackKey;
+                r.finalKE  = hitZdc ? zdcRow->KE : NAN;
+                r.finalKED = hitZdc ? zdcRow->KED : NAN;
                 r.parentID = t.ParentID[endPoint];
 
                 r.zBxRecon = (fit.bxD != 0) ? -fit.x0D/fit.bxD : 0;
@@ -347,7 +365,7 @@ void ReconAngleAll(){
         double xVertexOut, yVertexOut, zVertexOut;
         double z_bx_reconVertexOut, z_by_reconVertexOut;
         double z_bx_reconVertexDIFFOut, z_by_reconVertexDIFFOut;
-        double finalKE, finalKED; // true and detector KE of the track end
+        double finalKE, finalKED; // true and smeared KE at the ZDC, NAN without a ZDC hit
         double resRms, resDRms, impact, impactD; // quality variables, see QualityCut.h
         double r2, r2D; // R^2 of the line fit (true and block position), plotted by QualityStudy.cpp, not cut on
         double firstXD = NAN, firstYD = NAN; // block position (mm) of the first tracker hit (lowest z)

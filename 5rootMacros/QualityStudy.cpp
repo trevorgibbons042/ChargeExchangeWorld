@@ -154,7 +154,7 @@ void QualityStudy(double keepCE = 0.95){
     // Cut candidates, plotted only (nothing is cut): CE vs recon protons, one folder each, from all of AnglesRaw
     struct Cand {std::string branch, folder, label; double lo, hi; int nBins;};
     const std::vector<Cand> cands = {
-        {"nProtonsEv", "4_nProtons", "protons with a track in the event", -0.5, 19.5, 20},
+        {"nProtonsEv", "4_nParticles", "reconstructed particles in the event", -0.5, 19.5, 20},
         {"nHits", "5_nHits", "tracker hits", -0.5, 10.5, 11}};
     {
         if (hasCand){
@@ -213,7 +213,8 @@ void QualityStudy(double keepCE = 0.95){
                             candRecon[i].size(), reAfter, 100.0 * (1.0 - double(reAfter) / candRecon[i].size()));
                     fclose(hf);
                 }
-                c.SaveAs((cdir + (cd.branch == "thetaBlock" ? "2_" : "1_") + cd.branch + ".pdf").c_str());
+                if (cd.branch != "nHits") // no pdf for the tracker hits: Plot3D draws it with all three samples (5_nHits_nHits); only the csv above is kept
+                    c.SaveAs((cdir + (cd.branch == "thetaBlock" ? "2_" : "1_") + cd.branch + ".pdf").c_str());
             }
         }
     }

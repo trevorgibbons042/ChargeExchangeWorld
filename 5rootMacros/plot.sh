@@ -48,7 +48,7 @@ export ANA_NTHREADS=$(( NCPU / 4 > 0 ? NCPU / 4 : 1 ))
     run 'PlotFomPolarization.cpp("fDEnergy")'
 } &
 { # 4_CEblock
-    run 'PlotDiffPhiCuts.cpp(-180, -50, "fDEnergy")'
+    run 'PlotDiffPhiCuts.cpp(50, 180, "fDEnergy")'
     run 'GraphBlocks.cpp'
     run 'CETCompare.cpp' # t and z of the CE in the carbon blocks vs the silicon trackers, plots/4_CEblock/1_CarbonVsSi
 } &

@@ -60,6 +60,7 @@ void CutEvents(){
         std::vector<ROOT::RDF::RResultHandle> handles;
         handles.emplace_back(df.Filter(inEvent, {"fEvent"}).Snapshot(pInfo, "cuts/cut_CE.root", "", lazy));
         handles.emplace_back(df.Filter("boundaryType == 2 && pdg == 2212").Snapshot(pInfo, "cuts/cut_AllEvProtons.root", "", lazy));
+        handles.emplace_back(df.Filter("boundaryType == 2").Snapshot(pInfo, "cuts/cut_AllEvParticles.root", "", lazy)); // every particle the sim records (charged) at the ZDC, any pdg
         handles.emplace_back(dfCEAll.Snapshot(ceTree, "cuts/cut_CEall.root", "", lazy)); // every CE of the sim (the whole ChargeExchange_values tree, one row per CE)
         ROOT::RDF::RunGraphs(handles);
     }
