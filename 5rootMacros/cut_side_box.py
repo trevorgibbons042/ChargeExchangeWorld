@@ -2,7 +2,7 @@
 """Adds a side box to every pdf under plots/6_cuts/<cut>/ (called by plot.sh after tidy_plots.py).
 
 The box lists the numbers of the plot's sample from 6_cuts/rank_FOM_theta.csv (written by Plot3D.cpp, every column of every cut folder is in it):
-CE_recon_proton_in_cut/recon_proton_in_cut, CE_recon_proton_in_cut/CE_recon_before_cut, nonCE_recon_proton_in_cut/recon_proton_in_cut, FOM_theta, FOM_thetaBlock.
+the counts CE_recon_proton_in_cut, nonCE_recon_proton_in_cut, recon_proton_in_cut, CE_recon_before_cut, then CE_recon_proton_in_cut/recon_proton_in_cut, CE_recon_proton_in_cut/CE_recon_before_cut, nonCE_recon_proton_in_cut/recon_proton_in_cut, FOM_theta, FOM_thetaBlock.
 The page is widened to the right so the box never covers the plot. Plots of 0_KE_KECUT80_* and of 2_KECUT80 use the "cut and ZDC KE > 80%" row, the others the "cut" row.
 A folder that holds two cuts (4_nProtons) gets no box on the plots that sit beside the cut folders, they belong to neither cut. pdfs already boxed get their box taken off and redone (unbox), so the box can change without rerunning the macros.
 """
@@ -52,9 +52,9 @@ def cut_of(rel_dir, rows):
 
 
 def lines_for(row):
-    """Text lines of the box, N_{...} is a subscript (see text_ops). The counts come first, then the ratios and the FOMs of COLS."""
-    n = {"ce": int(float(row["CE_recon_proton_in_cut"])), "non": int(float(row["nonCE_recon_proton_in_cut"]))}
-    out = [f"N_{{CE,recon,in cut}} = {n['ce']}", f"N_{{nonCE,recon,in cut}} = {n['non']}"]
+    """Text lines of the box, N_{...} is a subscript (see text_ops). The counts come first (CE, nonCE, all recon protons in the cut, CE recon protons before the cut), then the ratios and the FOMs of COLS."""
+    n = {k: int(float(row[c])) for k, c in (("ce", "CE_recon_proton_in_cut"), ("non", "nonCE_recon_proton_in_cut"), ("all", "recon_proton_in_cut"), ("ceAll", "CE_recon_before_cut"))}
+    out = [f"N_{{CE,recon,in cut}} = {n['ce']}", f"N_{{nonCE,recon,in cut}} = {n['non']}", f"N_{{recon,in cut}} = {n['all']}", f"N_{{CE,recon}} = {n['ceAll']}"]
     label = {COLS[0]: "N_{CE,recon,in cut} / N_{recon,in cut}", COLS[1]: "N_{CE,recon,in cut} / N_{CE,recon}", COLS[2]: "N_{nonCE,recon,in cut} / N_{recon,in cut}", COLS[3]: "FOM_{theta}", COLS[4]: "FOM_{thetaBlock}"}
     for c in COLS:
         out.append(f"{label.get(c, c)} = {float(row[c]):.4g}")

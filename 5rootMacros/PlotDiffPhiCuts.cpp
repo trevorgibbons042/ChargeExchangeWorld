@@ -15,6 +15,7 @@
 #include <string>
 #include <utility>
 
+#include "BlockSquares.h"
 #include "CutOpen.h"
 #include "DrawPlan.h"
 #include "FitCore.h"
@@ -80,8 +81,10 @@ void PlotDiffPhiCuts(double phiLo = -180, double phiHi = -50, std::string energy
 
     // positions at the ZDC, block (fDx, fDy) and true (fX, fY): the window protons from cut_ParentZdc.root (cut_APandT.root TrackID is the
     // CE neutron's track, so it matches the proton's ParentID there), every recon proton from cut_AllEvProtons.root (matched on TrackID)
-    TH2D hBlock("hBlock", "", 100, -200, 200, 100, -200, 200), hTrue("hTrue", "", 100, -200, 200, 100, -200, 200);
-    TH2D hBlockAll("hBlockAll", "", 100, -200, 200, 100, -200, 200), hTrueAll("hTrueAll", "", 100, -200, 200, 100, -200, 200);
+    // the block maps have one bin per ZDC cell (nCols_detector x nRows_detector over 400 mm), drawn as one square per cell (BlockSquares.h); the true ones keep 100x100
+    const int nColsD = (int)ReadSettings().at("nCols_detector"), nRowsD = (int)ReadSettings().at("nRows_detector");
+    TH2D hBlock("hBlock", "", nColsD, -200, 200, nRowsD, -200, 200), hTrue("hTrue", "", 100, -200, 200, 100, -200, 200);
+    TH2D hBlockAll("hBlockAll", "", nColsD, -200, 200, nRowsD, -200, 200), hTrueAll("hTrueAll", "", 100, -200, 200, 100, -200, 200);
     const Long64_t nPos = cPos.N();
     std::set<std::pair<long long, long long>> ceWinKeys; // the window CE protons as (fEvent, proton TrackID), the Angles tree key
     for (Long64_t i = 0; i < nPos; i++){
@@ -105,19 +108,20 @@ void PlotDiffPhiCuts(double phiLo = -180, double phiHi = -50, std::string energy
 
     const std::string cutLabel = Form("CE recon protons, KE > 80%%, block residual cut, hit ZDC, block phi diff %g to %g deg, N = %lld", phiLo, phiHi, nSel);
     std::set<std::string> numbersStarted;
-    auto save = [&](TH1* h, const std::string& title, const std::string& file, const char* opt){
+    auto save = [&](TH1* h, const std::string& title, const std::string& file, const char* opt, bool squares = false){
         h->SetTitle(PlotTitle(file, title).c_str());
         canvas->Clear();
         h->Draw(opt);
+        if (squares) DrawBlockSquares(h, 0, false);
         WritePlotNumbers(h, folder + file, numbersStarted);
         canvas->Update();
         canvas->SaveAs((folder + file).c_str());
     };
     const std::string xy = ";X Position (mm);Y Position (mm)";
-    save(&hBlock, "Position at ZDC BLOCK, " + cutLabel + xy, "1_xy_block.pdf", "colz");
+    save(&hBlock, "Position at ZDC BLOCK, " + cutLabel + ", 1 square per ZDC cell" + xy, "1_xy_block.pdf", "colz", true);
     const std::string reconLabel = Form("all recon protons, non-CE with block residual cut, hit ZDC, no KE cut, block phi diff %g to %g deg (CE: block - CE, non-CE: block - tracker), N = %lld", phiLo, phiHi,
                                             nSel + (Long64_t)reconKeys.size());
-    save(&hBlockAll, "Position at ZDC BLOCK, " + reconLabel + xy, "2_xy_block_recon.pdf", "colz");
+    save(&hBlockAll, "Position at ZDC BLOCK, " + reconLabel + ", 1 square per ZDC cell" + xy, "2_xy_block_recon.pdf", "colz", true);
     save(&hTrue, "Position at ZDC, " + cutLabel + xy, "3_xy.pdf", "colz");
     save(&hTrueAll, "Position at ZDC, " + reconLabel + xy, "4_xy_recon.pdf", "colz");
 
@@ -176,7 +180,7 @@ void PlotDiffPhiCuts(double phiLo = -180, double phiHi = -50, std::string energy
         drawOverlay(hRecon, hCE, nullptr, vars[v].label, Form("all recon protons and CE recon protons in phi diff %g to %g deg", phiLo, phiHi), vars[v].file, vars[v].eq);
     }
 
-    // The other cut candidates (6_cuts/3_ResCuts to 8_nHits), shown only, nothing is cut on them: the true position residual, protons per event,
+    // The other cut candidates (6_cuts/3_ResCuts to 5_nHits), shown only, nothing is cut on them: the true position residual, protons per event,
     // residual of the 2nd half over the 1st half of the tracker hits, recon theta, recon block theta and tracker hits. 9_ to 17_
     if (ang->GetBranch("nProtonsEv")){
         const Long64_t nEx = cEx.N();
@@ -189,7 +193,7 @@ void PlotDiffPhiCuts(double phiLo = -180, double phiHi = -50, std::string energy
             {"block residual, hits after first 2 / first 2 hits (>2 hits)", "14_resHalf.pdf", 0, 10, 100, {}},
             {"recon theta (degrees)", "15_theta.pdf", 0, 2.3, 100, {}},
             {"recon block theta (degrees)", "16_thetaBlock.pdf", 0, 2.3, 100, {}},
-            {"tracker hits", "17_nHits.pdf", -0.5, 19.5, 20, {}}};
+            {"tracker hits", "17_nHits.pdf", -0.5, 10.5, 11, {}}};
         std::vector<const double*> exCols(exVars.size());
         for (size_t c = 0; c < exVars.size(); c++) exCols[c] = cEx.V(c);
         for (size_t v = 0; v < exVars.size(); v++){

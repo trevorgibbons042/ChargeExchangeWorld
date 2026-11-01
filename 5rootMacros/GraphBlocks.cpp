@@ -13,6 +13,7 @@
 #include <vector>
 
 #include <TROOT.h>
+#include "BlockSquares.h"
 #include "FitCore.h"
 #include "CutFiles.h"
 #include "TreeColumns.h"
@@ -123,9 +124,9 @@ void GraphBlocks(){
             {"2_CE_xy",       "fY:fX>>h2(100,-50,50,100,-50,50)",                 "",                  "Position of Charge Exchange"},
             {"3_Tracker_xy",  "trackerY:trackerX>>h2(100,-50,50,100,-50,50)",    "reachedNextTracker==1", "Position at Next Tracker"},
             {"4_ZDC_xy", "detectorY:detectorX>>h2(100,-50,50,100,-50,50)",   "reachedDetector==1", "Position at ZDC"},
-            // the detector's version of 3_ and 4_: block cell centers over the range of 25 cells centered on the beam axis, 100x100 bins
-            {"5_Tracker_xy_detector", Form("trackerDY:trackerDX>>h2(100,%g,%g,100,%g,%g)", -12.5 * pitchT, 12.5 * pitchT, -12.5 * pitchT, 12.5 * pitchT), "reachedNextTracker==1", "Position at Next Tracker, detector block position"},
-            {"6_ZDC_xy_detector", Form("detectorDY:detectorDX>>h2(100,%g,%g,100,%g,%g)", -12.5 * pitchD, 12.5 * pitchD, -12.5 * pitchD, 12.5 * pitchD), "reachedDetector==1", "Position at ZDC, detector block position"},
+            // the detector's version of 3_ and 4_: block cell centers over the range of 25 cells centered on the beam axis, one bin per cell (25x25), drawn as one square per cell (BlockSquares.h)
+            {"5_Tracker_xy_detector", Form("trackerDY:trackerDX>>h2(25,%g,%g,25,%g,%g)", -12.5 * pitchT, 12.5 * pitchT, -12.5 * pitchT, 12.5 * pitchT), "reachedNextTracker==1", "Position at Next Tracker, detector block position"},
+            {"6_ZDC_xy_detector", Form("detectorDY:detectorDX>>h2(25,%g,%g,25,%g,%g)", -12.5 * pitchD, 12.5 * pitchD, -12.5 * pitchD, 12.5 * pitchD), "reachedDetector==1", "Position at ZDC, detector block position"},
         };
         for (auto &p : xyPlots) {
             canvas->cd();
@@ -138,11 +139,14 @@ void GraphBlocks(){
             const std::vector<double>* mask = cutBranch.empty() ? nullptr : &cols[colIdx(cutBranch)];
             for (size_t k = 0; k < xs.size(); k++) if (!mask || (*mask)[k] == 1) ((TH2*)hxy)->Fill(xs[k], ys[k]);
             hxy->Draw("colz");
+            const bool squares = TString(p.file).EndsWith("_detector"); // block positions: one square per cell
+            if (squares) DrawBlockSquares(hxy, 0, false);
             const bool atTracker = TString(p.file).Contains("Tracker"), atZdc = TString(p.file).Contains("ZDC");
             const TString xyCuts = atTracker ? TString(ceBase) + ", no cuts besides reaching the tracker" : atZdc ? TString(ceBase) + ", no cuts besides reaching the ZDC" : ceLabel;
             TString xyTitle = Form("%s, %s, %s", p.label, xyCuts.Data(), name.Data());
             if (TString(p.file) == "4_ZDC_xy" || TString(p.file) == "6_ZDC_xy_detector") xyTitle += ", " + rate;
             if (TString(p.file) == "3_Tracker_xy" || TString(p.file) == "5_Tracker_xy_detector") xyTitle += ", " + trackerRate;
+            if (squares) xyTitle += ", 1 square per cell";
             hxy->SetTitle(PlotTitle(p.file, (xyTitle + ";X Position (mm);Y Position (mm)").Data()).c_str());
             canvas->Update();
             WritePlotNumbers(hxy, Form("%s/%s.pdf", dir.Data(), p.file), numberFiles);

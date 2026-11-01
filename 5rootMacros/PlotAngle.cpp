@@ -124,6 +124,7 @@ static void DrawGroup(TCanvas* canvas, const std::string& groupDir, const std::v
                 h->SetTitle(PlotTitle(s.file, title + ";" + s.axes).c_str());
                 if (s.fit && h->GetEntries() >= 10) FitCore(h);
                 if (h->GetDimension() == 1 && s.expr.find("phi") != std::string::npos){h->SetMinimum(0); h->SetMaximum(1.1 * h->GetMaximum());} // every 1D phi plot, 0 to max
+                if (h->GetDimension() == 1 && h->GetXaxis()->GetXmin() == -180 && h->GetXaxis()->GetXmax() == 180) h->GetXaxis()->SetNdivisions(508, kFALSE); // phi differences, -180 to 180 every 45 deg
                 DrawCEPercent(nPass, -1, nCEAll.at(s.tree)); // the 80% KE cut (KeCuts, CutFiles.h) is on every plot
                 WritePlotNumbers(h, path, fitFilesStarted);
                 canvas->Update();
@@ -291,6 +292,8 @@ void PlotAngle(std::string energy = "fKEnergy"){ // energy: "fKEnergy" (true KE)
     // No cut, plus a gt (>) cut at 50-99% of the beam KE, each also with the 2 mm block residual cut (KeCuts, CutFiles.h).
     const std::string keLabel = (energy == "fDEnergy") ? "ZDC KE" : "true KE"; // which energy the cuts are on, shown in the titles
     const std::vector<KeCut> keCE = KeCuts(keLabel);
+    auto reDiff = [&](const std::string& re, const std::string& block){return "(CalcValsRe" + suffix + "." + re + "-" + block + ")";}; // recon minus recon block
+    auto wrap360 = [](const std::string& d){return "(" + d + "-360*(" + d + ">180)+360*(" + d + "<-180))";}; // phi difference into -180..180
     std::vector<PlotSpec> specsCE = {
         {events,  "thetaCE" + thetaHist("hThetaCE"),  "Reconstructed CE protons, CE theta Distribution", ang, false, "1_theta/1_thetaCE.pdf"},
         {events2, "thetaRe" + thetaHist("hThetaRe"),  "Reconstructed CE protons, recon theta Distribution", ang, false, "1_theta/2_thetaRe.pdf"},
@@ -312,6 +315,11 @@ void PlotAngle(std::string energy = "fKEnergy"){ // energy: "fKEnergy" (true KE)
         {events4, "apReD>>hAPDiff(100,-0.15,0.1)",    "Difference between CE and Recon AP", "AP Difference;Count", true, "4_ap/4_apDiff.pdf"},
         {events3, "apReD>>hAPBlock(100,-1,0)",    "Recon block AP Distribution", "AP;Count", false, "4_ap/3_apBlock.pdf"},
         {events5, "apReD>>hAPBlockDiff(100,-0.15,0.1)",    "Difference between CE and Recon Block AP", "AP Difference;Count", true, "4_ap/5_apBlockDiff.pdf"},
+        // recon minus recon block (events3 has the recon tree events2 as friend, same entries), block residual cut added below
+        {events3, reDiff("thetaRe", "thetaReD") + ">>hThetaReBlockDiff(100,-1,1)", "Reconstructed CE protons, difference between Recon and Recon Block Theta", diff, true, "1_theta/7_thetaReBlockDiff.pdf"},
+        {events3, wrap360(reDiff("phiRe", "phiReD")) + ">>hPhiReBlockDiff(72,-180,180)", "Reconstructed CE protons, difference between Recon and Recon Block Phi", diff, true, "2_phi/8_phiReBlockDiff.pdf"},
+        {events3, reDiff("tRe", "tReD") + ">>hTReBlockDiff(100,-0.05,0.05)", "Difference between Recon and Recon Block t", "t Difference;Count", true, "3_t/8_tReBlockDiff.pdf"},
+        {events3, reDiff("apRe", "apReD") + ">>hAPReBlockDiff(100,-0.15,0.1)", "Difference between Recon and Recon Block AP", "AP Difference;Count", true, "4_ap/8_apReBlockDiff.pdf"},
         // percent error = 100 * (recon - CE) / CE, CE value from the friend CE tree; clipped to +-100%
         {events4, pctErr("thetaReD", "thetaCE", "hPctTheta"), "Percent Error of Recon Theta vs CE", pct, true, "1_theta/6_thetaPct.pdf"},
         {events5, pctErr("thetaReD", "thetaCE", "hPctThetaB"), "Percent Error of Recon Block Theta vs CE", pct, true, "1_theta/6_thetaBlockPct.pdf"},

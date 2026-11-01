@@ -48,18 +48,12 @@ void CountCE(){
     // The block and tracker z come from the geometry in settings.csv (2construction.cc): nBlocksTracking tracker planes before each carbon block and after the last one,
     // all elements dz apart around z = 4 m. A carbon block is CarbonThickness thick, a tracker plane detectorThickness (500 um).
     const auto st = ReadSettings();
-    const int nBlocks = (int)st.at("nBlocks"), nTrk = (int)st.at("nBlocksTracking");
-    const double dzMm = st.at("dz") * 1000.0, carbonMm = st.at("CarbonThickness") * 1000.0, detectorMm = 0.5;
-    const int nElements = (nBlocks + 1) * nTrk + nBlocks;
-    const double zStartMm = 4000.0 - (nElements - 1) * dzMm / 2.0;
+    const double carbonMm = st.at("CarbonThickness") * 1000.0, detectorMm = 0.5;
+    const StackLayout stack = StackZ(st);
     std::vector<std::pair<double,double>> blocks; // [lowest z, highest z] (mm) of each carbon block
     std::vector<std::pair<long,long>> planes;     // [lowest z, highest z] (mm) of each tracker plane
-    for (int i = 0, element = 0; i <= nBlocks; i++){
-        for (int j = 0; j < nTrk; j++, element++){const double zc = zStartMm + element * dzMm; planes.push_back({std::lround(zc - detectorMm / 2), std::lround(zc + detectorMm / 2)});}
-        if (i == nBlocks) break;
-        const double zc = zStartMm + element * dzMm; element++;
-        blocks.push_back({zc - carbonMm / 2, zc + carbonMm / 2});
-    }
+    for (const double zc : stack.planeZ) planes.push_back({std::lround(zc - detectorMm / 2), std::lround(zc + detectorMm / 2)});
+    for (const double zc : stack.blockZ) blocks.push_back({zc - carbonMm / 2, zc + carbonMm / 2});
     if (Verbose) {
         std::cout << blocks.size() << " blocks, " << planes.size() << " tracker planes from the geometry:\n";
         for (auto &b : blocks) std::cout << "  block z " << b.first << " to " << b.second << "\n";
@@ -67,7 +61,7 @@ void CountCE(){
     }
 
     // One pass over ParticleInfo, nothing big held in memory:
-    //  - tracker hits and detector entries (boundaryType 2) of CE protons only
+    //  - tracker hits (entry rows, boundaryType 0) and detector entries (boundaryType 2) of CE protons only
     //    (event, parent track id) -> tracker z / detector (x, y)
     std::map<std::tuple<long,long,long>, std::array<double,4>> protonHits; // (event, parent, tracker z) -> (x, y, block x, block y)
     std::map<std::pair<long,long>, std::array<double,4>> protonDetectorHits;
@@ -82,7 +76,7 @@ void CountCE(){
                                                 Double_t fx, Double_t fy, Double_t fz, Double_t fdx, Double_t fdy){
             Local &l = locals[slot];
             if (pdg != 2212 || !ceKeys.count({ev, parent})) return;
-            if (bt == 1) l.protonHits[{ev, parent, std::lround(fz)}] = {fx, fy, fdx, fdy};
+            if (bt == 0) l.protonHits[{ev, parent, std::lround(fz)}] = {fx, fy, fdx, fdy};
             else if (bt == 2) l.protonDetectorHits[{ev, parent}] = {fx, fy, fdx, fdy};
         }, {"fEvent", "ParentID", "pdg", "boundaryType", "fX", "fY", "fZ", "fDx", "fDy"});
 
