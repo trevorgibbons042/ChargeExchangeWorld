@@ -135,7 +135,7 @@ void MyRunAction::EndOfRunAction(const G4Run* run)
         const std::map<std::string, double> defaults = {
             {"APScale", 1}, {"NPCrossSectionFactor", 1}, {"PPValue", 0}, {"PPSigma", 0}, {"resStochastic", 0.30}, {"resConstant", 0},
             {"nBlocks", 4}, {"nBlocksTracking", 2}, {"nCols_blocks", 11}, {"nRows_blocks", 11}, {"nCols_detector", 11}, {"nRows_detector", 11},
-            {"dz", 0.25}, {"CarbonThickness", 0.2}, {"randPosDetector", -1}, {"randPosScaling", 1}, {"NoPhysics", 0}};
+            {"dz", 0.25}, {"CarbonThickness", 0.2}, {"randPosDetector", -1}, {"randPosScaling", 1}, {"frontTrackers", 0}, {"NoPhysics", 0}};
 
         std::string names, row;
         for (const auto& [name, value] : values){

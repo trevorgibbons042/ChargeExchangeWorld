@@ -33,12 +33,11 @@ def content_box(page):
 
 def crop(path):
     reader = PdfReader(path)
-    if len(reader.pages) != 1:
-        return False
     page = reader.pages[0]
-    box = content_box(page)
-    if box is None:
+    boxes = [b for b in (content_box(pg) for pg in reader.pages) if b is not None] # a pdf of several pages (the by_start_theta ones) is cropped to the union of its pages
+    if not boxes:
         return False
+    box = (min(b[0] for b in boxes), min(b[1] for b in boxes), max(b[2] for b in boxes), max(b[3] for b in boxes))
     x0, y0, x1, y1 = pdfgeom.media(page)
     rect = (max(x0, box[0] - PAD), max(y0, box[1] - PAD), min(x1, box[2] + PAD), min(y1, box[3] + PAD)) # the padding is the same on any /Rotate
     if abs(rect[2] - rect[0] - (x1 - x0)) < 1 and abs(rect[3] - rect[1] - (y1 - y0)) < 1:

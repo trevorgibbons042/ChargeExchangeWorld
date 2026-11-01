@@ -61,7 +61,8 @@ public:
                 {"nCols_blocks", nCols}, {"nRows_blocks", nRows},
                 {"nCols_detector", nCols_detector}, {"nRows_detector", nRows_detector},
                 {"dz", dz}, {"CarbonThickness", CarbonThickness},
-                {"randPosDetector", randPosDetector}, {"randPosScaling", randPosScaling}};
+                {"randPosDetector", randPosDetector}, {"randPosScaling", randPosScaling},
+                {"frontTrackers", 0}}; //0: no trackers before the first block (the macros assume 1 when settings.csv has none)
     }
 
     ////Needs to be accessed by 9stepping.cc

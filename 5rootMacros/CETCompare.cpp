@@ -30,11 +30,11 @@ void CETCompare(){
     TCanvas c("cT", "", 1500, 1200); c.SetLeftMargin(0.14); c.SetBottomMargin(0.13); c.SetRightMargin(0.05);
     // z where the CE happens, all CE of the sim: carbon blocks, silicon trackers, and both
     {
-        // the stack of the run (2construction.cc): nBlocks carbon blocks and (nBlocks + 1) * nBlocksTracking tracker planes, dz apart, centred at 4 m
+        // the stack of the run (2construction.cc): nBlocks carbon blocks and the tracker planes (StackZ, FitCore.h), dz apart, centred at 4 m
         const auto st = ReadSettings();
-        const int nElements = (int)std::lround((st.at("nBlocks") + 1) * st.at("nBlocksTracking") + st.at("nBlocks"));
-        const double halfSpan = (nElements - 1) * st.at("dz") * 1000.0 / 2.0;
-        const double z0 = 4000 - halfSpan - 200, z1 = 4000 + halfSpan + 200; const int nz = (int)((z1 - z0) / 5.0);
+        const StackLayout stack = StackZ(st);
+        const double zFirst = std::min(stack.blockZ.front(), stack.planeZ.empty() ? 1e9 : stack.planeZ.front()), zLast = std::max(stack.blockZ.back(), stack.planeZ.empty() ? -1e9 : stack.planeZ.back());
+        const double z0 = zFirst - 200, z1 = zLast + 200; const int nz = (int)((z1 - z0) / 5.0);
         TH1D hAll("hZAll", "", nz, z0, z1), hZC("hZCarbon", "", nz, z0, z1), hZT("hZTracker", "", nz, z0, z1);
         plan.H(tAll, "fZ>>hZAll", "", "", &hAll); plan.H(tCarbon, "fZ>>hZCarbon", "", "", &hZC); plan.H(tAll, "fZ>>hZTracker", noCarbon, "", &hZT);
         plan.H(tCarbon, "LastT>>hTCarbon", "", "", &hC); plan.H(tAll, "LastT>>hTTracker", noCarbon, "", &hT);

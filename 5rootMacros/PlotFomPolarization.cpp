@@ -206,11 +206,15 @@ void PlotFomPolarization(std::string energy = "fKEnergy"){ // energy: "fKEnergy"
                     }
                 }
                 if (out) fclose(out);
-                for (const int s0 : {0}){ // phi histogram of the range s0 * kStep to kThetaMaxFP (all thetas, then from kLowEdge) (20 bins) with the fit of FitRange (same fit as the from0p3 point at theta_max = kThetaMaxFP) and the input P
+                for (const int range : {0, 1}){ // range 0: all thetas, range 1: theta 0 to 1 deg; phi histogram (all thetas, then from kLowEdge) (20 bins) with the fit of FitRange (same fit as the from0p3 point at theta_max = kThetaMaxFP) and the input P
                     std::array<double, kPhiBinsFP> counts{};
                     double apS = 0, apCount = 0, nPhi = 0;
                     const PhiAP& fitProtons = type == 0 ? phiCERecon : protons; // CE protons with a recon track at their recon angles, recon protons at theirs
-                    counts = fitProtons.total; nPhi = fitProtons.totalN; apS = fitProtons.totalApSum; apCount = fitProtons.totalN; // no theta cut
+                    if (range == 0){counts = fitProtons.total; nPhi = fitProtons.totalN; apS = fitProtons.totalApSum; apCount = fitProtons.totalN;} // no theta cut
+                    else for (int sl = 0; sl < std::min(nSlices, (int)std::lround(1.0 / kStep)); sl++){ // the slices of theta 0 to 1 deg
+                        for (int b = 0; b < kPhiBinsFP; b++){counts[b] += fitProtons.phi[sl][b]; nPhi += fitProtons.phi[sl][b];}
+                        apS += fitProtons.apSum[sl]; apCount += fitProtons.apN[sl];
+                    }
                     double p = 0, pErr = 0; (void)p; (void)pErr;
                     if (apCount > 0 && nPhi >= kMinNFP && std::fabs(apS / apCount) > 1e-12){
                         // N(phi) = N0 (1 + P <A> cos(phi)) per bin, N0 = entries / bins and <A> fixed, only P is fitted. CE protons take the sim A (mean apCE), recon protons the A from t(theta) at the slice centers
@@ -219,7 +223,7 @@ void PlotFomPolarization(std::string energy = "fKEnergy"){ // energy: "fKEnergy"
                         TH1D h("hPhiRange", "", nFitBins, 0, 360);
                         for (int b = 0; b < kPhiBinsFP; b++) h.AddBinContent(b / 2 + 1, counts[b]);
                         h.SetEntries(nPhi);
-                        h.SetTitle(((type == 0 ? std::string("CE recon protons only (not all CE protons)") : typeNames[type]) + ", " + set.name + " angles" + ", phi fit over all theta, " + "no cuts (no KE, residual or theta cut)" + ";Angle (degrees);Count").c_str());
+                        h.SetTitle(((type == 0 ? std::string("CE recon protons only (not all CE protons)") : typeNames[type]) + ", " + set.name + " angles" + (range == 0 ? ", phi fit over all theta, no cuts (no KE, residual or theta cut)" : ", phi fit over theta 0 to 1 deg (no KE or residual cut)") + ";Angle (degrees);Count").c_str());
                         h.GetXaxis()->SetNdivisions(505);
                         TF1 fFit("fPhiRange", "[0] * (1 + [1] * [2] * cos(x * TMath::Pi() / 180))", 0, 360);
                         fFit.SetParNames("N0", "P", "A");
@@ -239,7 +243,7 @@ void PlotFomPolarization(std::string energy = "fKEnergy"){ // energy: "fKEnergy"
                         tx.DrawLatex(0.13, 0.865, Form("#LTA#GT = %.4f (fixed, %s),   P = %.2f #pm %.2f", aFix, type == 0 ? "mean sim A (LastAP)" : "mean A from t(#theta)", fFit.GetParameter(1), fFit.GetParError(1)));
                         if (set.block) tx.DrawLatex(0.13, 0.83, BlockPhiNote());
                         c.Modified(); c.Update();
-                        c.SaveAs((dir + fileNum(set.block ? 7 : 9) + "phi_fit_all_theta_" + tag + ".pdf").c_str());
+                        c.SaveAs((dir + fileNum(range == 0 ? (set.block ? 7 : 9) : (set.block ? 8 : 10)) + (range == 0 ? "phi_fit_all_theta_" : "phi_fit_theta_0_to_1_") + tag + ".pdf").c_str());
                         gStyle->SetOptStat(0); c.SetRightMargin(0.30); c.SetTopMargin(0.1);
                     }
                 }

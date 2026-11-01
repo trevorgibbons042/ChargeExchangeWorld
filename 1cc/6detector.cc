@@ -29,9 +29,7 @@ G4bool MySensitiveDetector::ProcessHits(G4Step *aStep, G4TouchableHistory *ROhis
         FillParticleInfo(track, 0, pre->GetPosition(), pre->GetKineticEnergy(), detectorCenter, pre->GetKineticEnergy());
     }
 
-    if (preInTrack && !postInTrack){
-        FillParticleInfo(track, 1, post->GetPosition(), post->GetKineticEnergy(), detectorCenter, post->GetKineticEnergy());
-    }
+    //leaving the tracker is not recorded: a tracker hit is the entry only (the entry from the world is also filled in 9stepping.cc)
 
 return true;
 }

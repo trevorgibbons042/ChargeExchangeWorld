@@ -44,7 +44,7 @@ void MyDetectorConstruction::DefineMaterial(){
     nist = G4NistManager::Instance();
 
     worldMat = nist->FindOrBuildMaterial("G4_Galactic");
-    CMat = nist->FindOrBuildMaterial("G4_C");
+    CMat = nist->FindOrBuildMaterial("G4_POLYETHYLENE"); //CH2 blocks, 0.94 g/cm3
     DMat = nist->FindOrBuildMaterial("G4_Si");
 }
 
@@ -86,7 +86,7 @@ G4VPhysicalVolume *MyDetectorConstruction::Construct() //defines volume and mate
     physTrack = new G4PVParameterised("physTrack", logicTrack, logicTrackSlab, kUndefined, nRows * nCols,
                     new GridParameterisation(nCols, cellX, cellY, totalX, totalY));
 
-    G4int nTrackerPlanes = (nBlocks + 1) * nBlocksTracking;
+    G4int nTrackerPlanes = nBlocks * nBlocksTracking;
     G4int nElements = nTrackerPlanes + nBlocks;
 
     G4double zStart = zCenter - ((nElements - 1) * (dz * m)) / 2.0;
@@ -94,8 +94,15 @@ G4VPhysicalVolume *MyDetectorConstruction::Construct() //defines volume and mate
     G4int elementIndex = 0;
     G4int trackerIndex = 0;
 
-    //nBlocksTracking trackers before each block and after the last one
-    for (G4int i = 0; i <= nBlocks; i++) {
+    //each block is followed by nBlocksTracking trackers, none before the first block (frontTrackers = 0 in settings.csv)
+    for (G4int i = 0; i < nBlocks; i++) {
+        G4double zCarbon = zStart + elementIndex * (dz * m);
+        physMat = new G4PVPlacement(nullptr,
+            G4ThreeVector(0, 0, zCarbon), logicMat, "physMat",
+            logicWorld,false,i,false);
+
+        elementIndex++;
+
         for (G4int j = 0; j < nBlocksTracking; j++) {
             G4double zTracker = zStart + elementIndex * (dz * m);
             new G4PVPlacement(nullptr, G4ThreeVector(0, 0, zTracker), logicTrackSlab, "physTrackSlab",
@@ -103,14 +110,6 @@ G4VPhysicalVolume *MyDetectorConstruction::Construct() //defines volume and mate
             trackerIndex++;
             elementIndex++;
         }
-        if (i == nBlocks) {break;}
-
-        G4double zCarbon = zStart + elementIndex * (dz * m);
-        physMat = new G4PVPlacement(nullptr,
-            G4ThreeVector(0, 0, zCarbon), logicMat, "physMat",
-            logicWorld,false,i,false);
-
-        elementIndex++;
     }
 
     G4ThreeVector detectorPos = G4ThreeVector(0,0, 8*m);
@@ -143,7 +142,7 @@ void MyDetectorConstruction::ConstructSDandField(){
     }
     sensDet->SetTrackVolume(logicTrack); //refreshed each call, geometry rebuilds change the pointer
 
-    //logicMat (carbon) is not sensitive: its hits are never recorded and cost a call per step
+    //logicMat (CH2) is not sensitive: its hits are never recorded and cost a call per step
     logicDetector->SetSensitiveDetector(sensDet);
     logicTrack->SetSensitiveDetector(sensDet);
 }

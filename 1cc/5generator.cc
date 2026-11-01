@@ -78,7 +78,7 @@ void MyPrimaryGenerator::GeneratePrimaries(G4Event *anEvent)
     if (randPos == 1){
     randX = G4RandGauss::shoot(0, 0.011/2)*mm;
     randY = G4RandGauss::shoot(0, 0.006/2)*mm;
-    randZ = G4RandGauss::shoot(0, 3/2)*cm;
+    randZ = G4RandGauss::shoot(0, 3.0/2)*cm;
     }
 
     G4ThreeVector pos(randX, randY, randZ);

@@ -26,22 +26,7 @@ MySteppingAction::~MySteppingAction(){
     delete fMessenger;
 };
 
-void MySteppingAction::UserSteppingAction(const G4Step *step){    
-    ////Go the volume where the step is happening
-    //G4LogicalVolume *volume = step->GetPreStepPoint()->GetTouchableHandle()->GetVolume()->GetLogicalVolume();
-
-    ////Get the detector geometry
-    //const MyDetectorConstruction *detectorConstruction = 
-    //static_cast<const MyDetectorConstruction*> (G4RunManager::GetRunManager()->GetUserDetectorConstruction());
-    
-    ////Set scoring volume (the volume that records energy data) equal to detector geometry
-    //G4LogicalVolume *fScoringVolume = detectorConstruction->GetScoringVolume();
-    //if(volume!=fScoringVolume){return;}; //ignore every step unless it happens inside this chosen volume
-
-    ////Get Energy Deposited in the material during the step
-    //G4double edep = step->GetTotalEnergyDeposit();
-    //fEventAction->AddEdep(edep);
-
+void MySteppingAction::UserSteppingAction(const G4Step *step){
     G4Track* track = step->GetTrack();
     G4int id = track->GetTrackID();
     G4int ParentID = track->GetParentID();

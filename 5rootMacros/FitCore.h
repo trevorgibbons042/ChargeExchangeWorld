@@ -110,20 +110,32 @@ struct SerialScope {
     SerialScope(const SerialScope&) = delete; SerialScope& operator=(const SerialScope&) = delete;
 };
 
+// z (mm) of the carbon blocks and tracker planes of the run (2construction.cc): centre of the stack at 4 m, elements dz apart. Each block is followed by nBlocksTracking
+// tracker planes; frontTrackers (settings.csv, 1 when the run has none, an older sim) puts one more group of planes before the first block.
+struct StackLayout {std::vector<double> blockZ, planeZ;};
+inline StackLayout StackZ(const std::map<std::string, double>& s){
+    const int nBlocks = (int)std::lround(s.at("nBlocks")), nTrk = (int)std::lround(s.at("nBlocksTracking"));
+    const int front = s.count("frontTrackers") ? (int)std::lround(s.at("frontTrackers")) : 1;
+    const double dzMm = s.at("dz") * 1000.0;
+    const int nElements = (nBlocks + front) * nTrk + nBlocks;
+    const double zStart = 4000.0 - (nElements - 1) * dzMm / 2.0;
+    StackLayout st; int element = 0;
+    auto planes = [&](){for (int j = 0; j < nTrk; j++, element++) st.planeZ.push_back(zStart + element * dzMm);};
+    if (front) planes();
+    for (int i = 0; i < nBlocks; i++){st.blockZ.push_back(zStart + element * dzMm); element++; planes();}
+    return st;
+}
+
 // The charge exchange selection of every stage: a CE with its vertex inside one of the carbon blocks (CE in the tracker silicon is left out).
-// The block z positions mirror MyDetectorConstruction (2construction.cc): centre of the stack at 4 m, a block after each group of nBlocksTracking tracker planes, dz apart.
+// The block z positions mirror MyDetectorConstruction (2construction.cc): centre of the stack at 4 m, the blocks and planes as StackZ gives them.
 inline std::string CarbonCeCut(){
     static std::string memo; static std::map<std::string, double> memoSettings;
     const auto s = ReadSettings();
     if (!memo.empty() && s == memoSettings) return memo;
     memoSettings = s;
-    const int nBlocks = (int)std::lround(s.at("nBlocks")), nTracking = (int)std::lround(s.at("nBlocksTracking"));
-    const double dzMm = s.at("dz") * 1000.0, halfMm = s.at("CarbonThickness") * 1000.0 / 2.0;
-    const int nElements = (nBlocks + 1) * nTracking + nBlocks;
-    const double zStart = 4000.0 - (nElements - 1) * dzMm / 2.0;
+    const double halfMm = s.at("CarbonThickness") * 1000.0 / 2.0;
     std::string windows;
-    for (int i = 0; i < nBlocks; i++){
-        const double zc = zStart + (i * (nTracking + 1) + nTracking) * dzMm;
+    for (const double zc : StackZ(s).blockZ){
         char w[96]; std::snprintf(w, sizeof w, "%s(fZ>%.3f && fZ<%.3f)", windows.empty() ? "" : " || ", zc - halfMm, zc + halfMm);
         windows += w;
     }
@@ -201,7 +213,7 @@ inline void DrawCELost(double nCE, double nCEAll){
     TLegend* leg = nullptr; TH1* h = nullptr; TPave* info = nullptr;
     for (TObject* o : *gPad->GetListOfPrimitives()){
         if (auto* l = dynamic_cast<TLegend*>(o)) leg = l; // the last legend drawn
-        else if (auto* hh = dynamic_cast<TH1*>(o)){if (!h) h = hh;}
+        else if (auto* hh = dynamic_cast<TH1*>(o)){if (!h || h->TestBit(TH1::kNoStats)) h = hh;} // the first histogram with a stats box (a DrawFrame frame has none)
         else if (auto* p = dynamic_cast<TPave*>(o)) if (p->GetX1NDC() >= 0.7 && p->GetY1NDC() >= 0.4 && strcmp(p->GetName(), "fitEquation")) info = p; // a fit info box in the right margin (PlotPolarization)
     }
     double x1 = 0.745, x2 = 0.99, top = gStyle->GetStatY() - gStyle->GetStatH(), size = 0.016;

@@ -52,10 +52,10 @@ void QualityStudy(double keepCE = 0.95){
     const std::vector<std::vector<double>> col = Columns(t, want);
     const size_t nRows = col[0].size();
     auto isCE = [&](size_t e){return col[4][e] != 0;};
-    auto inBase = [&](size_t e){ // baseline of 6_cuts: recon theta from 0 to 1 degree (NaN fails)
+    auto inBase = [&](size_t e){ // baseline of 6_cuts: recon theta and recon block theta from 0 to 1 degree (NaN fails)
         if (!hasCand) return true;
-        const double deg = col[iCand + 5][e] * TMath::RadToDeg();
-        return deg >= 0 && deg <= 1;
+        const double deg = col[iCand + 5][e] * TMath::RadToDeg(), degBlock = col[iCand + 6][e] * TMath::RadToDeg();
+        return deg >= 0 && deg <= 1 && degBlock >= 0 && degBlock <= 1;
     };
     for (size_t e = 0; e < nRows; e++){
         if (!inBase(e)) continue;
@@ -107,7 +107,7 @@ void QualityStudy(double keepCE = 0.95){
         for (double x : ce[i]) hCE.Fill(x);
         for (double x : recon[i]) hRecon.Fill(x);
         hCE.SetLineColor(kBlue); hRecon.SetLineColor(kRed); hCE.SetLineWidth(2); hRecon.SetLineWidth(2);
-        hRecon.SetTitle((labels[i] + ", CE recon protons vs all recon protons, recon theta 0-1 deg, no KE cut;" + labels[i] + ";Count").c_str());
+        hRecon.SetTitle((labels[i] + ", CE recon protons vs all recon protons, recon theta and recon block theta 0-1 deg, no KE cut;" + labels[i] + ";Count").c_str());
         hRecon.SetStats(0); hCE.SetStats(0);
         hRecon.SetMinimum(0.5);
         hRecon.SetMaximum(2.0 * std::max(hRecon.GetMaximum(), hCE.GetMaximum()));
@@ -155,7 +155,7 @@ void QualityStudy(double keepCE = 0.95){
     struct Cand {std::string branch, folder, label; double lo, hi; int nBins;};
     const std::vector<Cand> cands = {
         {"nProtonsEv", "4_nProtons", "protons with a track in the event", -0.5, 19.5, 20},
-        {"nHits", "8_nHits", "tracker hits", -0.5, 19.5, 20}};
+        {"nHits", "5_nHits", "tracker hits", -0.5, 10.5, 11}};
     {
         if (hasCand){
             // col[iCand + k]: 0 nProtonsEv, 1 nHits, 2 firstXD, 3 firstYD, 4 resHalfRatioD, 5 outTheta, 6 outDTheta
@@ -177,9 +177,9 @@ void QualityStudy(double keepCE = 0.95){
                 for (double x : candCE[i]) hCE.Fill(x);
                 for (double x : candRecon[i]) hRecon.Fill(x);
                 hCE.SetLineColor(kBlue); hRecon.SetLineColor(kRed); hCE.SetLineWidth(2); hRecon.SetLineWidth(2);
-                hRecon.SetTitle((cd.label + ", CE recon protons vs all recon protons, recon theta 0-1 deg, no KE cut;" + cd.label + ";Count").c_str());
+                hRecon.SetTitle((cd.label + ", CE recon protons vs all recon protons, recon theta and recon block theta 0-1 deg, no KE cut;" + cd.label + ";Count").c_str());
                 hRecon.SetStats(0); hCE.SetStats(0);
-                if (cd.branch == "nHits") for (int bin = 1; bin <= cd.nBins; bin++) hRecon.GetXaxis()->SetBinLabel(bin, bin % 4 == 1 && bin > 1 ? Form("%d", bin - 1) : ""); // labels at 4, 8, 12, 16 hits only
+                if (cd.branch == "nHits") for (int bin = 1; bin <= cd.nBins; bin++) hRecon.GetXaxis()->SetBinLabel(bin, bin % 2 == 1 && bin > 1 ? Form("%d", bin - 1) : ""); // labels at 2, 4, 6, 8 hits only
                 hRecon.SetMinimum(0.5);
                 hRecon.SetMaximum(2.0 * std::max(hRecon.GetMaximum(), hCE.GetMaximum()));
                 hRecon.DrawCopy(); hCE.DrawCopy("same");
@@ -202,14 +202,14 @@ void QualityStudy(double keepCE = 0.95){
                     }
                     fclose(nf);
                 }
-                if (cd.branch == "nHits"){ // the cut keeping 4, 8, 12 or 16 tracker hits
+                if (cd.branch == "nHits"){ // the cut keeping 2, 4, 6 or 8 tracker hits
                     gSystem->mkdir((cdir + "csv").c_str(), true);
                     FILE* hf = fopen((cdir + "csv/cut_efficiency.csv").c_str(), "w");
                     fprintf(hf, "cut,CE_before,CE_after,CE_kept_pct,recon_before,recon_after,recon_left_out_pct\n");
-                    auto inRange = [](double x){return x == 4 || x == 8 || x == 12 || x == 16;};
+                    auto inRange = [](double x){return x == 2 || x == 4 || x == 6 || x == 8;};
                     const size_t ceAfter = std::count_if(candCE[i].begin(), candCE[i].end(), inRange);
                     const size_t reAfter = std::count_if(candRecon[i].begin(), candRecon[i].end(), inRange);
-                    fprintf(hf, "4, 8, 12 or 16 tracker hits,%zu,%zu,%.4f,%zu,%zu,%.4f\n", candCE[i].size(), ceAfter, 100.0 * ceAfter / candCE[i].size(),
+                    fprintf(hf, "2, 4, 6 or 8 tracker hits,%zu,%zu,%.4f,%zu,%zu,%.4f\n", candCE[i].size(), ceAfter, 100.0 * ceAfter / candCE[i].size(),
                             candRecon[i].size(), reAfter, 100.0 * (1.0 - double(reAfter) / candRecon[i].size()));
                     fclose(hf);
                 }

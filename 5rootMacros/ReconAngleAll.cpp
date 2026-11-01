@@ -195,10 +195,10 @@ void ReconAngleAll(){
         // The read puts every point straight into the bucket of its shard (event % nShards) of its slot: all the tracks of an event land in one shard, so the per-event
         // proton count is complete per shard, and a shard reads only its own buckets (a shard that looked through every point of every slot would scan all of them, nShards times over).
         std::vector<std::vector<std::vector<Point>>> buckets(df.GetNSlots(), std::vector<std::vector<Point>>(nShards));
-        // boundaryType 2 is the ZDC row, left out of the fit points; protons that never reach the ZDC are reconstructed too
+        // boundaryType 1 (tracker exit, older sim runs only) and 2 (ZDC) are left out of the fit points, so a tracker hit is its entry row (boundaryType 0) only; protons that never reach the ZDC are reconstructed too
         // The selection is a typed Filter lambda, not a Filter string: a string Filter is JIT-compiled, which fails on a ROOT whose cling cannot materialize libc++ symbols (the Mac).
         // A Filter node, unlike a test inside the ForeachSlot lambda, reads the other branches only for rows that pass (protons), not for every particle row.
-        df.Filter([](int pdg, int boundaryType){return pdg == 2212 && boundaryType != 2;}, {"pdg", "boundaryType"})
+        df.Filter([](int pdg, int boundaryType){return pdg == 2212 && boundaryType != 1 && boundaryType != 2;}, {"pdg", "boundaryType"})
           .ForeachSlot([&](unsigned slot,
             int eventID, int trackID, int pdg,
             double x, double y, double z, double xD, double yD, double zD, double KE, double KED, int ParentID, ULong64_t entry){
