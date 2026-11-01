@@ -9,14 +9,13 @@ MySensitiveDetector::~MySensitiveDetector()
 {};
 
 G4bool MySensitiveDetector::ProcessHits(G4Step *aStep, G4TouchableHistory *ROhist){
-    //only boundary crossings of protons/neutrons are recorded, bail out cheaply otherwise
+    //only boundary crossings of charged particles are recorded, bail out cheaply otherwise
     G4StepPoint *pre = aStep->GetPreStepPoint();
     G4StepPoint *post = aStep->GetPostStepPoint();
     if (post->GetStepStatus() != fGeomBoundary){return true;}
 
     G4Track *track = aStep->GetTrack();
-    G4int pdg = track->GetParticleDefinition()->GetPDGEncoding();
-    if (pdg != 2212 && pdg != 2112){return true;}
+    if (track->GetParticleDefinition()->GetPDGCharge() == 0.){return true;}
 
     G4ThreeVector detectorCenter = pre->GetTouchable()->GetTranslation(); //global center, cells sit inside a slab
 

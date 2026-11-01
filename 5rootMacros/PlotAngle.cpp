@@ -7,6 +7,7 @@
 
 #include <TSystem.h>
 #include <TStyle.h>
+#include <TColor.h>
 #include <TF1.h>
 #include <TH1.h>
 #include <TGraph.h>
@@ -49,6 +50,14 @@ struct ThetaCut {std::string dir, op, label; double min;}; // op: the theta cut 
 // Per KE cut and tree one Columns call (TreeColumns.h) reads the draw expressions of all the specs of that tree and its theta; the histograms are filled from those columns
 // in entry order, so a plot is the one TTree::Draw made, the theta cut is a mask over the rows.
 using CutPath = std::function<std::string(const std::string& file, const std::string& thDir)>;
+// CE protons are red: a white-to-red palette for the 2D plots (the other plots keep viridis, set in PlotAngle())
+static void RedPalette(){
+    double stops[2] = {0.0, 1.0}, red[2] = {1.0, 0.8}, green[2] = {1.0, 0.0}, blue[2] = {1.0, 0.0};
+    TColor::CreateGradientColorTable(2, stops, red, green, blue, 255);
+    gStyle->SetNumberContours(255);
+}
+static void ViridisPalette(){gStyle->SetPalette(kViridis); gStyle->SetNumberContours(255);}
+
 static void DrawGroup(TCanvas* canvas, const std::string& groupDir, const std::vector<KeCut>& kes,
                       const std::vector<PlotSpec>& specs, const std::string& label, const std::string& baseCut,
                       const std::string& extraCut, const std::function<std::string(TTree*)>& thetaExpr, const CutPath& cutPath)
@@ -89,6 +98,11 @@ static void DrawGroup(TCanvas* canvas, const std::string& groupDir, const std::v
         std::map<TTree*, double> nCEAll; // CE protons before any cut (the entry list is not set yet), for the share the cuts lose
         for (const auto& [key, exprs] : exprsOf) {
             nCEAll[key.first] = key.first->GetEntries(); // GetEntries(): every entry, the list ignored
+            if (ke.dir.empty()) { // no KE cut: no entry list, only the block residual cut on the block plots, as a filter
+                const std::string keFilter = key.second ? (filter.empty() ? "" : filter + " && ") + "(" + kBlockCut + ")" : filter;
+                cols[key] = Columns(key.first, exprs, keFilter);
+                continue;
+            }
             ApplyCut(key.first, ke.dir, key.second); // the KE (and block residual) cut, CutPlots.cpp (trees)
             cols[key] = Columns(key.first, exprs, filter);
             key.first->SetEntryList(nullptr);
@@ -98,7 +112,7 @@ static void DrawGroup(TCanvas* canvas, const std::string& groupDir, const std::v
                 const auto& s = specs[i];
                 const std::string rel = th.op.empty() ? s.file : cutPath(s.file, th.dir);
                 if (rel.empty()) continue;
-                const std::string path = groupDir + "/" + ke.dir + "/" + rel;
+                const std::string path = groupDir + "/" + (ke.dir.empty() ? "" : ke.dir + "/") + rel; // an empty ke.dir (no KE cut) puts the plots straight in groupDir
                 gSystem->mkdir(gSystem->GetDirName(path.c_str()), true);
 
                 std::string title = s.title + ", " + label;
@@ -120,15 +134,19 @@ static void DrawGroup(TCanvas* canvas, const std::string& groupDir, const std::v
                     if (y) ((TH2*)h)->Fill(x[r], (*y)[r]);
                     else h->Fill(x[r]);
                 }
+                const bool is1D = h->GetDimension() == 1;
+                if (is1D) h->SetLineColor(kRed); else RedPalette(); // CE protons are red
                 h->Draw(s.opt.c_str()); // the histogram is the pad's current object, as after TTree::Draw
                 h->SetTitle(PlotTitle(s.file, title + ";" + s.axes).c_str());
                 if (s.fit && h->GetEntries() >= 10) FitCore(h);
+                if (is1D) for (TObject* o : *h->GetListOfFunctions()) if (TF1* f = dynamic_cast<TF1*>(o)) f->SetLineColor(kBlack); // a red histogram would hide a red fit
                 if (h->GetDimension() == 1 && s.expr.find("phi") != std::string::npos){h->SetMinimum(0); h->SetMaximum(1.1 * h->GetMaximum());} // every 1D phi plot, 0 to max
                 if (h->GetDimension() == 1 && h->GetXaxis()->GetXmin() == -180 && h->GetXaxis()->GetXmax() == 180) h->GetXaxis()->SetNdivisions(508, kFALSE); // phi differences, -180 to 180 every 45 deg
-                DrawCEPercent(nPass, -1, nCEAll.at(s.tree)); // the 80% KE cut (KeCuts, CutFiles.h) is on every plot
+                DrawCEPercent(nPass, -1, nCEAll.at(s.tree)); // the cuts of the plot (KE cut of ke, block residual, theta) are all counted as lost
                 WritePlotNumbers(h, path, fitFilesStarted);
                 canvas->Update();
                 canvas->SaveAs(path.c_str());
+                if (!is1D) ViridisPalette();
             }
         }
     }
@@ -147,6 +165,7 @@ static std::vector<double> ThetaEdges(double maxTheta, double binWidth)
     return edges;
 }
 
+// N_particles: every fitted track of any pdg in the bin (N is the pdg 2212 ones).
 // FOM table, csv only, one file per KE cut: <groupDir>/1_csv/<ke.dir>.csv. t is the tree with the recon values (sfx: "Re" true position, "ReD" block position);
 // all is the tree of every proton from every event (AnglesRaw of cut_angles_all.root; the cut list "Angles" + allSfx keeps those that pass the quality cut), allThetaExpr its recon theta in degrees for the same position type.
 // Per theta bin: N = reconstructed protons in the bin (the Angles tree only holds tracks with a fit), N_CE = CE protons in the bin (the ones with AP), eff = N / total neutrons, mean AP of the CE protons,
@@ -164,7 +183,7 @@ static void WriteFomCsv(const std::string& groupDir, const std::vector<KeCut>& k
         ApplyCut(t, ke.dir, block);
         const auto ce = Columns(t, {"theta" + sfx, "ap" + sfx}); // theta, AP of every CE proton under the cut
         t->SetEntryList(nullptr);
-        std::vector<double> countCE(nb, 0.0), countAll(nb, 0.0), sumAP(nb, 0.0);
+        std::vector<double> countCE(nb, 0.0), countAll(nb, 0.0), countPart(nb, 0.0), sumAP(nb, 0.0); // countAll: recon protons (PDG 2212), countPart: every fitted track (any pdg)
         for (size_t i = 0; i < ce[0].size(); i++) {
             const int b = binOf(ce[0][i]);
             if (b < 0) continue;
@@ -172,23 +191,25 @@ static void WriteFomCsv(const std::string& groupDir, const std::vector<KeCut>& k
             sumAP[b] += ce[1][i];
         }
         ApplyCut(all, ke.dir, block, "Angles" + allSfx);
-        const auto allTheta = Columns(all, {allThetaExpr})[0];
+        const auto allCols = Columns(all, {allThetaExpr, "PDG"}); const auto& allTheta = allCols[0];
         all->SetEntryList(nullptr);
         for (size_t i = 0; i < allTheta.size(); i++) {
             const int b = binOf(allTheta[i]);
-            if (b >= 0) countAll[b]++;
+            if (b < 0) continue;
+            countPart[b]++;
+            if (allCols[1][i] == 2212) countAll[b]++;
         }
         gSystem->mkdir((groupDir + "/1_csv").c_str(), true);
         FILE* out = fopen((groupDir + "/1_csv/" + ke.dir + ".csv").c_str(), "w");
         if (!out) continue;
-        fprintf(out, "theta_lo,theta_hi,N,N_CE,eff,mean_AP,eff_x_AP,eff_x_AP2\n");
-        double totN = 0, totCE = 0, totAP = 0, totFom = 0, totFom2 = 0;
+        fprintf(out, "theta_lo,theta_hi,N,N_CE,eff,mean_AP,eff_x_AP,eff_x_AP2,N_particles\n");
+        double totPart = 0, totN = 0, totCE = 0, totAP = 0, totFom = 0, totFom2 = 0;
         for (size_t b = 0; b < nb; b++) {
             const double mean = countCE[b] > 0 ? sumAP[b] / countCE[b] : 0.0, eff = countAll[b] / totalNeutrons;
-            fprintf(out, "%g,%g,%.0f,%.0f,%.8g,%.8g,%.8g,%.8g\n", thetaEdges[b], thetaEdges[b + 1], countAll[b], countCE[b], eff, mean, eff * std::fabs(mean), eff * mean * mean);
-            totN += countAll[b]; totCE += countCE[b]; totAP += sumAP[b]; totFom += eff * std::fabs(mean); totFom2 += eff * mean * mean;
+            fprintf(out, "%g,%g,%.0f,%.0f,%.8g,%.8g,%.8g,%.8g,%.0f\n", thetaEdges[b], thetaEdges[b + 1], countAll[b], countCE[b], eff, mean, eff * std::fabs(mean), eff * mean * mean, countPart[b]);
+            totPart += countPart[b]; totN += countAll[b]; totCE += countCE[b]; totAP += sumAP[b]; totFom += eff * std::fabs(mean); totFom2 += eff * mean * mean;
         }
-        fprintf(out, "%g,%g,%.0f,%.0f,%.8g,%.8g,%.8g,%.8g\n", thetaEdges.front(), thetaEdges.back(), totN, totCE, totN / totalNeutrons, totCE > 0 ? totAP / totCE : 0.0, totFom, totFom2);
+        fprintf(out, "%g,%g,%.0f,%.0f,%.8g,%.8g,%.8g,%.8g,%.0f\n", thetaEdges.front(), thetaEdges.back(), totN, totCE, totN / totalNeutrons, totCE > 0 ? totAP / totCE : 0.0, totFom, totFom2, totPart);
         fclose(out);
     }
 }
@@ -225,7 +246,9 @@ static void PhiCosFit(TCanvas* canvas, TTree* t, const std::string& phiBranch, c
     }
     if (!h || h->GetEntries() < 10){canvas->SetRightMargin(0.30); canvas->SetTopMargin(0.1); return;}
     h->SetTitle((title + ";Angle (degrees);" + (weighted ? "Weighted count (weight -A)" : "Count")).c_str());
+    h->SetLineColor(kRed); // CE protons are red
     TF1 fit("fPhiCos", "[0] * (1 + [1] * [2] * cos(x * TMath::Pi() / 180))", 0, 360);
+    fit.SetLineColor(kBlack);
     fit.SetParNames("N0", "P", "A");
     fit.FixParameter(0, nFit / nBins); fit.FixParameter(2, aFit); fit.SetParameter(1, 0.5); fit.SetParLimits(1, -1, 1);
     h->Fit(&fit, "Q");
@@ -392,12 +415,13 @@ void PlotAngle(std::string energy = "fKEnergy"){ // energy: "fKEnergy" (true KE)
     // 3_ReconCalcVals only holds detector energy plots, so the true KE pass stops after its FOM tables
     if (energy != "fDEnergy") return;
     // theta cuts only on the phi plots: <ke>/2_phi/<th>/<file>
-    DrawGroup(canvas, foldermain.substr(0, foldermain.size() - 1), {keCE.front()}, specsCE, "CE recon protons", "", "",
+    // no KE cut on these plots (empty dir): the tracks without a ZDC hit (KE NAN) are in them too
+    DrawGroup(canvas, foldermain.substr(0, foldermain.size() - 1), {KeCut{"", "", "no KE cut", 0}}, specsCE, "CE recon protons", "", "",
               [&](TTree* t){return std::string(t == events2 ? "thetaRe" : "CalcValsRe" + suffix + ".thetaRe");},
               [](const std::string& f, const std::string& th){return f.rfind("2_phi/", 0) == 0 ? "2_phi/" + th + "/" + f.substr(6) : std::string();});
     // phi fits of the CE protons (CE angles) and of the same events at the recon angles
     {
-        const std::string phiDir = foldermain.substr(0, foldermain.size() - 1) + "/" + keCE.front().dir + "/";
+        const std::string phiDir = foldermain; // these fits have no KE cut either
         gSystem->mkdir(phiDir.c_str(), true);
         // CE protons: every carbon-block CE of the sim (ChargeExchange_values, lab phi of the proton at the reaction), not only the ones with a recon track
         // every carbon-block CE of the sim: cuts/cut_CE.root (CarbonCeCut, CutOpen.h), so every row passes and the cut is empty

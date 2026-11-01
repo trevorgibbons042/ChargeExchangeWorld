@@ -36,7 +36,7 @@ void MySteppingAction::UserSteppingAction(const G4Step *step){
 
     //tracker cell entry: the step ends on the cell boundary but starts in the world, so the SD never sees it.
     //checking pre-in-world also skips cell-to-cell crossings inside the tracker
-    if (post->GetStepStatus() == fGeomBoundary && (pdg == 2212 || pdg == 2112)){
+    if (post->GetStepStatus() == fGeomBoundary && track->GetParticleDefinition()->GetPDGCharge() != 0.){
         const G4VPhysicalVolume* postVolume = post->GetPhysicalVolume();
         const G4VPhysicalVolume* preVolume = step->GetPreStepPoint()->GetPhysicalVolume();
         const G4LogicalVolume* trackLV = static_cast<const MyDetectorConstruction*>(
@@ -117,15 +117,18 @@ void MySteppingAction::UserSteppingAction(const G4Step *step){
         }
     }
 
+    //ZDC entry: every particle is killed here, neutral ones too. A neutron that kept going could charge exchange inside the ZDC silicon,
+    //and the CE proton born there crosses cell boundaries and would be recorded as a hit. Only charged particles are recorded.
     auto* postVol = post->GetPhysicalVolume();
-    if (post->GetStepStatus() == fGeomBoundary && (pdg == 2212 || pdg == 2112)
-        && postVol && postVol->GetName() == "physDetector"){
-        G4ThreeVector Pos = post->GetPosition();
-        G4double KE       = post->GetKineticEnergy();
-        G4ThreeVector detectorCenter = post->GetTouchable()->GetTranslation(); //global center, cells sit inside a slab
+    if (post->GetStepStatus() == fGeomBoundary && postVol && (postVol->GetName() == "physDetector" || postVol->GetName() == "physDetectorSlab")){
+        if (track->GetParticleDefinition()->GetPDGCharge() != 0.){
+            G4ThreeVector Pos = post->GetPosition();
+            G4double KE       = post->GetKineticEnergy();
+            G4ThreeVector detectorCenter = post->GetTouchable()->GetTranslation(); //global center, cells sit inside a slab
 
-        G4double relRes = std::sqrt(fResStochastic*fResStochastic/(KE/GeV) + fResConstant*fResConstant);
-        FillParticleInfo(track, 2, Pos, KE, detectorCenter, std::max(0., G4RandGauss::shoot(KE, KE*relRes)));
+            G4double relRes = std::sqrt(fResStochastic*fResStochastic/(KE/GeV) + fResConstant*fResConstant);
+            FillParticleInfo(track, 2, Pos, KE, detectorCenter, std::max(0., G4RandGauss::shoot(KE, KE*relRes)));
+        }
 
         track->SetTrackStatus(fStopAndKill);
     }

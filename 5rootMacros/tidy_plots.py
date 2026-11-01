@@ -81,7 +81,7 @@ def lift_single_items(top):
             if d == top or not os.path.isdir(d):
                 continue
             items = os.listdir(d)
-            if len(items) != 1 or os.path.basename(d) == "6_cuts" or "6_cuts" in d.split(os.sep) or CUT_DIR.match(os.path.basename(d)):  # everything under 6_cuts keeps its folders (1_hitZDC, 4_nProtons, ...)
+            if len(items) != 1 or os.path.basename(d) == "6_cuts" or "6_cuts" in d.split(os.sep) or CUT_DIR.match(os.path.basename(d)):  # everything under 6_cuts keeps its folders (1_hitZDC, 4_nParticles, ...)
                 continue
             item = items[0]
             parent, name = os.path.split(d)

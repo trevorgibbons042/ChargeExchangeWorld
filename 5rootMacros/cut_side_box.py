@@ -4,7 +4,7 @@
 The box lists the numbers of the plot's sample from 6_cuts/rank_FOM_theta.csv (written by Plot3D.cpp, every column of every cut folder is in it):
 the counts CE_recon_proton_in_cut, nonCE_recon_proton_in_cut, recon_proton_in_cut, CE_recon_before_cut, then CE_recon_proton_in_cut/recon_proton_in_cut, CE_recon_proton_in_cut/CE_recon_before_cut, nonCE_recon_proton_in_cut/recon_proton_in_cut, FOM_theta, FOM_thetaBlock.
 The page is widened to the right so the box never covers the plot. Plots of 0_KE_KECUT80_* and of 2_KECUT80 use the "cut and ZDC KE > 80%" row, the others the "cut" row.
-A folder that holds two cuts (4_nProtons) gets no box on the plots that sit beside the cut folders, they belong to neither cut. pdfs already boxed get their box taken off and redone (unbox), so the box can change without rerunning the macros.
+A folder that holds two cuts (4_nParticles) gets no box on the plots that sit beside the cut folders, they belong to neither cut. pdfs already boxed get their box taken off and redone (unbox), so the box can change without rerunning the macros.
 """
 import csv
 import os
@@ -18,7 +18,11 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__))) # FitCore.h runs 
 import pdfgeom
 
 COLS = ["CE_recon_proton_in_cut/recon_proton_in_cut", "CE_recon_proton_in_cut/CE_recon_before_cut",
-        "nonCE_recon_proton_in_cut/recon_proton_in_cut", "FOM_theta", "FOM_thetaBlock"]
+        "nonCE_recon_proton_in_cut/recon_proton_in_cut",
+        "CE_recon_proton_in_cut/recon_particle_in_cut", "nonCE_recon_particle_in_cut/recon_particle_in_cut",
+        "nonCE_recon_proton_in_cut/nonCE_recon_proton_out_of_cut", "nonCE_recon_particle_in_cut/nonCE_recon_particle_out_of_cut",
+        "nonCE_recon_proton_in_cut/nonCE_recon_proton_before_cut", "nonCE_recon_particle_in_cut/nonCE_recon_particle_before_cut",
+        "CE_recon_proton_in_cut/sqrt(nonCE_recon_proton_in_cut)", "CE_recon_proton_in_cut/sqrt(nonCE_recon_particle_in_cut)", "FOM_theta", "FOM_thetaBlock"]
 MARK = "/CutSideBox"
 A4 = (595, 842) # pt, the page ROOT writes (portrait, /Rotate 90 for the landscape canvases)
 WIDTH, FONT, LEAD = 270.0, 7.5, 11.0
@@ -26,6 +30,7 @@ BOX_TOP = 0.53 # box top as a fraction of the page height when the plot has no l
 LEGEND_W = (100, 200) # pt, width of the legend frame (0.245 of the 567 pt wide figure) used to tell it from the axes and the histogram lines
 GAP = 12.0 # pt between the legend frame and the first line of the box
 KE80 = "cut and ZDC KE > 80%"
+BASELINES = {"1_hitZDC": "1_hitZDC (no cut)", "0_cuts": "0_cuts (no cut)"} # rank rows without a cut: key -> name in the box title
 FOM_CUTS = {"1_reconTheta": "1_hitZDC", "2_reconBlockTheta": "3_ResCuts"} # 5_fomCalc folder -> rank row cut of its sample
 
 
@@ -33,7 +38,7 @@ def load_rows(cuts_dir):
     rows = {}
     with open(os.path.join(cuts_dir, "rank_FOM_theta.csv"), newline="") as f:
         for r in csv.DictReader(f):
-            cut = "1_hitZDC" if r["cut"].startswith("1_hitZDC") else r["cut"]
+            cut = next((b for b in BASELINES if r["cut"].startswith(b)), r["cut"])
             rows[(cut, r["sample"])] = r
     return rows
 
@@ -43,6 +48,10 @@ def cut_of(rel_dir, rows):
     parts = rel_dir.split("/")
     if parts[0] in ("1_hitZDC", "2_KECUT80"):
         return "1_hitZDC"
+    if parts[:2] == ["0_cuts", "2_theta0_1"]: # the same sample as 1_hitZDC
+        return "1_hitZDC"
+    if parts[0] == "0_cuts" or parts == ["4_nParticles"]: # the general particle count of 4_nParticles is the 0_cuts sample
+        return "0_cuts"
     if len(parts) >= 2 and (parts[0] + "/" + parts[1], "cut") in rows:
         return parts[0] + "/" + parts[1]
     if (parts[0], "cut") in rows:
@@ -53,9 +62,11 @@ def cut_of(rel_dir, rows):
 
 def lines_for(row):
     """Text lines of the box, N_{...} is a subscript (see text_ops). The counts come first (CE, nonCE, all recon protons in the cut, CE recon protons before the cut), then the ratios and the FOMs of COLS."""
-    n = {k: int(float(row[c])) for k, c in (("ce", "CE_recon_proton_in_cut"), ("non", "nonCE_recon_proton_in_cut"), ("all", "recon_proton_in_cut"), ("ceAll", "CE_recon_before_cut"))}
-    out = [f"N_{{CE,recon,in cut}} = {n['ce']}", f"N_{{nonCE,recon,in cut}} = {n['non']}", f"N_{{recon,in cut}} = {n['all']}", f"N_{{CE,recon}} = {n['ceAll']}"]
-    label = {COLS[0]: "N_{CE,recon,in cut} / N_{recon,in cut}", COLS[1]: "N_{CE,recon,in cut} / N_{CE,recon}", COLS[2]: "N_{nonCE,recon,in cut} / N_{recon,in cut}", COLS[3]: "FOM_{theta}", COLS[4]: "FOM_{thetaBlock}"}
+    n = {k: int(float(row[c])) for k, c in (("ce", "CE_recon_proton_in_cut"), ("non", "nonCE_recon_proton_in_cut"), ("all", "recon_proton_in_cut"), ("ceAll", "CE_recon_before_cut"), ("part", "recon_particle_in_cut"))}
+    out = [f"N_{{CE,recon,in cut}} = {n['ce']}", f"N_{{nonCE,recon,proton,in cut}} = {n['non']}", f"N_{{recon,proton,in cut}} = {n['all']}", f"N_{{CE,recon}} = {n['ceAll']}", f"N_{{recon,particle,in cut}} = {n['part']}", f"N_{{nonCE,recon,particle,in cut}} = {n['part'] - n['ce']}"]
+    label = {COLS[0]: "N_{CE,recon,in cut} / N_{recon,proton,in cut}", COLS[1]: "N_{CE,recon,in cut} / N_{CE,recon}", COLS[2]: "N_{nonCE,recon,proton,in cut} / N_{recon,proton,in cut}", COLS[3]: "N_{CE,recon,in cut} / N_{recon,particle,in cut}", COLS[4]: "N_{nonCE,recon,particle,in cut} / N_{recon,particle,in cut}",
+             COLS[5]: "N_{nonCE,recon,proton,in cut} / N_{nonCE,recon,proton,out of cut}", COLS[6]: "N_{nonCE,recon,particle,in cut} / N_{nonCE,recon,particle,out of cut}", COLS[7]: "N_{nonCE,recon,proton,in cut} / N_{nonCE,recon,proton,before cut}", COLS[8]: "N_{nonCE,recon,particle,in cut} / N_{nonCE,recon,particle,before cut}",
+             COLS[9]: "N_{CE,recon,in cut} / sqrt(N_{nonCE,recon,proton,in cut})", COLS[10]: "N_{CE,recon,in cut} / sqrt(N_{nonCE,recon,particle,in cut})", COLS[11]: "FOM_{theta}", COLS[12]: "FOM_{thetaBlock}"}
     for c in COLS:
         out.append(f"{label.get(c, c)} = {float(row[c]):.4g}")
     return out
@@ -235,13 +246,13 @@ def main(plots):
             if row is None:
                 skipped += 1
                 continue
-            title = f"{cut if cut != '1_hitZDC' else '1_hitZDC (no cut)'}, {'ZDC KE > 80%' if ke80 else 'no KE cut'}"
+            title = f"{BASELINES.get(cut, cut)}, {'ZDC KE > 80%' if ke80 else 'no KE cut'}"
             jobs.append((os.path.join(d, f), lines_for(row), title))
     for sub, cut in FOM_CUTS.items(): # 5_fomCalc samples (ke_gt80, PlotFomPolarization.cpp): recon theta has no cut, recon block theta the block residual cut (kBlockCut, QualityCut.h)
         for d, _, files in os.walk(os.path.join(plots, "5_fomCalc", sub)):
             for f in sorted(files):
                 if f.endswith(".pdf"):
-                    jobs.append((os.path.join(d, f), lines_for(rows[(cut, "cut")]), f"{cut if cut != '1_hitZDC' else '1_hitZDC (no cut)'}, no KE cut"))
+                    jobs.append((os.path.join(d, f), lines_for(rows[(cut, "cut")]), f"{BASELINES.get(cut, cut)}, no KE cut"))
     if len(jobs) > 1:
         with ProcessPoolExecutor(max_workers=os.cpu_count()) as ex:
             done = sum(ex.map(unbox_and_stamp, jobs, chunksize=4))

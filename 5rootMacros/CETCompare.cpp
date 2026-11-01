@@ -34,13 +34,14 @@ void CETCompare(){
         const auto st = ReadSettings();
         const StackLayout stack = StackZ(st);
         const double zFirst = std::min(stack.blockZ.front(), stack.planeZ.empty() ? 1e9 : stack.planeZ.front()), zLast = std::max(stack.blockZ.back(), stack.planeZ.empty() ? -1e9 : stack.planeZ.back());
-        const double z0 = zFirst - 200, z1 = zLast + 200; const int nz = (int)((z1 - z0) / 5.0);
+        // the range also covers every CE row (the tracker CE can sit past the stack, e.g. at the ZDC end), so none falls in the overflow
+        const double z0 = std::min(zFirst - 200, tAll->GetMinimum("fZ") - 50), z1 = std::max(zLast + 200, tAll->GetMaximum("fZ") + 50); const int nz = 100;
         TH1D hAll("hZAll", "", nz, z0, z1), hZC("hZCarbon", "", nz, z0, z1), hZT("hZTracker", "", nz, z0, z1);
         plan.H(tAll, "fZ>>hZAll", "", "", &hAll); plan.H(tCarbon, "fZ>>hZCarbon", "", "", &hZC); plan.H(tAll, "fZ>>hZTracker", noCarbon, "", &hZT);
         plan.H(tCarbon, "LastT>>hTCarbon", "", "", &hC); plan.H(tAll, "LastT>>hTTracker", noCarbon, "", &hT);
         plan.Run();
         const long long nC = tCarbon->GetEntries(), nT = tAll->GetEntries(noCarbon.c_str()), nA = tAll->GetEntries();
-        hAll.SetLineColor(kBlack); hZC.SetLineColor(kBlue); hZT.SetLineColor(kRed);
+        hAll.SetLineColor(kGray + 1); hZC.SetLineColor(kRed); hZT.SetLineColor(kBlack); // carbon CE red (CE protons are red), tracker CE black, the total gray so it stays apart from the tracker curve
         for (TH1D* h : {&hAll, &hZC, &hZT}) h->SetLineWidth(2);
         hAll.SetTitle("Z position where Charge Exchange happens, all CE protons (sim);Z Position (mm);Count");
         hAll.SetMaximum(1.15 * hAll.GetMaximum());
@@ -56,7 +57,7 @@ void CETCompare(){
     for (const bool norm : {false, true}){
         TH1D* a = (TH1D*)hC.Clone(), *b = (TH1D*)hT.Clone();
         if (norm){a->Scale(1.0 / a->Integral()); b->Scale(1.0 / b->Integral());}
-        a->SetLineColor(kBlue); b->SetLineColor(kRed); a->SetLineWidth(2); b->SetLineWidth(2);
+        a->SetLineColor(kRed); b->SetLineColor(kBlack); a->SetLineWidth(2); b->SetLineWidth(2);
         a->SetTitle(Form("t of the charge exchange, all CE protons (sim), carbon blocks vs silicon trackers%s;t;%s", norm ? ", unit area" : "", norm ? "Fraction" : "Count"));
         a->SetMaximum(1.15 * std::max(a->GetMaximum(), b->GetMaximum()));
         a->Draw("hist"); b->Draw("hist same");

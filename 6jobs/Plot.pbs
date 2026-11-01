@@ -35,7 +35,7 @@ case $STEP in
     cuttrees) macros=('CutPlots.cpp') ;; # the KE cut lists, cut_ZdcCE.root and cut_ZdcAllEv.root, and one cut file per cut of 6_cuts, all read by the plot lanes
     cuts)     macros=('Plot3D.cpp' 'QualityStudy.cpp') ;; # 1_position, 2_energy, 6_cuts; Plot3D runs its four parts as four processes (below)
     fom)      macros=('PlotAngle.cpp("fDEnergy")' 'PlotCEFraction.cpp' 'PlotPolarization.cpp("fDEnergy")' 'PlotFomPolarization.cpp("fDEnergy")') ;; # 3_ReconCalcVals, 5_fomCalc
-    ceblock)  macros=('PlotDiffPhiCuts.cpp(-180, -50, "fDEnergy")' 'GraphBlocks.cpp' 'CETCompare.cpp') ;; # 4_CEblock
+    ceblock)  macros=('PlotDiffPhiCuts.cpp(50, 180, "fDEnergy")' 'GraphBlocks.cpp' 'CETCompare.cpp') ;; # 4_CEblock
     secce)    macros=('SecondaryCE.cpp') ;; # 7_secondaryCE
     pdfs)     macros=() ;; # the python steps of plot.sh, after every lane
     *) echo "unknown step $STEP"; exit 1 ;;
