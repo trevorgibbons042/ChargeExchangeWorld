@@ -50,7 +50,9 @@ static void Gather(TTree* t, const std::string& expr, const std::string& keDir, 
     auto it = cache.find(key);
     if (it == cache.end()){
         ApplyCut(t, keDir, block, listName);
-        std::vector<std::vector<double>> drawn = Columns(t, SplitDraw(expr).exprs);
+        // The callers only fill per-slice lists and sums from the rows, so the order does not matter: a multi-cluster tree (AnglesRaw) is read on all threads in any order (ColumnsUnordered), the others in entry order.
+        const std::vector<std::string> exprs = SplitDraw(expr).exprs;
+        std::vector<std::vector<double>> drawn = MultiCluster(t) ? ColumnsUnordered(t, exprs) : Columns(t, exprs);
         t->SetEntryList(nullptr);
         drawn.resize(nCols);
         it = cache.emplace(key, std::move(drawn)).first;
@@ -147,7 +149,7 @@ void PlotPolarization(std::string energy = "fKEnergy"){ // energy: "fKEnergy" (t
     TFile* allFile = TFile::Open("cuts/cut_angles_all.root", "READ");
     TTree* all = allFile ? (TTree*)allFile->Get(kAngleTree.c_str()) : nullptr; // every fitted proton
     if (!ceFile || !all){printf("PlotPolarization: cut_APandT.root or AnglesRaw in cut_angles_all.root missing\n"); return;}
-    const double nReconAll = (double)Columns(all, {"fEvent"})[0].size(); // every recon proton (AnglesRaw row), before any cut
+    const double nReconAll = (double)all->GetEntries(); // every recon proton (AnglesRaw row), before any cut
 
     const std::vector<KeCut> kes = {KeCuts(keLabel).front()}; // CutFiles.h, the one cut ke_gt80: no KE and no residual cut folders
 
