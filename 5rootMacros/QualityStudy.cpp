@@ -49,7 +49,7 @@ void QualityStudy(double keepCE = 0.95){
     int iR2 = -1, iCand = -1;
     if (hasR2){iR2 = (int)want.size(); want.push_back("r2"); want.push_back("r2D");}
     if (hasCand){iCand = (int)want.size(); for (const char* b : {"nProtonsEv", "nHits", "firstXD", "firstYD", "resHalfRatioD", "outTheta", "outDTheta"}) want.push_back(b);}
-    const std::vector<std::vector<double>> col = Columns(t, want);
+    const std::vector<std::vector<double>> col = ColumnsUnordered(t, want); // row order does not matter here, and AnglesRaw (many clusters) is then read on all threads
     const size_t nRows = col[0].size();
     auto isCE = [&](size_t e){return col[4][e] != 0;};
     auto inBase = [&](size_t e){ // baseline of 6_cuts: recon theta and recon block theta from 0 to 1 degree (NaN fails)

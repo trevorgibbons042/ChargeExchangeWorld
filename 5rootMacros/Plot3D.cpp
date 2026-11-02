@@ -39,7 +39,7 @@
 #include "QualityCut.h"
 #include "TreeColumns.h"
 
-// The maps (gRecoTracks, gRawVals, ...), isReco/rawVal/rawOk and the columns (cut_ZdcCE.root, cut_ZdcAllEv.root) or aliases (AnglesRaw) that replace them in the Draw cuts (P3) are in Plot3DCols.h.
+// The maps (gP3Keys, gP3Flags, gP3Vals), isReco/rawVal/rawOk and the columns (cut_ZdcCE.root, cut_ZdcAllEv.root) or aliases (AnglesRaw) that replace them in the Draw cuts (P3) are in Plot3DCols.h.
 
 struct SampleCut {std::string dir, expr, label, onFolder, file; bool zdcKE80 = false;}; // zdcKE80: the cut file itself needs a ZDC hit with ZDC KE > 80% // see sampleCuts in Plot3D
 

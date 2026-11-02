@@ -67,6 +67,7 @@ public:
     std::vector<std::shared_ptr<Group>> groups;
     std::vector<std::shared_ptr<HistReq>> hists; std::vector<std::shared_ptr<CountReq>> counts; std::vector<std::shared_ptr<ColsReq>> cols;
     std::map<TTree*, int> entryOk; // 1: rdfentry_ is the TTree entry number (checked), 0: not
+    bool unordered = false; // set before Run(): the rows of a many-cluster tree may come back in any order (no rdfentry_), so it is read on all threads; the columns of a row stay together
 };
 
 struct HistReq {
@@ -278,7 +279,7 @@ inline void DrawPlan::Run(){
     if (!wasMT) ROOT::EnableImplicitMT(NThreads());
 
     // 1. book one filter node + one row collector (or Count) per group, all run together
-    struct Booked {std::shared_ptr<Group> g; std::vector<std::vector<double>>* buf = nullptr; std::shared_ptr<ROOT::RDF::RResultPtr<ULong64_t>> cnt; std::shared_ptr<ROOT::RDF::RResultPtr<std::vector<std::vector<double>>>> rows;};
+    struct Booked {std::shared_ptr<Group> g; std::vector<std::vector<double>>* buf = nullptr; std::shared_ptr<ROOT::RDF::RResultPtr<ULong64_t>> cnt; std::shared_ptr<ROOT::RDF::RResultPtr<std::vector<std::vector<double>>>> rows; bool ordFree = false;};
     std::vector<Booked> booked;
     std::vector<ROOT::RDF::RResultHandle> handles, handlesSerial; // serial: trees with several clusters, whose rdfentry_ is only exact on one thread (SerialScope, FitCore.h)
     std::vector<std::unique_ptr<ROOT::RDataFrame>> dfs;
@@ -291,22 +292,23 @@ inline void DrawPlan::Run(){
         for (auto& r : counts) if (r->g == g && !r->done) want = true;
         for (auto& r : cols) if (r->g == g && !r->done) want = true;
         if (!want) {g->done = true; continue;}
-        if (ForceFallback() || !EntryNumberOk(*this, g->tree)){g->failed = true; continue;}
+        const bool ordFree = unordered && MultiCluster(g->tree); // rdfentry_ is not used: the tree is read on all threads and its rows are not put back in entry order
+        if (ForceFallback() || (!ordFree && !EntryNumberOk(*this, g->tree))){g->failed = true; continue;}
         try {
             if (!savedLists.count(g->tree)){savedLists[g->tree] = g->tree->GetEntryList(); g->tree->SetEntryList(nullptr);} // the list is in the selection (listCut)
-            const bool serial = MultiCluster(g->tree);
-            {SerialScope scope(g->tree); dfs.emplace_back(new ROOT::RDataFrame(*g->tree));} // the number of slots is fixed when the RDataFrame is built
+            const bool serial = MultiCluster(g->tree) && !ordFree;
+            {SerialScope scope(serial); dfs.emplace_back(new ROOT::RDataFrame(*g->tree));} // the number of slots is fixed when the RDataFrame is built
             auto& hv = serial ? handlesSerial : handles;
             ROOT::RDF::RNode node = *dfs.back();
             std::string wexpr;
             if (g->weighted){ // the selection is the weight: entries with weight 0 are dropped
                 node = node.Define("__w", "(double)(" + g->sel + ")").Filter("__w != 0");
             } else if (!g->sel.empty()) node = node.Filter(g->sel + " != 0");
-            Booked b; b.g = g;
+            Booked b; b.g = g; b.ordFree = ordFree;
             if (!g->needRows){ // N only
                 b.cnt = std::make_shared<ROOT::RDF::RResultPtr<ULong64_t>>(node.Count()); hv.push_back(*b.cnt);
             } else {
-                std::string list = "ROOT::RVecD{(double)rdfentry_";
+                std::string list = ordFree ? "ROOT::RVecD{0.0" : "ROOT::RVecD{(double)rdfentry_"; // column 0 is not read when the order is free
                 for (size_t i = 0; i < g->exprs.size(); i++) list += ", (double)(" + g->exprs[i] + ")";
                 if (g->weighted) list += ", __w";
                 list += "}";
@@ -317,25 +319,8 @@ inline void DrawPlan::Run(){
                     const double upper = (double)g->tree->GetEntries() * g->stride() * sizeof(double) / 1e9;
                     if (upper > std::atof(gb)) Warning("DrawPlan", "group %s: up to %.1f GB if every entry passes (DRAWPLAN_MEM_GB=%s)", g->sel.c_str(), upper, gb);
                 }
-                using Cols2D = std::vector<std::vector<double>>;
-                auto r = node.Aggregate([](Cols2D& acc, const ROOT::RVecD& v){
-                                            if (acc.size() < v.size()) acc.resize(v.size());
-                                            for (size_t c = 0; c < v.size(); c++) acc[c].push_back(v[c]);
-                                        },
-                                        [](std::vector<Cols2D>& slots){
-                                            Cols2D& dst = slots[0];
-                                            size_t ncol = 0; for (auto& s : slots) ncol = std::max(ncol, s.size());
-                                            dst.resize(ncol);
-                                            for (size_t c = 0; c < ncol; c++){
-                                                size_t tot = 0; for (auto& s : slots) if (c < s.size()) tot += s[c].size();
-                                                dst[c].reserve(tot);
-                                                for (size_t i = 1; i < slots.size(); i++) if (c < slots[i].size()){
-                                                    dst[c].insert(dst[c].end(), slots[i][c].begin(), slots[i][c].end());
-                                                    std::vector<double>().swap(slots[i][c]); // clear() would keep the capacity
-                                                }
-                                            }
-                                        },
-                                        "__v", Cols2D());
+                using Cols2D = RowCols; // FitCore.h
+                auto r = node.Aggregate([](Cols2D& acc, const ROOT::RVecD& v){RowsAppend(acc, v);}, [](std::vector<Cols2D>& slots){RowsMerge(slots);}, "__v", Cols2D());
                 b.rows = std::make_shared<ROOT::RDF::RResultPtr<Cols2D>>(r); hv.push_back(r);
             }
             booked.push_back(b);
@@ -364,7 +349,7 @@ inline void DrawPlan::Run(){
         src.resize(stride);
         const size_t total = src[0].size();
         std::vector<size_t> order(total); std::iota(order.begin(), order.end(), size_t(0));
-        {
+        if (!b.ordFree){ // an order-free group keeps the rows as the threads delivered them
             const std::vector<double>& entry = src[0];
             std::sort(order.begin(), order.end(), [&](size_t x, size_t y){return entry[x] < entry[y];});
         }

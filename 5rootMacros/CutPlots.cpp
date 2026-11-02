@@ -178,7 +178,13 @@ static void CutSamples(){
 void CutPlots(const char* partArg = "all"){ // a const char*: calling a macro with a std::string argument fails on the Mac cling (Failed to materialize symbols)
     const std::string part = partArg;
     if (part != "all" && part != "trees" && part != "zdc" && part != "samples"){Error("CutPlots", "part must be all, trees, zdc or samples"); return;}
-    if (part == "all" || part == "trees") CutTrees();
-    if (part == "all" || part == "zdc") ZdcColumns();
-    if (part == "all" || part == "samples") CutSamples();
+    // one timing line per part, flushed: the job log then shows where it stopped, and the buffered prints of a part are out before the next one starts
+    auto timed = [](const char* name, void (*f)()){
+        const time_t t0 = time(nullptr);
+        f();
+        printf(">>> CutPlots %s took %.0f s\n", name, difftime(time(nullptr), t0)); fflush(stdout);
+    };
+    if (part == "all" || part == "trees") timed("trees", CutTrees);
+    if (part == "all" || part == "zdc") timed("zdc", ZdcColumns);
+    if (part == "all" || part == "samples") timed("samples", CutSamples);
 }

@@ -89,6 +89,26 @@ inline std::vector<std::vector<T>> Columns(TTree* t, const std::vector<std::stri
     return cols;
 }
 
+// Like Columns for double expressions, but the rows come back in no particular order, and a tree with several clusters is read on all threads: no rdfentry_, no SerialScope, no sort.
+// Row k of every column is one entry (RowsAppend), so a loop over the columns sees the same rows as Columns, only permuted. Use it where the result does not depend on the order (counts,
+// sorts, matching by key); a sum over the rows can differ in the last digits between runs. Expressions, aliases, friends, the filter and the entry list of t work as in Columns.
+inline std::vector<std::vector<double>> ColumnsUnordered(TTree* t, const std::vector<std::string>& exprs, const std::string& filter = ""){
+    std::map<std::string, std::string> aliases;
+    const std::string cut = filter.empty() ? "" : ColumnsExpr(t, filter, aliases);
+    std::string list = "ROOT::RVecD{";
+    for (size_t i = 0; i < exprs.size(); i++) list += std::string(i ? ", " : "") + "(double)(" + ColumnsExpr(t, exprs[i], aliases) + ")";
+    list += "}";
+    ROOT::RDataFrame df0(*t);
+    ROOT::RDF::RNode df = df0;
+    for (const auto& [alias, column] : aliases) df = df.Alias(alias, column);
+    if (!cut.empty()) df = df.Filter(cut, "columns filter");
+    df = df.Define("__row", list);
+    auto rows = df.Aggregate([](RowCols& acc, const ROOT::RVecD& v){RowsAppend(acc, v);}, [](std::vector<RowCols>& slots){RowsMerge(slots);}, "__row", RowCols());
+    RowCols cols = std::move(const_cast<RowCols&>(*rows));
+    cols.resize(exprs.size());
+    return cols;
+}
+
 // The expressions and the histogram of a TTree::Draw string "y:x>>name(nx,lo,hi[,ny,lo,hi])": exprs in Draw order (y first), target the part after ">>".
 struct DrawSpec {std::vector<std::string> exprs; std::string target;};
 inline DrawSpec SplitDraw(const std::string& drawExpr){

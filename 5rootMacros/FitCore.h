@@ -107,6 +107,28 @@ inline auto MapRows(Long64_t n, F f) -> std::vector<decltype(f(Long64_t(0), Long
     return ex.Map([&](unsigned c){return f(n * c / nChunk, n * (c + 1) / nChunk);}, ids);
 }
 
+// Rows collected one entry at a time, per RDataFrame slot, as one vector per column (RowsAppend), and the slots appended column by column (RowsMerge, each slot column freed at once).
+// The values of one row go into the same position of every column, so the columns stay aligned whatever the order of the rows. Used by ColumnsUnordered (TreeColumns.h) and DrawPlan.
+#include <ROOT/RVec.hxx>
+using RowCols = std::vector<std::vector<double>>;
+inline void RowsAppend(RowCols& acc, const ROOT::RVecD& v){
+    if (acc.size() < v.size()) acc.resize(v.size());
+    for (size_t c = 0; c < v.size(); c++) acc[c].push_back(v[c]);
+}
+inline void RowsMerge(std::vector<RowCols>& slots){
+    RowCols& dst = slots[0];
+    size_t ncol = 0; for (auto& s : slots) ncol = std::max(ncol, s.size());
+    dst.resize(ncol);
+    for (size_t c = 0; c < ncol; c++){
+        size_t tot = 0; for (auto& s : slots) if (c < s.size()) tot += s[c].size();
+        dst[c].reserve(tot);
+        for (size_t i = 1; i < slots.size(); i++) if (c < slots[i].size()){
+            dst[c].insert(dst[c].end(), slots[i][c].begin(), slots[i][c].end());
+            std::vector<double>().swap(slots[i][c]); // clear() would keep the capacity
+        }
+    }
+}
+
 // RDataFrame's rdfentry_ is not the TTree entry number under implicit MT once a tree has more than one cluster (ROOT 6.38: 10 clusters, 60% of the rows labelled wrong), and a multithreaded
 // Snapshot writes one cluster per task. A reader that sorts or matches by rdfentry_ builds its RDataFrame inside a SerialScope for such a tree: the loop is single threaded, rdfentry_ exact.
 inline bool MultiCluster(TTree* t){
