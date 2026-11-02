@@ -11,6 +11,7 @@
 
 #include <cmath>
 #include <map>
+#include <memory>
 #include <set>
 #include <string>
 #include <utility>
@@ -182,15 +183,37 @@ void PlotDiffPhiCuts(double absLo = 50, double absHi = 180, std::string energy =
         canvas->SetLogy(0);
     };
 
+    // Per row, once for all the overlays below: bit 1 = a proton (pdg 2212), bit 2 = a CE proton in the window (ceWinKeys). Row ranges on all threads, each writes its own part.
+    std::vector<unsigned char> rowFlag(nAng);
+    MapRows(nAng, [&](Long64_t lo, Long64_t hi){
+        for (Long64_t i = lo; i < hi; i++)
+            rowFlag[i] = (llround(angCols[8][i]) == 2212 ? 1 : 0) | (ceWinKeys.count({llround(angCols[0][i]), llround(angCols[1][i])}) ? 2 : 0);
+        return 0;
+    });
+    // Fills hRecon (every row with a finite x), hProt (the protons) and hCE (the CE ones in the window) from the column x. Each row range fills its own copies on all threads (MapRows), added
+    // into the three histograms in range order after: the bin contents are exact, the mean and RMS sums can differ from a serial fill in the last digits.
+    struct Hist3 {std::shared_ptr<TH1D> recon, prot, ce;};
+    auto fill3 = [&](const double* x, TH1D& hRecon, TH1D& hProt, TH1D& hCE){
+        const bool addDir = TH1::AddDirectoryStatus(); TH1::AddDirectory(false); // the copies of the ranges are not registered in the current directory
+        const auto parts = MapRows(nAng, [&](Long64_t lo, Long64_t hi){
+            Hist3 p{std::make_shared<TH1D>(), std::make_shared<TH1D>(), std::make_shared<TH1D>()};
+            hRecon.Copy(*p.recon); hProt.Copy(*p.prot); hCE.Copy(*p.ce); // same binning, still empty
+            for (Long64_t i = lo; i < hi; i++){
+                if (!std::isfinite(x[i])) continue;
+                p.recon->Fill(x[i]);
+                if (rowFlag[i] & 1) p.prot->Fill(x[i]);
+                if (rowFlag[i] & 2) p.ce->Fill(x[i]);
+            }
+            return p;
+        });
+        TH1::AddDirectory(addDir);
+        for (const Hist3& p : parts){hRecon.Add(p.recon.get()); hProt.Add(p.prot.get()); hCE.Add(p.ce.get());}
+    };
+
     // KE: every recon proton and the CE ones in the phi diff window (finalKE of the Angles tree)
     {
         TH1D hKERecon("hKERecon", "", 100, 0, 30000), hKEProt("hKEProt", "", 100, 0, 30000), hKECE("hKECE", "", 100, 0, 30000);
-        for (Long64_t i = 0; i < nAng; i++){
-            if (!std::isfinite(angCols[2][i])) continue; // no ZDC hit: no KE
-            hKERecon.Fill(angCols[2][i]);
-            if (llround(angCols[8][i]) == 2212) hKEProt.Fill(angCols[2][i]);
-            if (ceWinKeys.count({llround(angCols[0][i]), llround(angCols[1][i])})) hKECE.Fill(angCols[2][i]);
-        }
+        fill3(angCols[2], hKERecon, hKEProt, hKECE); // no ZDC hit: no KE, not filled
         drawOverlay(hKERecon, hKEProt, hKECE, nullptr, "Kinetic Energy at ZDC (MeV)", Form("all recon particles, all recon protons and CE recon protons, block phi diff -%g to -%g and %g to %g deg", absHi, absLo, absLo, absHi), "5_ke.pdf", {});
     }
 
@@ -202,13 +225,7 @@ void PlotDiffPhiCuts(double absLo = 50, double absHi = 180, std::string energy =
         {"block residual (mm)", "6_resDRms.pdf", 0, 5, {line, "residual = #sqrt{SS_{res} / n}", ssRes}}};
     for (size_t v = 0; v < vars.size(); v++){
         TH1D hRecon(Form("hRecon%zu", v), "", 100, vars[v].lo, vars[v].hi), hProt(Form("hProt%zu", v), "", 100, vars[v].lo, vars[v].hi), hCE(Form("hCE%zu", v), "", 100, vars[v].lo, vars[v].hi);
-        for (Long64_t i = 0; i < nAng; i++){
-            const double x = angCols[4 + v][i];
-            if (!std::isfinite(x)) continue;
-            hRecon.Fill(x);
-            if (llround(angCols[8][i]) == 2212) hProt.Fill(x);
-            if (ceWinKeys.count({llround(angCols[0][i]), llround(angCols[1][i])})) hCE.Fill(x);
-        }
+        fill3(angCols[4 + v], hRecon, hProt, hCE);
         drawOverlay(hRecon, hProt, hCE, nullptr, vars[v].label, Form("all recon particles, all recon protons and CE recon protons, block phi diff -%g to -%g and %g to %g deg", absHi, absLo, absLo, absHi), vars[v].file, vars[v].eq);
     }
 
@@ -230,13 +247,7 @@ void PlotDiffPhiCuts(double absLo = 50, double absHi = 180, std::string energy =
         for (size_t c = 0; c < exVars.size(); c++) exCols[c] = cEx.V(c);
         for (size_t v = 0; v < exVars.size(); v++){
             TH1D hRecon(Form("hExRecon%zu", v), "", exVars[v].nBins, exVars[v].lo, exVars[v].hi), hProt(Form("hExProt%zu", v), "", exVars[v].nBins, exVars[v].lo, exVars[v].hi), hCE(Form("hExCE%zu", v), "", exVars[v].nBins, exVars[v].lo, exVars[v].hi);
-            for (Long64_t i = 0; i < nAng; i++){
-                const double x = exCols[v][i];
-                if (!std::isfinite(x)) continue;
-                hRecon.Fill(x);
-                if (llround(angCols[8][i]) == 2212) hProt.Fill(x);
-                if (ceWinKeys.count({llround(angCols[0][i]), llround(angCols[1][i])})) hCE.Fill(x);
-            }
+            fill3(exCols[v], hRecon, hProt, hCE);
             drawOverlay(hRecon, hProt, hCE, nullptr, exVars[v].label, Form("all recon particles, all recon protons and CE recon protons, block phi diff -%g to -%g and %g to %g deg", absHi, absLo, absLo, absHi), exVars[v].file, exVars[v].eq);
         }
     }

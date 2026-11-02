@@ -25,6 +25,8 @@ void CutEvents(){
     events->Add(filename);
     ChargeExchange->Add(filename);
     
+    // Estimate -1: Draw keeps every selected row in GetV1/GetV2. The default 1e6 would only hold the last chunk, while the loop below reads up to Sync (xs1000 gives ~3.7e7 CE at 1e8).
+    ChargeExchange->SetEstimate(-1);
     Long64_t Sync = ChargeExchange->Draw("fEvent:TrackID", CarbonCeCut().c_str(), "goff");
 
     // Lookup tables instead of one huge "a || b || ..." string per cut: those strings were JIT-compiled by cling

@@ -104,7 +104,7 @@ static int BinPhi(PhiCounts& counts, double theta, double phi){
 struct PhiAP {
     PhiCounts phi; std::vector<double> apSum, apN;
     std::array<double, kPhiBinsFP> total{}; double totalApSum = 0, totalN = 0; // every proton at any theta (no theta cut), for the all-theta phi fits
-    PhiAP(int nSlices) : phi(nSlices), apSum(nSlices, 0.0), apN(nSlices, 0.0) {}
+    PhiAP(int nSlices = 0) : phi(nSlices), apSum(nSlices, 0.0), apN(nSlices, 0.0) {}
 };
 // A of every proton is the one at the center of its theta slice (t from theta, APFromT), so apSum of a slice is N_slice * A_slice
 static void AddProton(PhiAP& d, double theta, double phi, double apScale, bool block){
@@ -116,6 +116,26 @@ static void AddProton(PhiAP& d, double theta, double phi, double apScale, bool b
     }
     const int s = BinPhi(d.phi, theta, phi);
     if (s >= 0){d.apSum[s] += APFromT(kBeamMomentum, TFromAngle(kBeamMomentum, (s + 0.5) * kStep * TMath::Pi() / 180), apScale); d.apN[s]++;}
+}
+// Adds the counts and sums of s to d (same number of slices).
+static void AddPhiAP(PhiAP& d, const PhiAP& s){
+    for (size_t i = 0; i < d.phi.size(); i++){
+        for (int b = 0; b < kPhiBinsFP; b++) d.phi[i][b] += s.phi[i][b];
+        d.apSum[i] += s.apSum[i]; d.apN[i] += s.apN[i];
+    }
+    for (int b = 0; b < kPhiBinsFP; b++) d.total[b] += s.total[b];
+    d.totalApSum += s.totalApSum; d.totalN += s.totalN;
+}
+// AddProton for every row of cols (theta, phi in rad, columns 0 and 1; toDeg converts) on all threads (MapRows, FitCore.h): each row range fills its own PhiAP, added into d in range order after.
+// The counts are exact; the AP sums can differ from a serial loop in the last digits.
+static void AddProtons(PhiAP& d, const std::vector<std::vector<double>>& cols, double toDeg, double apScale, bool block){
+    const size_t nSlices = d.apSum.size();
+    const auto parts = MapRows((Long64_t)cols[0].size(), [&](Long64_t lo, Long64_t hi){
+        PhiAP part((int)nSlices);
+        for (Long64_t e = lo; e < hi; e++) AddProton(part, cols[0][e] * toDeg, cols[1][e] * toDeg, apScale, block);
+        return part;
+    });
+    for (const PhiAP& part : parts) AddPhiAP(d, part);
 }
 
 void PlotFomPolarization(std::string energy = "fKEnergy"){ // energy: "fKEnergy" (true KE) or "fDEnergy" (detector energy), picks the input trees and plot folder
@@ -155,9 +175,9 @@ void PlotFomPolarization(std::string energy = "fKEnergy"){ // energy: "fKEnergy"
         for (size_t s = 0; s < sets.size(); s++) for (size_t k = 0; k < kes.size(); k++){
             // no KE or residual cut here: every recon proton (pdg 2212) and every recon particle (the Angles view); one multithreaded read (ColumnsUnordered, TreeColumns.h) of their angles each, rows in any order (AddProton only adds counts and AP sums)
             const auto angles = ColumnsUnordered(all, {sets[s].allTheta, sets[s].allPhi}, AngleSelection("Angles") + " && PDG == 2212");
-            for (size_t e = 0; e < angles[0].size(); e++) AddProton(phiAll[s][k], angles[0][e] * toDeg, angles[1][e] * toDeg, apScale, sets[s].block);
-            const auto anglesPart = Columns(all, {sets[s].allTheta, sets[s].allPhi}, AngleSelection("Angles"));
-            for (size_t e = 0; e < anglesPart[0].size(); e++) AddProton(phiAllPart[s][k], anglesPart[0][e] * toDeg, anglesPart[1][e] * toDeg, apScale, sets[s].block);
+            AddProtons(phiAll[s][k], angles, toDeg, apScale, sets[s].block);
+            const auto anglesPart = ColumnsUnordered(all, {sets[s].allTheta, sets[s].allPhi}, AngleSelection("Angles"));
+            AddProtons(phiAllPart[s][k], anglesPart, toDeg, apScale, sets[s].block);
         }
     }
     for (size_t si = 0; si < sets.size(); si++) for (const auto& apSrc : apSrcs){
