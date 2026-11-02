@@ -61,10 +61,20 @@ void PlotDiffPhiCuts(double absLo = 50, double absHi = 180, std::string energy =
     plan.Run();
     gROOT->cd();
     const Long64_t nSel = cDiff.N();
-    std::set<std::pair<long long, long long>> keys;
+    const time_t tKeys = time(nullptr);
+    // Key sets: sorted vectors of packed (fEvent, TrackID) keys, not std::set, which is slow and large for every recon proton of the run. count() takes the pair the old sets took.
+    struct KeySet {
+        std::vector<uint64_t> k;
+        static uint64_t Pack(long long ev, long long tr){return (uint64_t(uint32_t(ev)) << 32) | uint32_t(tr);}
+        void Finish(){std::sort(k.begin(), k.end()); k.erase(std::unique(k.begin(), k.end()), k.end());}
+        size_t count(const std::pair<long long, long long>& p) const {return std::binary_search(k.begin(), k.end(), Pack(p.first, p.second));}
+        size_t size() const {return k.size();}
+    };
+    KeySet keys;
     for (Long64_t i = 0; i < nSel; i++){
-        keys.insert({llround(cDiff.V(0)[i]), llround(cDiff.V(1)[i])});
+        keys.k.push_back(KeySet::Pack(llround(cDiff.V(0)[i]), llround(cDiff.V(1)[i])));
     }
+    keys.Finish();
 
     const Long64_t nAng = cAng.N();
     std::vector<const double*> angCols(9); // views of the DrawPlan columns, no copy
@@ -72,15 +82,25 @@ void PlotDiffPhiCuts(double absLo = 50, double absHi = 180, std::string energy =
     // every recon proton (all events, CE ones included) in the same block phi diff window: the CE protons keep their block phi - CE phi
     // window above, the non-CE ones have no CE phi so their diff is recon block phi - recon tracker phi (outPhi), wrapped to -180 to 180
     // like CalcAPandT.cpp. ceWinKeys: the window CE protons as (fEvent, proton TrackID), the Angles tree key: AnglesRaw rows from a CE neutron in keys (ParentID)
-    std::set<std::pair<long long, long long>> reconKeys, ceWinKeys;
-    for (Long64_t i = 0; i < nAng; i++){
-        if (angCols[3][i] > 0.5){
-            if (keys.count({llround(angCols[0][i]), llround(angCols[7][i])})) ceWinKeys.insert({llround(angCols[0][i]), llround(angCols[1][i])});
-            continue;
+    KeySet reconKeys, ceWinKeys;
+    struct AngKeys {std::vector<uint64_t> ce, recon;};
+    const auto angParts = MapRows(nAng, [&](Long64_t lo, Long64_t hi){ // row ranges on all threads (MapRows, FitCore.h), each collects its own keys
+        AngKeys part;
+        for (Long64_t i = lo; i < hi; i++){
+            if (angCols[3][i] > 0.5){
+                if (keys.count({llround(angCols[0][i]), llround(angCols[7][i])})) part.ce.push_back(KeySet::Pack(llround(angCols[0][i]), llround(angCols[1][i])));
+                continue;
+            }
+            const double dPhi = std::remainder((angCols[6][i] - angCols[5][i]) * 180 / TMath::Pi(), 360.0);
+            if (fabs(dPhi) >= absLo && fabs(dPhi) <= absHi) part.recon.push_back(KeySet::Pack(llround(angCols[0][i]), llround(angCols[1][i])));
         }
-        const double dPhi = std::remainder((angCols[6][i] - angCols[5][i]) * 180 / TMath::Pi(), 360.0);
-        if (fabs(dPhi) >= absLo && fabs(dPhi) <= absHi) reconKeys.insert({llround(angCols[0][i]), llround(angCols[1][i])});
+        return part;
+    });
+    for (const auto& part : angParts){
+        ceWinKeys.k.insert(ceWinKeys.k.end(), part.ce.begin(), part.ce.end());
+        reconKeys.k.insert(reconKeys.k.end(), part.recon.begin(), part.recon.end());
     }
+    ceWinKeys.Finish(); reconKeys.Finish();
 
     // positions at the ZDC, block (fDx, fDy) and true (fX, fY): the window protons from cut_ParentZdc.root (cut_APandT.root TrackID is the
     // CE neutron's track, so it matches the proton's ParentID there), every recon proton from cut_AllEvProtons.root (matched on TrackID)
@@ -88,18 +108,26 @@ void PlotDiffPhiCuts(double absLo = 50, double absHi = 180, std::string energy =
     const int nColsD = (int)ReadSettings().at("nCols_detector"), nRowsD = (int)ReadSettings().at("nRows_detector");
     TH2D hBlock("hBlock", "", nColsD, -200, 200, nRowsD, -200, 200), hTrue("hTrue", "", 100, -200, 200, 100, -200, 200);
     TH2D hBlockAll("hBlockAll", "", nColsD, -200, 200, nRowsD, -200, 200), hTrueAll("hTrueAll", "", 100, -200, 200, 100, -200, 200);
-    const Long64_t nPos = cPos.N();
-    for (Long64_t i = 0; i < nPos; i++){
-        if (!keys.count({llround(cPos.V(0)[i]), llround(cPos.V(1)[i])})) continue;
+    // the rows of a column set whose (fEvent, id) is in a key set, found on all threads; the histograms are then filled here in row order, so the stats sums are those of a serial fill
+    auto matching = [&](const DrawPlan::Cols& c, const KeySet& set){
+        const auto parts = MapRows(c.N(), [&](Long64_t lo, Long64_t hi){
+            std::vector<Long64_t> rows;
+            for (Long64_t i = lo; i < hi; i++) if (set.count({llround(c.V(0)[i]), llround(c.V(1)[i])})) rows.push_back(i);
+            return rows;
+        });
+        std::vector<Long64_t> rows;
+        for (const auto& p : parts) rows.insert(rows.end(), p.begin(), p.end());
+        return rows;
+    };
+    for (Long64_t i : matching(cPos, keys)){
         hBlock.Fill(cPos.V(2)[i], cPos.V(3)[i]);
         hTrue.Fill(cPos.V(4)[i], cPos.V(5)[i]);
     }
-    const Long64_t nAllEv = cAllEv.N();
-    for (Long64_t i = 0; i < nAllEv; i++){
-        if (!reconKeys.count({llround(cAllEv.V(0)[i]), llround(cAllEv.V(1)[i])})) continue;
+    for (Long64_t i : matching(cAllEv, reconKeys)){
         hBlockAll.Fill(cAllEv.V(2)[i], cAllEv.V(3)[i]);
         hTrueAll.Fill(cAllEv.V(4)[i], cAllEv.V(5)[i]);
     }
+    printf(">>> PlotDiffPhiCuts key sets and ZDC fills took %.0f s\n", difftime(time(nullptr), tKeys)); fflush(stdout);
     hBlockAll.Add(&hBlock);
     hTrueAll.Add(&hTrue);
 
