@@ -36,7 +36,7 @@ export ANA_NTHREADS=$(( NCPU / 4 > 0 ? NCPU / 4 : 1 ))
 # Lanes run at the same time. A lane holds the macros that write into the same plots/ folders (stats.csv and fit_values.csv are
 # truncated per folder) or read another's csv files, in order; no two lanes share a folder.
 { # 1_position, 2_energy, 6_cuts: the four independent parts of Plot3D (P3_PART, Plot3D.cpp) side by side, then QualityStudy
-    for part in 1 3 4 2:0 2:1 2:2 2:3 2:4 2:5 2:6 2:7; do (export P3_PART=${part%%:*} P3_CUT=; [[ $part == *:* ]] && export P3_CUT=${part#*:}; run 'Plot3D.cpp') & done
+    for part in 1 3 4 2:0 2:1 2:2 2:3 2:4 2:5 2:6 2:7 2:8 2:9; do (export P3_PART=${part%%:*} P3_CUT=; [[ $part == *:* ]] && export P3_CUT=${part#*:}; run 'Plot3D.cpp') & done
     wait
     (export P3_PART=5 P3_CUT=; run 'Plot3D.cpp') # part 5: the rank_*.csv files from the rows of the part 2 processes
     run 'QualityStudy.cpp'
@@ -60,4 +60,5 @@ python3 tidy_plots.py plots
 python3 cut_side_box.py plots # side box with the cut numbers on every 6_cuts pdf, after tidy_plots.py (the pdfs are final)
 python3 crop_pdfs.py plots # cuts the blank rest of ROOT's A4 page off every pdf, the side box included
 bash to_png.sh plots # last: every final pdf becomes a png
+cp settings.csv plots/ # the sim settings of this run beside its plots
 echo ">>> all plots took $((SECONDS - total)) s"

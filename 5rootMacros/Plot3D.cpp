@@ -355,15 +355,17 @@ void Plot3D(){
         // (those plots sit in the cut folder itself, the other variables in its 1_additionalinfo). The same KE plot as 1_hitZDC with the cut applied goes in 1_additionalinfo.
         const std::vector<SampleCut> sampleCuts = {
             {"3_ResCuts", "isRes2(fEvent, TrackID)", "cut resDRms (block residual) < 2 mm", "3_ResCuts", "cut_ResCuts"},
-            {"4_nParticles/1_particleCut", "rawVal(fEvent, TrackID, 6) <= 1", "cut at most 1 reconstructed particle in the event", "4_nParticles", "cut_nProtons1"},
-            {"4_nParticles/2_particleCut", "rawVal(fEvent, TrackID, 6) <= 2", "cut at most 2 reconstructed particles in the event", "4_nParticles", "cut_nProtons2"},
+            {"4_nParticles/1_particleCut", "rawVal(fEvent, TrackID, 6) <= 6", "cut at most 6 reconstructed particles in the event", "4_nParticles", "cut_nParticles6"},
+            {"4_nParticles/2_particleCut", "rawVal(fEvent, TrackID, 6) <= 7", "cut at most 7 reconstructed particles in the event", "4_nParticles", "cut_nParticles7"},
             {"5_nHits", "(rawVal(fEvent, TrackID, 10) == 2 || rawVal(fEvent, TrackID, 10) == 4 || rawVal(fEvent, TrackID, 10) == 6 || rawVal(fEvent, TrackID, 10) == 8)", "cut 2, 4, 6 or 8 tracker hits", "5_nHits", "cut_nHits"},
             {"6_megaCut", "rawVal(fEvent, TrackID, 6) <= 1 && (rawVal(fEvent, TrackID, 10) == 2 || rawVal(fEvent, TrackID, 10) == 4 || rawVal(fEvent, TrackID, 10) == 6 || rawVal(fEvent, TrackID, 10) == 8) && rawVal(fEvent, TrackID, 9) >= 0 && rawVal(fEvent, TrackID, 9) <= 1 && rawVal(fEvent, TrackID, 11) >= 0 && rawVal(fEvent, TrackID, 11) <= 1",
              "MEGA CUT: 1 Recon Proton in Event AND Number of times Recon Proton hits tracker [2,4,6,8], recon theta and recon block theta from 0 degrees to 1 degree", "6_megaCut", "cut_megacut"},
-            {"7_megaCut2/1_particleCut", "rawVal(fEvent, TrackID, 6) <= 1 && (rawVal(fEvent, TrackID, 10) == 2 || rawVal(fEvent, TrackID, 10) == 4 || rawVal(fEvent, TrackID, 10) == 6 || rawVal(fEvent, TrackID, 10) == 8) && rawVal(fEvent, TrackID, 9) >= 0 && rawVal(fEvent, TrackID, 9) <= 1 && rawVal(fEvent, TrackID, 11) >= 0 && rawVal(fEvent, TrackID, 11) <= 1 && fDEnergy > " + std::to_string(initialKE * 0.80),
-             "MEGA CUT 2: ZDC KE > 80%, at most 1 reconstructed particle in event AND number of times the reconstructed particle hits tracker [2,4,6,8], recon theta and recon block theta from 0 degrees to 1 degree", "7_megaCut2", "cut_megacut2_1", true},
-            {"7_megaCut2/2_particleCut", "rawVal(fEvent, TrackID, 6) <= 2 && (rawVal(fEvent, TrackID, 10) == 2 || rawVal(fEvent, TrackID, 10) == 4 || rawVal(fEvent, TrackID, 10) == 6 || rawVal(fEvent, TrackID, 10) == 8) && rawVal(fEvent, TrackID, 9) >= 0 && rawVal(fEvent, TrackID, 9) <= 1 && rawVal(fEvent, TrackID, 11) >= 0 && rawVal(fEvent, TrackID, 11) <= 1 && fDEnergy > " + std::to_string(initialKE * 0.80),
-             "MEGA CUT 2: ZDC KE > 80%, at most 2 reconstructed particles in event AND number of times the reconstructed particle hits tracker [2,4,6,8], recon theta and recon block theta from 0 degrees to 1 degree", "7_megaCut2", "cut_megacut2_2", true}};
+            {"7_megaCut2/1_particleCut", "rawVal(fEvent, TrackID, 6) <= 6 && (rawVal(fEvent, TrackID, 10) == 2 || rawVal(fEvent, TrackID, 10) == 4 || rawVal(fEvent, TrackID, 10) == 6 || rawVal(fEvent, TrackID, 10) == 8) && rawVal(fEvent, TrackID, 9) >= 0 && rawVal(fEvent, TrackID, 9) <= 1 && rawVal(fEvent, TrackID, 11) >= 0 && rawVal(fEvent, TrackID, 11) <= 1 && fDEnergy > " + std::to_string(initialKE * 0.80),
+             "MEGA CUT 2: ZDC KE > 80%, at most 6 reconstructed particles in event AND number of times the reconstructed particle hits tracker [2,4,6,8], recon theta and recon block theta from 0 degrees to 1 degree", "7_megaCut2", "cut_megacut2_6", true},
+            {"7_megaCut2/2_particleCut", "rawVal(fEvent, TrackID, 6) <= 7 && (rawVal(fEvent, TrackID, 10) == 2 || rawVal(fEvent, TrackID, 10) == 4 || rawVal(fEvent, TrackID, 10) == 6 || rawVal(fEvent, TrackID, 10) == 8) && rawVal(fEvent, TrackID, 9) >= 0 && rawVal(fEvent, TrackID, 9) <= 1 && rawVal(fEvent, TrackID, 11) >= 0 && rawVal(fEvent, TrackID, 11) <= 1 && fDEnergy > " + std::to_string(initialKE * 0.80),
+             "MEGA CUT 2: ZDC KE > 80%, at most 7 reconstructed particles in event AND number of times the reconstructed particle hits tracker [2,4,6,8], recon theta and recon block theta from 0 degrees to 1 degree", "7_megaCut2", "cut_megacut2_7", true},
+            {"8_nProtons/1_protonCut", "rawVal(fEvent, TrackID, 7) <= 1", "cut at most 1 reconstructed proton (pdg 2212) in the event", "8_nProtons", "cut_nProt1"},
+            {"8_nProtons/2_protonCut", "rawVal(fEvent, TrackID, 7) <= 2", "cut at most 2 reconstructed protons (pdg 2212) in the event", "8_nProtons", "cut_nProt2"}};
         struct RankRow {std::string cut, sample; double nCEin, nAllIn, nCEtotal, nCEreconBefore, fom[2], pol[2], polErr[2], nPartIn, nNonProtBefore, nNonPartBefore;}; // nAllIn: recon protons (pdg 2212) in the cut, nPartIn: every recon particle in the cut, nNon*Before: the non-CE protons / particles of the sample the cut is made on (the base of the row), so out of cut = before - in;  fom, pol (fitted P), polErr: [0] recon theta / phi, [1] recon block theta / phi
         double nCEreconTotal = 0; // every CE proton with a fitted track (AnglesRaw, isFromCE), no ZDC requirement: CE_before of the QualityStudy csv files, the CE_recon_before_cut of the csv files
         // AnglesRaw: every proton with a fitted track, ZDC hit or not. The cut folders count, fit and plot these (no ZDC requirement), except with the 80% ZDC KE cut.
@@ -804,6 +806,22 @@ void Plot3D(){
                             canvas->SaveAs(path.c_str());
                             for (int i = 0; i < g.GetN(); i++) WriteStatsRow(path, "plot,start_theta_deg,value", Form("%s,%.4g,%.6g", gSystem->BaseName(path.c_str()), g.GetX()[i], g.GetY()[i]), fitFilesStarted, "ratios_vs_start_theta.csv");
                         }
+                        { // 13: the FOM of the CE recon protons with block theta from the start value to 1 deg, same sum as fomStats (A_y^2 at the 0.05 deg bin center * 0.05 deg / N_neutrons)
+                            TGraph g;
+                            for (int b = 0; b < 100; b++){
+                                double sum = 0;
+                                for (double t : th[0]) if (t >= b * 0.01 && t <= 1.0)
+                                    sum += std::pow(APFromT(kBeamMomentum, TFromAngle(kBeamMomentum, (std::floor(t / 0.05) + 0.5) * 0.05 * TMath::Pi() / 180), apScaleFom), 2) * 0.05 / nNeutrons;
+                                g.SetPoint(g.GetN(), b * 0.01, sum);
+                            }
+                            const std::string path = dirJ + "13_" + stem + "_FOM_vs_start_theta.pdf";
+                            canvas->Clear(); canvas->SetRightMargin(0.30); canvas->SetTopMargin(0.1);
+                            g.SetTitle(("FOM of CE recon protons vs start theta, " + cutTxt + ", " + rb + " theta from the start value to 1 deg" + where + ";Start theta (deg);FOM = #Sigma A_{y}^{2} #Delta#theta / N_{neutrons}").c_str());
+                            g.SetMarkerStyle(20); g.SetMarkerSize(0.6); g.SetLineWidth(1); g.SetLineColor(kRed); g.SetMarkerColor(kRed);
+                            g.Draw("APL"); g.GetXaxis()->SetLimits(0, 1.0);
+                            canvas->SaveAs(path.c_str());
+                            for (int i = 0; i < g.GetN(); i++) WriteStatsRow(path, "plot,start_theta_deg,value", Form("%s,%.4g,%.6g", gSystem->BaseName(path.c_str()), g.GetX()[i], g.GetY()[i]), fitFilesStarted, "ratios_vs_start_theta.csv");
+                        }
                     }
                     canvas->SetRightMargin(0.30); canvas->SetTopMargin(0.1);
                 }
@@ -838,6 +856,7 @@ void Plot3D(){
         const std::vector<InfoVar> kInfoVars = {
             {"resDRms", "3_ResCuts", "residual, block position (mm)", 1, 0, 0, 100},
             {"nParticlesEv", "4_nParticles", "reconstructed particles in the event", 6, -0.5, 19.5, 20},
+            {"nProtEv", "8_nProtons", "reconstructed protons (pdg 2212) in the event", 7, -0.5, 19.5, 20},
             {"nHits", "5_nHits", "tracker hits", 10, -0.5, 10.5, 11},
             {"thetaBlock", "7_theta", "recon block theta (degrees)", 11, 0, 2.3, 100}};
         // 1st and 99th percentile of every fitted proton's value k (the raw_k column of the AnglesRaw cache where ok_k is 1), once per variable
@@ -1012,11 +1031,11 @@ void Plot3D(){
                         for (double d : colCE[0]) hc.Fill(d);
                         for (double d : colAll[0]) ha.Fill(d);
                         for (double d : colPart[0]) hq.Fill(d);
-                        canvas->Clear(); canvas->SetLogy(0);
+                        canvas->Clear(); canvas->SetLogy(1);
                         hc.SetLineColor(kRed); ha.SetLineColor(kBlue); hq.SetLineColor(kGreen + 2); hc.SetLineWidth(2); ha.SetLineWidth(2); hq.SetLineWidth(2); hc.SetStats(0); ha.SetStats(0); hq.SetStats(0);
                         ha.SetTitle((rps[w].label + ", CE recon protons vs all recon protons vs all recon particles, " + cutNote + ";" + rps[w].label + ";Count").c_str());
                         if (w == 1) ha.GetXaxis()->SetNdivisions(508, kFALSE); // phi: -180 to 180 every 45 deg
-                        ha.SetMinimum(0); ha.SetMaximum(1.3 * std::max(1.0, std::max(std::max(ha.GetMaximum(), hc.GetMaximum()), hq.GetMaximum())));
+                        ha.SetMinimum(0.5); ha.SetMaximum(2.0 * std::max(1.0, std::max(std::max(ha.GetMaximum(), hc.GetMaximum()), hq.GetMaximum()))); // log y
                         ha.Draw("hist"); hq.Draw("hist same"); hc.Draw("hist same");
                         TLegend* leg = new TLegend(0.745, 0.76, 0.99, 0.90); leg->SetTextSize(0.011);
                         leg->AddEntry(&hc, Form("CE recon protons (%.0f), mean %.3g, RMS %.3g", hc.GetEntries(), hc.GetMean(), hc.GetRMS()), "l");

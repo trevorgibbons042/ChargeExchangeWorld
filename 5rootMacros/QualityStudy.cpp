@@ -213,7 +213,7 @@ void QualityStudy(double keepCE = 0.95){
                             candRecon[i].size(), reAfter, 100.0 * (1.0 - double(reAfter) / candRecon[i].size()));
                     fclose(hf);
                 }
-                if (cd.branch != "nHits") // no pdf for the tracker hits: Plot3D draws it with all three samples (5_nHits_nHits); only the csv above is kept
+                if (cd.branch != "nHits" && cd.branch != "nProtonsEv") // no pdf for the tracker hits and the particle count: Plot3D draws them with all three samples (5_nHits_nHits, 4_nParticles_nParticlesEv); only the csv above is kept
                     c.SaveAs((cdir + (cd.branch == "thetaBlock" ? "2_" : "1_") + cd.branch + ".pdf").c_str());
             }
         }

@@ -53,7 +53,7 @@ inline bool LoadPlot3DMaps(){
     if (!raw){Error("Plot3D", "missing AnglesRaw tree in cut_angles_all.root (run ReconAngleAll.cpp first)"); return false;}
     // one pass over AnglesRaw, each entry read once and on all the threads (RDataFrame): every row is a reconstructed track (the Angles tree), gRawVals has every row.
     // Every slot collects its rows in a vector, the vectors are sorted and merged on all the threads, and the maps are built in key order (insertion at the end, no tree search), one map per thread.
-    const bool withRaw = raw->GetBranch("nProtonsEv") != nullptr;
+    const bool withRaw = raw->GetBranch("nProtEv") != nullptr;
     const unsigned char kReco = 1, kRecoD = 2, kRes2 = 4;
     ROOT::RDataFrame df(*raw);
     std::vector<std::vector<P3Item>> parts(df.GetNSlots());
@@ -62,16 +62,16 @@ inline bool LoadPlot3DMaps(){
     };
     if (withRaw){
         const double rad = TMath::RadToDeg(), twoPi = 2 * TMath::Pi();
-        df.ForeachSlot([&](unsigned slot, int ev, int tid, double resRms, double resDRms, double impact, double impactD, double r2, double r2D, int nP, int nH,
+        df.ForeachSlot([&](unsigned slot, int ev, int tid, double resRms, double resDRms, double impact, double impactD, double r2, double r2D, int nP, int nProt, int nH,
                            double phiRad, double phiBlockRad, double firstXD, double firstYD, double zRecon, double resHalfRatioD, double thetaRad, double thetaBlockRad){
             P3Item it; it.key = {ev, tid}; it.flags = flagsOf(resDRms);
             double* v = it.a.data();
             v[0] = resRms; v[1] = resDRms; v[2] = impact; v[3] = impactD; v[4] = r2; v[5] = r2D;
-            v[6] = nP; v[7] = 1; // slot 7 is unused (it held zOrderOK), kept so the other indexes stay put
+            v[6] = nP; v[7] = nProt; // slot 7 held zOrderOK once; now the number of pdg 2212 tracks in the event
             v[8] = resHalfRatioD; v[9] = thetaRad * rad; v[10] = nH; v[11] = thetaBlockRad * rad; v[12] = firstXD; v[13] = firstYD;
             v[14] = (phiRad < 0 ? phiRad + twoPi : phiRad) * rad; v[15] = (phiBlockRad < 0 ? phiBlockRad + twoPi : phiBlockRad) * rad; v[16] = zRecon;
             parts[slot].push_back(it);
-        }, {"fEvent", "TrackID", "resRms", "resDRms", "impact", "impactD", "r2", "r2D", "nProtonsEv", "nHits",
+        }, {"fEvent", "TrackID", "resRms", "resDRms", "impact", "impactD", "r2", "r2D", "nProtonsEv", "nProtEv", "nHits",
             "outPhi", "outDPhi", "firstXD", "firstYD", "z_bx_reconVertexOut", "resHalfRatioD", "outTheta", "outDTheta"});
     } else {
         df.ForeachSlot([&](unsigned slot, int ev, int tid, double resDRms){
@@ -153,7 +153,7 @@ inline std::string P3(const std::string& s){
 // The same names on AnglesRaw, as TTree aliases of its own branches (no extra columns in the file): a row of AnglesRaw is one fitted proton, so every row is a reco proton (isReco = 1),
 // raw_k its k-th value of gRawVals (LoadPlot3DMaps) and ok_k whether that value is finite. P3() rewrites the Draw strings to these names for every tree.
 inline void Plot3DRawAliases(TTree* raw){
-    const char* val[17] = {"resRms", "resDRms", "impact", "impactD", "r2", "r2D", "nProtonsEv", "1", "resHalfRatioD", "outTheta*TMath::RadToDeg()", "nHits",
+    const char* val[17] = {"resRms", "resDRms", "impact", "impactD", "r2", "r2D", "nProtonsEv", "nProtEv", "resHalfRatioD", "outTheta*TMath::RadToDeg()", "nHits",
                            "outDTheta*TMath::RadToDeg()", "firstXD", "firstYD", "outPhi*TMath::RadToDeg()", "outDPhi*TMath::RadToDeg()", "z_bx_reconVertexOut"}; // phi in 0 to 360 (ReconAngleAll.cpp)
     for (int k = 0; k < 17; k++){
         raw->SetAlias(Form("raw_%d", k), val[k]);
