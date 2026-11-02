@@ -3,7 +3,7 @@
 /event/verbose 0
 /tracking/verbose 0
 
-/run/numberOfThreads 8
+/run/numberOfThreads 128
 /run/initialize
 /output/print false
 
