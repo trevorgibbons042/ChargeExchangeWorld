@@ -68,7 +68,15 @@ void QualityStudy(double keepCE = 0.95){
     if (nCE == 0){printf("QualityStudy: no CE protons in AnglesRaw\n"); return;}
 
     // joint pass: a track passes when all four variables are below their thresholds (the same percentile q of the CE values for each variable)
-    auto thresholds = [&](double q){std::vector<double> th(4); for (int i = 0; i < 4; i++) th[i] = Quantile(ce[i], q); return th;};
+    // sorted copies, made once: the bisection below asks for the thresholds 40 times and Quantile would sort a copy of every variable each time.
+    // ce itself stays in row order, jointKept needs the four values of one track together.
+    std::vector<std::vector<double>> ceSorted = ce;
+    for (auto& v : ceSorted) std::sort(v.begin(), v.end());
+    auto thresholds = [&](double q){
+        std::vector<double> th(4);
+        for (int i = 0; i < 4; i++) th[i] = ceSorted[i].empty() ? NAN : ceSorted[i][std::min(ceSorted[i].size() - 1, (size_t)(q * ceSorted[i].size()))]; // same index as Quantile
+        return th;
+    };
     auto jointKept = [&](const std::vector<std::vector<double>>& s, const std::vector<double>& th){
         size_t n = s[0].size(), kept = 0;
         for (size_t k = 0; k < n; k++){
