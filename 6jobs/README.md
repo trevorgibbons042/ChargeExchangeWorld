@@ -32,13 +32,21 @@ bash SubmitEvents.sh <run> cutdone
 
 ConvertAngles then rewrites the file into the one-tree format. The old file is kept as `cut_angles_all_old5.root`.
 
+To start the chain at a plot job, give its name (`CutPlots`, `Cuts`, `Fom`, `CEblock`, `SecCE` or `Pdfs`) instead of `cutdone`. No analysis job is submitted, and that job and the ones after it in the list run:
+
+```
+bash SubmitEvents.sh <run> Cuts
+```
+
+This submits Cuts, Fom, CEblock, SecCE and Pdfs, and needs the `cuts/` files from CutPlots to be there already.
+
 ## Plots only
 
 ```
-bash SubmitPlots.sh <run> [jobids]
+bash SubmitPlots.sh <run> [jobids] [first job]
 ```
 
-Needs `cut_*.root` and `settings.csv` in the run folder. `jobids` is an optional colon-separated list of jobs that CutPlots should wait for.
+Needs `cut_*.root` and `settings.csv` in the run folder. `jobids` is an optional colon-separated list of jobs that CutPlots should wait for (use `""` for none). `first job` is one of the plot job names above; the default is `CutPlots`, so the whole plot chain runs.
 
 ## Whole chain in a single job
 
