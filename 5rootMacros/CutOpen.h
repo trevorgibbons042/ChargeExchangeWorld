@@ -14,7 +14,7 @@
 //   cut_ParentTracker.root ParticleInfo: the children of a carbon CE track that are protons at the first tracker (boundaryType == 0)
 //   cut_AllEvProtons.root  ParticleInfo: the protons at the ZDC of every event
 //   cut_ZdcCE.root, cut_ZdcAllEv.root   cut_ParentZdc.root / cut_AllEvProtons.root plus the Plot3D columns of the reconstructed track (Plot3DCols.h)
-//   cut_ResCuts, cut_nProtons1, cut_nProtons2, cut_nHits, cut_megacut, cut_megacut2_1, cut_megacut2_2 .root  AnglesRaw: the fitted protons that pass one cut of 6_cuts (CutPlots.cpp (samples))
+//   cut_ResCuts, cut_nParticles6, cut_nParticles7, cut_nProt1, cut_nProt2, cut_nHits, cut_megacut, cut_megacut2_6, cut_megacut2_7 .root  AnglesRaw: the fitted protons that pass one cut of 6_cuts (CutPlots.cpp (samples))
 //   cut_hitZDC_AllEv.root   ParticleInfo: the ZDC protons of every event with a reconstructed track (CutPlots.cpp (samples))
 
 // The tree of a cut file, opened once and kept open (READ); nullptr with an Error if the file or tree is missing.
