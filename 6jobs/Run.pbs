@@ -22,4 +22,5 @@ echo Running on nodes `cat $PBS_NODEFILE`
 # the macro comes from Run.sh (qsub -v MAC=<file in build/>); run_0.mac when submitted by hand
 MAC=${MAC:-run_0.mac}
 echo Macro: $MAC
+export G4FORCENUMBEROFTHREADS=128 # every macro runs on all 128 cpus of the node, whatever its /run/numberOfThreads says
 ./sim $MAC

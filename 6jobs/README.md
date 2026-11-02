@@ -14,7 +14,7 @@ cd /lcrc/project/eic/tgibbons/G4ChargeExchange/6jobs
 bash Run.sh <macro>
 ```
 
-Runs `./sim <macro>` in `build/` on one 128-cpu node. The macro is a file in `build/`, for example `bash Run.sh run_0.mac`. The job is named `Run_<macro name>`. Plain `qsub Run.pbs` still works and runs `run_0.mac`.
+Runs `./sim <macro>` in `build/` on one 128-cpu node. The macro is a file in `build/`, for example `bash Run.sh run_0.mac`. The job is named `Run_<macro name>`. Plain `qsub Run.pbs` still works and runs `run_0.mac`. The job sets `G4FORCENUMBEROFTHREADS=128`, so the sim uses 128 threads whatever the macro's `/run/numberOfThreads` says.
 
 ## Analysis chain, one job per step
 
