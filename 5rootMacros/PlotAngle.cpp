@@ -181,7 +181,7 @@ static void WriteFomCsv(const std::string& groupDir, const std::vector<KeCut>& k
     };
     for (const auto& ke : kes) {
         ApplyCut(t, ke.dir, block);
-        const auto ce = Columns(t, {"theta" + sfx, "ap" + sfx}); // theta, AP of every CE proton under the cut
+        const auto ce = ColumnsUnordered(t, {"theta" + sfx, "ap" + sfx}); // theta, AP of every CE proton under the cut; the bin counts do not depend on the row order
         t->SetEntryList(nullptr);
         std::vector<double> countCE(nb, 0.0), countAll(nb, 0.0), countPart(nb, 0.0), sumAP(nb, 0.0); // countAll: recon protons (PDG 2212), countPart: every fitted track (any pdg)
         // the binning loops run on all threads (MapRows, FitCore.h): each row range counts into its own arrays, added together after. The counts are exact; sumAP is added in a
@@ -199,7 +199,7 @@ static void WriteFomCsv(const std::string& groupDir, const std::vector<KeCut>& k
         });
         for (const auto& p : ceParts) for (size_t b = 0; b < nb; b++) {countCE[b] += p.a[b]; sumAP[b] += p.b[b];}
         ApplyCut(all, ke.dir, block, "Angles" + allSfx);
-        const auto allCols = Columns(all, {allThetaExpr, "PDG"}); const auto& allTheta = allCols[0];
+        const auto allCols = ColumnsUnordered(all, {allThetaExpr, "PDG"}); const auto& allTheta = allCols[0]; // AnglesRaw has many clusters: read on all threads
         all->SetEntryList(nullptr);
         const auto allParts = MapRows((Long64_t)allTheta.size(), [&](Long64_t lo, Long64_t hi){
             BinCounts p; p.a.assign(nb, 0.0); p.b.assign(nb, 0.0); // a: every fitted track, b: the protons (PDG 2212)

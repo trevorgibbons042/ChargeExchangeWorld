@@ -42,6 +42,7 @@ void PlotDiffPhiCuts(double absLo = 50, double absHi = 180, std::string energy =
     // Every column pull of this macro is booked here and collected in one multithreaded pass per tree (DrawPlan.h), the render code below reads the columns in entry order.
     ROOT::EnableImplicitMT(NThreads());
     DrawPlan plan;
+    plan.unordered = true; // nothing below depends on the row order, so AnglesRaw (many clusters) is read on all threads
     // CE events in the phi diff window, either sign: the only cut
     auto cDiff = plan.C(diff, {"fEvent", "TrackID"}, Form("fabs(phiReD) >= %g && fabs(phiReD) <= %g", absLo, absHi));
     // Every recon proton (the rows of AnglesRaw in cut_angles_all.root, all events): (fEvent, TrackID) for the positions,
