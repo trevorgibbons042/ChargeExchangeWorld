@@ -153,8 +153,8 @@ void PlotFomPolarization(std::string energy = "fKEnergy"){ // energy: "fKEnergy"
     {
         const double toDeg = 180 / TMath::Pi();
         for (size_t s = 0; s < sets.size(); s++) for (size_t k = 0; k < kes.size(); k++){
-            // no KE or residual cut here: every recon proton (pdg 2212) and every recon particle (the Angles view); one multithreaded read (Columns, TreeColumns.h) of their angles each, rows in entry order
-            const auto angles = Columns(all, {sets[s].allTheta, sets[s].allPhi}, AngleSelection("Angles") + " && PDG == 2212");
+            // no KE or residual cut here: every recon proton (pdg 2212) and every recon particle (the Angles view); one multithreaded read (ColumnsUnordered, TreeColumns.h) of their angles each, rows in any order (AddProton only adds counts and AP sums)
+            const auto angles = ColumnsUnordered(all, {sets[s].allTheta, sets[s].allPhi}, AngleSelection("Angles") + " && PDG == 2212");
             for (size_t e = 0; e < angles[0].size(); e++) AddProton(phiAll[s][k], angles[0][e] * toDeg, angles[1][e] * toDeg, apScale, sets[s].block);
             const auto anglesPart = Columns(all, {sets[s].allTheta, sets[s].allPhi}, AngleSelection("Angles"));
             for (size_t e = 0; e < anglesPart[0].size(); e++) AddProton(phiAllPart[s][k], anglesPart[0][e] * toDeg, anglesPart[1][e] * toDeg, apScale, sets[s].block);
