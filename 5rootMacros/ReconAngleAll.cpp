@@ -180,11 +180,11 @@ void ReconAngleAll(){
     // The file is written through a TBufferMerger: the shards fill their own trees on all the threads (see the write below).
     ROOT::TBufferMerger merger("cuts/cut_angles_all.root", "RECREATE");
 
-    // A group of raw files at a time (ANA_FILES_PER_PASS, default 32): an event, and so every track, lives in a single output0_t<thread>.root, so the tracks of a group are complete
+    // A group of raw files at a time (ANA_FILES_PER_PASS, default 8): an event, and so every track, lives in a single output0_t<thread>.root, so the tracks of a group are complete
     // and only that group's proton points are held in memory (all files at once does not fit at 100M events). One file alone cannot keep all the threads busy.
     TChain rawFiles("ParticleInfo");
     rawFiles.Add("output0_t*.root");
-    const unsigned filesPerPass = std::getenv("ANA_FILES_PER_PASS") ? std::max(1, std::atoi(std::getenv("ANA_FILES_PER_PASS"))) : 32;
+    const unsigned filesPerPass = std::getenv("ANA_FILES_PER_PASS") ? std::max(1, std::atoi(std::getenv("ANA_FILES_PER_PASS"))) : 8;
     std::vector<std::string> rawNames;
     for (const TObject* rawFile : *rawFiles.GetListOfFiles()) rawNames.push_back(rawFile->GetTitle());
     const unsigned nShards = NThreads();

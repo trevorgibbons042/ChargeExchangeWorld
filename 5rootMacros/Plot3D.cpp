@@ -614,15 +614,16 @@ void Plot3D(){
                     const std::string rb = j ? "recon block" : "recon", stem = j ? "phiReD" : "phiRe";
                     const std::string dirJ = dirP + (j ? "2_ReconD/" : "1_Recon/"); // recon and recon block plots in a subfolder each
                     gSystem->mkdir(dirJ.c_str(), true);
-                    std::vector<double> th[3], ph[3], aEv[3]; // theta, phi and the model A of every proton of the sample
+                    std::vector<double> th[3], ph[3]; // theta and phi of every proton of the sample
+                    StartScan scanned[3]; // per sample, the phi histograms and A sums for every start theta, from one pass over the protons (ScanStartTheta, Plot3DCols.h), and the mean A
                     for (int s = 0; s < 3; s++){
                         std::string qs = samps[s].q + Form(" && rawOk(fEvent, TrackID, %d) && rawOk(fEvent, TrackID, %d)", kT, kPh);
                         if (j) qs += std::string(Form(" && rawVal(fEvent, TrackID, %d) >= %g && rawVal(fEvent, TrackID, %d) <= %g", kPh, kBlockPhiLo, kPh, kBlockPhiHi)); // block phi: no spike at 0 (block theta 0 to 1 deg is in the baseline)
                         const std::string colT = Form("rawVal(fEvent, TrackID, %d)", kT), colPh = Form("rawVal(fEvent, TrackID, %d)", kPh);
-                        auto c = Columns(samps[s].t, {P3(colT), P3(colPh)}, P3(qs));
+                        // the rows only feed histograms and sums, so a multi-cluster tree (a cut file of AnglesRaw) is read on all threads in any order
+                        auto c = MultiCluster(samps[s].t) ? ColumnsUnordered(samps[s].t, {P3(colT), P3(colPh)}, P3(qs)) : Columns(samps[s].t, {P3(colT), P3(colPh)}, P3(qs));
                         th[s] = std::move(c[0]); ph[s] = std::move(c[1]);
-                        aEv[s].resize(th[s].size());
-                        for (size_t i = 0; i < th[s].size(); i++) aEv[s][i] = APFromT(kBeamMomentum, TFromAngle(kBeamMomentum, (std::floor(th[s][i] / 0.05) + 0.5) * 0.05 * TMath::Pi() / 180), apScalePhi);
+                        scanned[s] = ScanStartTheta(th[s], ph[s], apScalePhi);
                     }
                     // 1: phi distribution and cos fit of the three samples on one plot, N(phi) = N0 (1 + P <A> cos(phi)), N0 = entries / 50 bins fixed, <A> = mean model A of the sample fixed, only P fitted
                     const std::string allNames = "CE recon protons, all recon protons and all recon particles";
@@ -634,7 +635,7 @@ void Plot3D(){
                             delete gDirectory->Get(Form("hPhiOv%d", s));
                             hP[s] = new TH1D(Form("hPhiOv%d", s), "", 50, 0, 360);
                             for (double x : ph[s]) hP[s]->Fill(x);
-                            for (double a : aEv[s]) aMean[s] += a / std::max<size_t>(1, aEv[s].size());
+                            aMean[s] = scanned[s].aAll;
                             hP[s]->SetLineColor(samps[s].color); hP[s]->SetLineWidth(2);
                             if (hP[s]->GetEntries() >= 10){
                                 TF1 fit(Form("fPhiOv%d", s), "[0] * (1 + [1] * [2] * cos(x * TMath::Pi() / 180))", 0, 360);
@@ -683,13 +684,11 @@ void Plot3D(){
                         const size_t n = th[s].size();
                         for (int b = 0; b < 100; b++){
                             const double start = b * 0.01;
-                            TH1D hS("hPstart", "", 50, 0, 360);
-                            double aSum = 0;
-                            for (size_t i = 0; i < n; i++){
-                                if (th[s][i] < start || th[s][i] > 1.0) continue;
-                                hS.Fill(ph[s][i]);
-                                aSum += aEv[s][i];
-                            }
+                            TH1D hS("hPstart", "", 50, 0, 360); // the protons with start <= theta <= 1 deg, from the prepared bins (under and overflow included)
+                            double nIn = 0;
+                            for (int j = 0; j < kScanBins; j++){hS.SetBinContent(j, scanned[s].phi[b][j]); nIn += scanned[s].phi[b][j];}
+                            hS.SetEntries(nIn);
+                            const double aSum = scanned[s].aSum[b];
                             if (hS.GetEntries() < 10) break; // the minimum the cosfit plot fits with
                             TF1 fS("fPstart", "[0] * (1 + [1] * [2] * cos(x * TMath::Pi() / 180))", 0, 360);
                             fS.FixParameter(0, hS.GetEntries() / 50); fS.FixParameter(2, aSum / hS.GetEntries()); fS.SetParameter(1, 0.5); fS.SetParLimits(1, -1, 1);

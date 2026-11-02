@@ -179,3 +179,48 @@ inline void Plot3DRawAliases(TTree* raw){
     raw->SetAlias("isRecoD", ("(" + std::string(kBlockCut) + ")").c_str());
     raw->SetAlias("isRes2", Form("(resDRms < %g)", kRes2Mm));
 }
+
+// The start-theta scan of Plot3D.cpp part 4 in one pass over a sample instead of one pass per start value. th, phi (deg) are the recon (block) theta and phi of the protons of a sample, apScale the
+// APScale of settings.csv. For the start values b * 0.01 deg (b 0 to 99) it returns the phi histogram of the protons with start <= theta <= 1 deg (kScanBins bins: 0 and kScanBins - 1 are the under
+// and overflow of a TH1D(50, 0, 360), the others its bins) and the sum of their model A (the one at the center of their 0.05 deg theta bin), and aMeanAll, the mean A over every proton of the sample.
+// Row ranges run on all threads (MapRows, FitCore.h) and are added in range order; the bin counts are exact, the A sums can differ from a serial sum in the last digits.
+inline constexpr int kScanStarts = 100, kScanBins = 52;
+struct StartScan {std::vector<std::array<double, kScanBins>> phi = std::vector<std::array<double, kScanBins>>(kScanStarts); std::vector<double> aSum = std::vector<double>(kScanStarts, 0.0); double aAll = 0;};
+inline StartScan ScanStartTheta(const std::vector<double>& th, const std::vector<double>& ph, double apScale){
+    constexpr int kTable = 400; // 0.05 deg bins up to 20 deg; further out the model is evaluated per proton
+    auto aOfBin = [&](long k){return APFromT(kBeamMomentum, TFromAngle(kBeamMomentum, (k + 0.5) * 0.05 * TMath::Pi() / 180), apScale);};
+    std::vector<double> table(kTable);
+    for (int k = 0; k < kTable; k++) table[k] = aOfBin(k);
+    const auto parts = MapRows((Long64_t)th.size(), [&](Long64_t lo, Long64_t hi){
+        StartScan p;
+        for (auto& a : p.phi) a.fill(0.0);
+        for (Long64_t i = lo; i < hi; i++){
+            const long k = (long)std::floor(th[i] / 0.05);
+            const double a = (k >= 0 && k < kTable) ? table[k] : aOfBin(k);
+            p.aAll += a;
+            if (th[i] < 0 || th[i] > 1.0) continue;
+            int b = std::min(kScanStarts - 1, (int)std::floor(th[i] / 0.01)); // the last start value with b * 0.01 <= theta, as the comparison of the plain loop
+            while (b < kScanStarts - 1 && (b + 1) * 0.01 <= th[i]) b++;
+            while (b > 0 && b * 0.01 > th[i]) b--;
+            const double x = ph[i];
+            const int bin = x < 0 ? 0 : !(x < 360.0) ? kScanBins - 1 : 1 + (int)(50.0 * x / 360.0); // TH1::FindBin of a fixed-width axis
+            p.phi[b][bin]++; p.aSum[b] += a;
+        }
+        return p;
+    });
+    StartScan s;
+    for (auto& a : s.phi) a.fill(0.0);
+    for (const StartScan& p : parts){
+        for (int b = 0; b < kScanStarts; b++){
+            for (int j = 0; j < kScanBins; j++) s.phi[b][j] += p.phi[b][j];
+            s.aSum[b] += p.aSum[b];
+        }
+        s.aAll += p.aAll;
+    }
+    for (int b = kScanStarts - 2; b >= 0; b--){ // start b takes every proton of the buckets b and above
+        for (int j = 0; j < kScanBins; j++) s.phi[b][j] += s.phi[b + 1][j];
+        s.aSum[b] += s.aSum[b + 1];
+    }
+    s.aAll /= std::max<size_t>(1, th.size());
+    return s;
+}
