@@ -93,6 +93,20 @@ inline unsigned NThreads(){
     return h ? h : 1;
 }
 
+// Runs f(lo, hi) on contiguous row ranges of [0, n) on NThreads() threads (8 ranges per thread) and returns the results in range order. The row loops that follow a Columns or
+// DrawPlan read use it, so they run on all the cores instead of one. f only reads shared data; each range builds and returns its own partial result.
+#include <numeric>
+#include <ROOT/TThreadExecutor.hxx>
+template <class F>
+inline auto MapRows(Long64_t n, F f) -> std::vector<decltype(f(Long64_t(0), Long64_t(0)))>
+{
+    const unsigned nChunk = 8 * NThreads();
+    std::vector<unsigned> ids(nChunk);
+    std::iota(ids.begin(), ids.end(), 0u);
+    ROOT::TThreadExecutor ex(NThreads());
+    return ex.Map([&](unsigned c){return f(n * c / nChunk, n * (c + 1) / nChunk);}, ids);
+}
+
 // RDataFrame's rdfentry_ is not the TTree entry number under implicit MT once a tree has more than one cluster (ROOT 6.38: 10 clusters, 60% of the rows labelled wrong), and a multithreaded
 // Snapshot writes one cluster per task. A reader that sorts or matches by rdfentry_ builds its RDataFrame inside a SerialScope for such a tree: the loop is single threaded, rdfentry_ exact.
 inline bool MultiCluster(TTree* t){

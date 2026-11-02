@@ -184,21 +184,34 @@ static void WriteFomCsv(const std::string& groupDir, const std::vector<KeCut>& k
         const auto ce = Columns(t, {"theta" + sfx, "ap" + sfx}); // theta, AP of every CE proton under the cut
         t->SetEntryList(nullptr);
         std::vector<double> countCE(nb, 0.0), countAll(nb, 0.0), countPart(nb, 0.0), sumAP(nb, 0.0); // countAll: recon protons (PDG 2212), countPart: every fitted track (any pdg)
-        for (size_t i = 0; i < ce[0].size(); i++) {
-            const int b = binOf(ce[0][i]);
-            if (b < 0) continue;
-            countCE[b]++;
-            sumAP[b] += ce[1][i];
-        }
+        // the binning loops run on all threads (MapRows, FitCore.h): each row range counts into its own arrays, added together after. The counts are exact; sumAP is added in a
+        // different order than a serial loop, which changes it by about 1e-16 relative.
+        struct BinCounts {std::vector<double> a, b;};
+        const auto ceParts = MapRows((Long64_t)ce[0].size(), [&](Long64_t lo, Long64_t hi){
+            BinCounts p; p.a.assign(nb, 0.0); p.b.assign(nb, 0.0); // a: CE count, b: sum of AP
+            for (Long64_t i = lo; i < hi; i++) {
+                const int bin = binOf(ce[0][i]);
+                if (bin < 0) continue;
+                p.a[bin]++;
+                p.b[bin] += ce[1][i];
+            }
+            return p;
+        });
+        for (const auto& p : ceParts) for (size_t b = 0; b < nb; b++) {countCE[b] += p.a[b]; sumAP[b] += p.b[b];}
         ApplyCut(all, ke.dir, block, "Angles" + allSfx);
         const auto allCols = Columns(all, {allThetaExpr, "PDG"}); const auto& allTheta = allCols[0];
         all->SetEntryList(nullptr);
-        for (size_t i = 0; i < allTheta.size(); i++) {
-            const int b = binOf(allTheta[i]);
-            if (b < 0) continue;
-            countPart[b]++;
-            if (allCols[1][i] == 2212) countAll[b]++;
-        }
+        const auto allParts = MapRows((Long64_t)allTheta.size(), [&](Long64_t lo, Long64_t hi){
+            BinCounts p; p.a.assign(nb, 0.0); p.b.assign(nb, 0.0); // a: every fitted track, b: the protons (PDG 2212)
+            for (Long64_t i = lo; i < hi; i++) {
+                const int bin = binOf(allTheta[i]);
+                if (bin < 0) continue;
+                p.a[bin]++;
+                if (allCols[1][i] == 2212) p.b[bin]++;
+            }
+            return p;
+        });
+        for (const auto& p : allParts) for (size_t b = 0; b < nb; b++) {countPart[b] += p.a[b]; countAll[b] += p.b[b];}
         gSystem->mkdir((groupDir + "/1_csv").c_str(), true);
         FILE* out = fopen((groupDir + "/1_csv/" + ke.dir + ".csv").c_str(), "w");
         if (!out) continue;
