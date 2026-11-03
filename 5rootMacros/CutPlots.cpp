@@ -128,11 +128,10 @@ static void ZdcColumns(){
 // Writes one cut file per cut of 6_cuts (Plot3D.cpp), each holding only the rows that pass, so Plot3D reads the file instead of cutting all of AnglesRaw with a Draw string.
 // AnglesRaw cuts (every fitted proton, no ZDC requirement, cut_angles_all.root) keep the branches Plot3D reads:
 //   cut_ResCuts       resDRms < 2 mm (3_ResCuts)
-//   cut_nParticles6/7 at most 6 / 7 reconstructed particles in the event
-//   cut_nProt1/2      at most 1 / 2 reconstructed protons (pdg 2212) in the event
+//   cut_nParticles1/2 at most 1 / 2 reconstructed particles in the event
 //   cut_nHits         2, 4, 6 or 8 tracker hits
-//   cut_megacut       the mega cut (6_megaCut): at most 1 reconstructed particle in the event, 2, 4, 6 or 8 tracker hits, recon theta and recon block theta 0 to 1 degree
-//   cut_megacut2_6/7  7_megaCut2/1_particleCut and 2_particleCut: at most 6 / 7 reconstructed particles in the event, 2, 4, 6 or 8 tracker hits, recon theta and recon block theta 0 to 1 degree, and a reconstructed ZDC proton with ZDC KE > 80% of the beam KE
+//   cut_megacut_1..4  6_megaCut/1_particleCut to 4_particleCut: at most 1 (1, 3) / 2 (2, 4) reconstructed particles in the event, 2, 4, 6 or 8 tracker hits, recon theta and recon block theta 0 to 1 degree, and for 3 and 4 also resDRms < 4 mm
+//   cut_megacut2_1..4 7_megaCut2/1_particleCut to 4_particleCut: the same, and a reconstructed ZDC proton with ZDC KE > 80% of the beam KE
 // ZDC cut (cut_ZdcAllEv.root, the ZDC protons with the Plot3D columns of ZdcColumns.cpp):
 //   cut_hitZDC_AllEv           the proton has a reconstructed track (isReco)
 // Run after ZdcColumns.cpp, with all the threads: every input is read once and all the cut files of it are written in the same pass.
@@ -149,15 +148,11 @@ static void CutSamples(){
     auto base = raw.Filter([](double theta, double thetaBlock){const double deg = theta * TMath::RadToDeg(), degBlock = thetaBlock * TMath::RadToDeg(); return deg >= 0 && deg <= 1 && degBlock >= 0 && degBlock <= 1;}, {"outTheta", "outDTheta"});
     auto snap = [&](ROOT::RDF::RNode node, const char* file){handles.emplace_back(node.Snapshot("AnglesRaw", file, rawCols, lazy));};
     snap(base.Filter([](double resD){return resD < kRes2Mm;}, {"resDRms"}), "cuts/cut_ResCuts.root");
-    snap(base.Filter([](int n){return n <= 6;}, {"nProtonsEv"}), "cuts/cut_nParticles6.root");
-    snap(base.Filter([](int n){return n <= 7;}, {"nProtonsEv"}), "cuts/cut_nParticles7.root");
-    snap(base.Filter([](int n){return n <= 1;}, {"nProtEv"}), "cuts/cut_nProt1.root");
-    snap(base.Filter([](int n){return n <= 2;}, {"nProtEv"}), "cuts/cut_nProt2.root");
+    snap(base.Filter([](int n){return n <= 1;}, {"nProtonsEv"}), "cuts/cut_nParticles1.root");
+    snap(base.Filter([](int n){return n <= 2;}, {"nProtonsEv"}), "cuts/cut_nParticles2.root");
     snap(base.Filter([](int n){return n == 2 || n == 4 || n == 6 || n == 8;}, {"nHits"}), "cuts/cut_nHits.root");
-    snap(base.Filter([](int np, int n, double theta){const double deg = theta * TMath::RadToDeg(); return np <= 1 && (n == 2 || n == 4 || n == 6 || n == 8) && deg >= 0 && deg <= 1;},
-                    {"nProtonsEv", "nHits", "outTheta"}), "cuts/cut_megacut.root"); // NaN theta fails the test, as in the Draw cut
 
-    // 7_megaCut2: the same cuts as 6 particles, 4/8/12/16 hits and theta, and the proton must also be a reconstructed ZDC proton with ZDC KE > 80% of the beam KE
+    // 7_megaCut2: the same cuts as 6_megaCut, and the proton must also be a reconstructed ZDC proton with ZDC KE > 80% of the beam KE
     std::set<std::pair<int, int>> ke80Keys;
     {
         ROOT::RDataFrame zdcKe("ParticleInfo", "cuts/cut_ZdcAllEv.root");
@@ -166,9 +161,14 @@ static void CutSamples(){
         auto ev = pass.Take<int>("fEvent"), tid = pass.Take<int>("TrackID");
         for (size_t i = 0; i < ev->size(); i++) ke80Keys.emplace_hint(ke80Keys.end(), (*ev)[i], (*tid)[i]);
     }
-    for (const int maxP : {6, 7}) // 7_megaCut2/1_particleCut and 2_particleCut: at most 6 / 7 reconstructed particles in the event
-        snap(base.Filter([&ke80Keys, maxP](int np, int n, int e, int t){return np <= maxP && (n == 2 || n == 4 || n == 6 || n == 8) && ke80Keys.count({e, t}) > 0;},
-                         {"nProtonsEv", "nHits", "fEvent", "TrackID"}), Form("cuts/cut_megacut2_%d.root", maxP));
+    for (const int i : {1, 2, 3, 4}){ // 1_particleCut to 4_particleCut of 6_megaCut and 7_megaCut2: at most 1 (1, 3) / 2 (2, 4) reconstructed particles in the event, 3 and 4 also resDRms < 4 mm
+        const int maxP = i % 2 ? 1 : 2;
+        const bool res4 = i > 2;
+        snap(base.Filter([maxP, res4](int np, int n, double resD){return np <= maxP && (n == 2 || n == 4 || n == 6 || n == 8) && (!res4 || resD < kRes4Mm);},
+                         {"nProtonsEv", "nHits", "resDRms"}), Form("cuts/cut_megacut_%d.root", i));
+        snap(base.Filter([&ke80Keys, maxP, res4](int np, int n, double resD, int e, int t){return np <= maxP && (n == 2 || n == 4 || n == 6 || n == 8) && (!res4 || resD < kRes4Mm) && ke80Keys.count({e, t}) > 0;},
+                         {"nProtonsEv", "nHits", "resDRms", "fEvent", "TrackID"}), Form("cuts/cut_megacut2_%d.root", i));
+    }
 
     ROOT::RDataFrame zdcAllEv("ParticleInfo", "cuts/cut_ZdcAllEv.root"); // stays alive until RunGraphs
     handles.emplace_back(zdcAllEv.Filter([](int r){return r == 1;}, {"isReco"}).Snapshot("ParticleInfo", "cuts/cut_hitZDC_AllEv.root", "", lazy));

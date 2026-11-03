@@ -195,7 +195,7 @@ void QualityStudy(double keepCE = 0.95){
                 leg.AddEntry(&hCE, Form("CE recon protons (%zu)", candCE[i].size()), "l");
                 leg.AddEntry(&hRecon, Form("all recon protons (%zu)", candRecon[i].size()), "l");
                 leg.Draw();
-                if (cd.branch == "nProtonsEv"){ // the 1 and 2 proton cuts (nProtonsEv <= n): lines between bins, kept counts in csv/cut_efficiency.csv
+                if (cd.branch == "nProtonsEv"){ // the 1 and 2 particle cuts (nProtonsEv <= n): lines between bins, kept counts in csv/cut_efficiency.csv
                     const double ymax = hRecon.GetMaximum();
                     TLine l1(1.5, 0.5, 1.5, ymax), l2(2.5, 0.5, 2.5, ymax);
                     for (TLine* l : {&l1, &l2}){l->SetLineStyle(2); l->SetLineWidth(2); l->Draw();}
@@ -205,7 +205,7 @@ void QualityStudy(double keepCE = 0.95){
                     for (int nMax : {1, 2}){
                         const size_t ceAfter = std::count_if(candCE[i].begin(), candCE[i].end(), [&](double x){return x <= nMax;});
                         const size_t reAfter = std::count_if(candRecon[i].begin(), candRecon[i].end(), [&](double x){return x <= nMax;});
-                        fprintf(nf, "protons in event <= %d,%zu,%zu,%.4f,%zu,%zu,%.4f\n", nMax, candCE[i].size(), ceAfter, 100.0 * ceAfter / candCE[i].size(),
+                        fprintf(nf, "particles in event <= %d,%zu,%zu,%.4f,%zu,%zu,%.4f\n", nMax, candCE[i].size(), ceAfter, 100.0 * ceAfter / candCE[i].size(),
                                 candRecon[i].size(), reAfter, 100.0 * (1.0 - double(reAfter) / candRecon[i].size()));
                     }
                     fclose(nf);
