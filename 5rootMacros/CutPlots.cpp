@@ -156,13 +156,25 @@ static void CutSamples(){
     snap(base.Filter([](int n){return n == 2 || n == 4 || n == 6 || n == 8;}, {"nHits"}), "cuts/cut_nHits.root");
 
     // 7_megaCut2: the same cuts as 6_megaCut, and the proton must also be a reconstructed ZDC proton with ZDC KE > 80% of the beam KE
-    std::set<std::pair<int, int>> ke80Keys;
-    {
+    using KeyKeys = std::set<std::pair<int, int>>;
+    const auto keKeys = [](double frac){ // (fEvent, TrackID) of the reconstructed ZDC protons with ZDC KE > frac of the beam KE
+        KeyKeys keys;
         ROOT::RDataFrame zdcKe("ParticleInfo", "cuts/cut_ZdcAllEv.root");
-        const double cutVal = kBeamKE * 0.80;
+        const double cutVal = kBeamKE * frac;
         auto pass = zdcKe.Filter([cutVal](int r, double ke){return r == 1 && ke > cutVal;}, {"isReco", "fDEnergy"});
         auto ev = pass.Take<int>("fEvent"), tid = pass.Take<int>("TrackID");
-        for (size_t i = 0; i < ev->size(); i++) ke80Keys.emplace_hint(ke80Keys.end(), (*ev)[i], (*tid)[i]);
+        for (size_t i = 0; i < ev->size(); i++) keys.emplace_hint(keys.end(), (*ev)[i], (*tid)[i]);
+        return keys;
+    };
+    const KeyKeys ke80Keys = keKeys(0.80);
+    // KE scan of 9_megaCut3/1_1particlecut: the same cuts with ZDC KE > 85, 90 and 95% of the beam KE (cut_megacut3_1_ke85.root to _ke95.root, phi fits in Plot3D.cpp part 4)
+    std::vector<KeyKeys> scanKeys;
+    scanKeys.reserve(3); // the filters keep a reference into it
+    for (const int pct : {85, 90, 95}){
+        scanKeys.push_back(keKeys(pct / 100.0));
+        const KeyKeys& keys = scanKeys.back();
+        snap(base.Filter([&keys](int np, int n, int e, int t, int nTh){return np <= 1 && (n == 2 || n == 4 || n == 6 || n == 8) && keys.count({e, t}) > 0 && (nTh == 2 || nTh == 4 || nTh == 6 || nTh == 8);},
+                         {"nProtonsEv", "nHits", "fEvent", "TrackID", "nTrackerHitsEv"}), Form("cuts/cut_megacut3_1_ke%d.root", pct));
     }
     for (const int i : {1, 2, 3, 4}){ // 1_particleCut to 4_particleCut of 6_megaCut and 7_megaCut2: at most 1 (1, 3) / 2 (2, 4) reconstructed particles in the event, 3 and 4 also resDRms < 4 mm
         const int maxP = i % 2 ? 1 : 2;
