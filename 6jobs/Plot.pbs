@@ -8,7 +8,7 @@
 #PBS -j oe
 
 # One step of the analysis chain (5rootMacros/run.sh) or one lane of the plotting chain (5rootMacros/plot.sh) for one run folder, submitted by SubmitEvents.sh or SubmitPlots.sh
-# with -v RUN=<folder in build/root>,STEP=<step name>,NCPUS=<threads>.
+# with -v RUN=<folder in build/root>,STEP=<step name>,NCPUS=<threads>[,PARTS=<Plot3D parts joined with +>].
 # The macros run from the run folder's own copy (the Submit scripts copy them in), so the ACLiC libraries of parallel jobs do not collide.
 # BASE can be overridden to try the step list on another machine.
 BASE=${BASE:-/lcrc/project/eic/tgibbons/G4ChargeExchange}
@@ -34,6 +34,8 @@ case $STEP in
     countce)  macros=('CountCE.cpp') ;;
     cuttrees) macros=('CutPlots.cpp') ;; # the KE cut lists, cut_ZdcCE.root and cut_ZdcAllEv.root, and one cut file per cut of 6_cuts, all read by the plot lanes
     cuts)     macros=('Plot3D.cpp' 'QualityStudy.cpp') ;; # 1_position, 2_energy, 6_cuts; Plot3D runs its four parts as four processes (below)
+    plot3d)   macros=('Plot3D.cpp') ;; # SubmitPlots.sh redo of one folder: only the Plot3D parts in PARTS (e.g. 2:1+3:1+4:1), part 5 when one is a part 2
+    quality)  macros=('QualityStudy.cpp') ;; # the same, after plot3d
     fom)      macros=('PlotAngle.cpp("fDEnergy")' 'PlotCEFraction.cpp' 'PlotPolarization.cpp("fDEnergy")' 'PlotFomPolarization.cpp("fDEnergy")') ;; # 3_ReconCalcVals, 5_fomCalc
     ceblock)  macros=('PlotDiffPhiCuts.cpp(50, 180, "fDEnergy")' 'GraphBlocks.cpp' 'CETCompare.cpp') ;; # 4_CEblock
     secce)    macros=('SecondaryCE.cpp') ;; # 7_secondaryCE
@@ -46,14 +48,18 @@ for m in "${macros[@]}"; do
     if [ "$m" = Plot3D.cpp ]; then
         # the independent parts of Plot3D (P3_PART, P3_CUT, Plot3D.cpp) side by side, one process each: parts 1, 3 and 4, and part 2 once per cut (0 to 17), then part 5 ranks the cuts
         # the cores are split evenly over the processes (128 cpus: 21 processes of 6 threads), part 5 and QualityStudy then take all of them
+        # PARTS (joined with +) picks some of them, for SubmitPlots.sh redoing one folder
         parts=(1 3 4 2:0 2:1 2:2 2:3 2:4 2:5 2:6 2:7 2:8 2:9 2:10 2:11 2:12 2:13 2:14 2:15 2:16 2:17)
+        [ -n "$PARTS" ] && parts=(${PARTS//+/ })
         export ANA_NTHREADS=$(( ${NCPUS:-16} / ${#parts[@]} > 0 ? ${NCPUS:-16} / ${#parts[@]} : 1 ))
         for run in "${parts[@]}"; do
             ( cut=; [[ $run == *:* ]] && cut=${run#*:}; P3_PART=${run%%:*} P3_CUT=$cut root -l -b -q "${m/.cpp/.cpp${ACLIC-+O}}" > Plot3D_part${run/:/_}.log 2>&1; echo "part $run exit $?" ) &
         done
         wait
         export ANA_NTHREADS=${NCPUS:-16}
-        P3_PART=5 P3_CUT= root -l -b -q "${m/.cpp/.cpp${ACLIC-+O}}" > Plot3D_part5.log 2>&1
+        if [ -z "$PARTS" ] || [[ $PARTS == *2:* ]]; then # the rank csv files, from the rows of the part 2 processes (cuts/rank_rows_<i>.tsv, the ones of the cuts not redone stay)
+            P3_PART=5 P3_CUT= root -l -b -q "${m/.cpp/.cpp${ACLIC-+O}}" > Plot3D_part5.log 2>&1
+        fi
         tail -n 3 Plot3D_part*.log
         continue
     fi
