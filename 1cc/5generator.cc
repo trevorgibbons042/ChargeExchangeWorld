@@ -36,7 +36,8 @@ MyPrimaryGenerator::MyPrimaryGenerator()
     fRandMessenger = new G4GenericMessenger(this, "/randGun/", "random Gun Properties");
     fRandMessenger->DeclareProperty("randPAngle", randPAngle, "Is random angle on?");
     fRandMessenger->DeclareProperty("randPos", randPos, "Is random position on?");
-    fRandMessenger->DeclareProperty("EnergySD", EnergySD, "Standard Deviation on Energy");
+    fRandMessenger->DeclareProperty("Energy", beamEnergy, "Neutron kinetic energy, GeV");
+    fRandMessenger->DeclareProperty("EnergySD", EnergySD, "Gaussian sigma on the neutron kinetic energy, GeV (0 for none)");
 
     //number of particles per event (can do 1 run with bunch of events tho)
     fParticleGun = new G4ParticleGun(1);
@@ -83,14 +84,14 @@ void MyPrimaryGenerator::GeneratePrimaries(G4Event *anEvent)
 
     G4ThreeVector pos(randX, randY, randZ);
 
-    G4double Momentum = 25*GeV;
-
+    //kinetic energy from /randGun/Energy, smeared by a Gaussian of sigma /randGun/EnergySD (GeV), redrawn if it comes out not positive
+    G4double kineticEnergy = beamEnergy*GeV;
     if (EnergySD > 0){
-        Momentum = 25*GeV*G4RandGauss::shoot(1,EnergySD);
+        do {kineticEnergy = G4RandGauss::shoot(beamEnergy, EnergySD)*GeV;} while (kineticEnergy <= 0);
     }
-    //SetParticleMomentum prints a message on every call after the first, so convert the momentum to kinetic energy here.
+    //SetParticleMomentum prints a message on every call after the first, so the gun gets the kinetic energy, the momentum is for the beam stats.
     G4double mass = fParticleGun->GetParticleDefinition()->GetPDGMass();
-    const G4double kineticEnergy = std::sqrt(Momentum*Momentum + mass*mass) - mass;
+    const G4double Momentum = std::sqrt(kineticEnergy*(kineticEnergy + 2*mass));
     fParticleGun->SetParticleEnergy(kineticEnergy);
     {
         std::lock_guard<std::mutex> lock(beamMutex);
