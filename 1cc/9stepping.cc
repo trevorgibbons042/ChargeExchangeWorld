@@ -121,6 +121,7 @@ void MySteppingAction::UserSteppingAction(const G4Step *step){
     //and the CE proton born there crosses cell boundaries and would be recorded as a hit. Only charged particles are recorded.
     auto* postVol = post->GetPhysicalVolume();
     if (post->GetStepStatus() == fGeomBoundary && postVol && (postVol->GetName() == "physDetector" || postVol->GetName() == "physDetectorSlab")){
+        fEventAction->AddZdcParticle(track->GetParticleDefinition()->GetPDGCharge() != 0., post->GetKineticEnergy()); //EventSummary: every particle, charged or not
         if (track->GetParticleDefinition()->GetPDGCharge() != 0.){
             G4ThreeVector Pos = post->GetPosition();
             G4double KE       = post->GetKineticEnergy();

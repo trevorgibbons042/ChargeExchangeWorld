@@ -45,7 +45,7 @@ struct SampleCut {std::string dir, expr, label, onFolder, file; bool zdcKE80 = f
 
 // Plot3D has four independent parts that each write their own plots/ folders: 1 position, energy, 2_KECUT80 and 1_hitZDC; 2 the cut ratios and rank csv files of the 6_cuts folders;
 // 3 their 1_additionalinfo plots; 4 their phi fits. P3_PART=n runs part n only, so the four can run as four processes side by side (Plot.pbs, plot.sh). Without it all four run.
-// Part 2 is one process per cut with P3_CUT=i (0: the 1_hitZDC baseline, 1 to 12: sampleCuts in order), each writing its rank rows to cuts/rank_rows_<i>.tsv; part 5 reads those
+// Part 2 is one process per cut with P3_CUT=i (0: the 1_hitZDC baseline, 1 to 17: sampleCuts in order), each writing its rank rows to cuts/rank_rows_<i>.tsv; part 5 reads those
 // files and writes the rank_*.csv files. Parts 3 and 4 also take P3_CUT=i to do one cut folder only (0: 1_hitZDC and 2_KECUT80). Without P3_PART all of it runs in one process.
 static bool RunPart(int n){const char* e = std::getenv("P3_PART"); return !e || !*e || std::atoi(e) == n;}
 static bool RunCut(int i){const char* e = std::getenv("P3_CUT"); return !e || !*e || std::atoi(e) == i;}
@@ -355,23 +355,31 @@ void Plot3D(){
         // (those plots sit in the cut folder itself, the other variables in its 1_additionalinfo). The same KE plot as 1_hitZDC with the cut applied goes in 1_additionalinfo.
         const std::vector<SampleCut> sampleCuts = [&]{
           std::vector<SampleCut> v = {
-            {"3_ResCuts", "isRes2(fEvent, TrackID)", "cut resDRms (block residual) < 2 mm", "3_ResCuts", "cut_ResCuts"},
+            {"3_ResCuts", "rawVal(fEvent, TrackID, 1) < " + std::to_string(kRes4Mm), "cut resDRms (block residual) < 4 mm", "3_ResCuts", "cut_ResCuts"},
             {"4_nParticles/1_particleCut", "rawVal(fEvent, TrackID, 6) <= 1", "cut at most 1 reconstructed particle in the event", "4_nParticles", "cut_nParticles1"},
             {"4_nParticles/2_particleCut", "rawVal(fEvent, TrackID, 6) <= 2", "cut at most 2 reconstructed particles in the event", "4_nParticles", "cut_nParticles2"},
             {"5_nHits", "(rawVal(fEvent, TrackID, 10) == 2 || rawVal(fEvent, TrackID, 10) == 4 || rawVal(fEvent, TrackID, 10) == 6 || rawVal(fEvent, TrackID, 10) == 8)", "cut 2, 4, 6 or 8 tracker hits", "5_nHits", "cut_nHits"},
           };
-          // 6_megaCut (no ZDC requirement) and 7_megaCut2 (ZDC KE > 80%), each with 1_particleCut: at most 1 particle, 2_particleCut: at most 2, 3_particleCut and 4_particleCut: the same with resDRms < 4 mm
-          for (const bool zdc : {false, true}) for (int i = 1; i <= 4; i++){
-              const int maxP = i % 2 ? 1 : 2;
-              const bool res4 = i > 2;
-              const std::string top = zdc ? "7_megaCut2" : "6_megaCut";
-              std::string expr = "rawVal(fEvent, TrackID, 6) <= " + std::to_string(maxP) + " && (rawVal(fEvent, TrackID, 10) == 2 || rawVal(fEvent, TrackID, 10) == 4 || rawVal(fEvent, TrackID, 10) == 6 || rawVal(fEvent, TrackID, 10) == 8) && rawVal(fEvent, TrackID, 9) >= 0 && rawVal(fEvent, TrackID, 9) <= 1 && rawVal(fEvent, TrackID, 11) >= 0 && rawVal(fEvent, TrackID, 11) <= 1";
-              if (res4) expr += " && rawVal(fEvent, TrackID, 1) < " + std::to_string(kRes4Mm);
-              if (zdc) expr += " && fDEnergy > " + std::to_string(initialKE * 0.80);
-              const std::string label = std::string(zdc ? "MEGA CUT 2: ZDC KE > 80%, at most " : "MEGA CUT: at most ") + std::to_string(maxP) + (maxP == 1 ? " reconstructed particle" : " reconstructed particles") + " in event AND number of times the reconstructed particle hits tracker [2,4,6,8], recon theta and recon block theta from 0 degrees to 1 degree" + (res4 ? ", block residual resDRms < 4 mm" : "");
-              static const char* const megaNames[4] = {"1_1particlecut", "2_2particlecut", "3_1particleREScut", "4_2particleREScut"}; // folder names of 6_megaCut and 7_megaCut2
-              v.push_back({top + "/" + megaNames[i - 1], expr, label, top, std::string(zdc ? "cut_megacut2_" : "cut_megacut_") + std::to_string(i), zdc});
-          }
+          // 6_megaCut (no ZDC requirement), 7_megaCut2 (ZDC KE > 80%) and 9_megaCut3 (megaCut2 and 2, 4, 6 or 8 charged tracker hits in the event, all particles added up), each with
+          // 1_1particlecut: at most 1 particle, 2_2particlecut: at most 2, 3_1particleREScut and 4_2particleREScut: the same with resDRms < 4 mm
+          static const char* const megaNames[4] = {"1_1particlecut", "2_2particlecut", "3_1particleREScut", "4_2particleREScut"}; // folder names of 6_megaCut, 7_megaCut2 and 9_megaCut3
+          auto addMega = [&](int level){ // 0: megaCut, 1: megaCut2, 2: megaCut3
+              for (int i = 1; i <= 4; i++){
+                  const int maxP = i % 2 ? 1 : 2;
+                  const bool res4 = i > 2, zdc = level >= 1;
+                  const std::string top = level == 0 ? "6_megaCut" : level == 1 ? "7_megaCut2" : "9_megaCut3";
+                  std::string expr = "rawVal(fEvent, TrackID, 6) <= " + std::to_string(maxP) + " && (rawVal(fEvent, TrackID, 10) == 2 || rawVal(fEvent, TrackID, 10) == 4 || rawVal(fEvent, TrackID, 10) == 6 || rawVal(fEvent, TrackID, 10) == 8) && rawVal(fEvent, TrackID, 9) >= 0 && rawVal(fEvent, TrackID, 9) <= 1 && rawVal(fEvent, TrackID, 11) >= 0 && rawVal(fEvent, TrackID, 11) <= 1";
+                  if (res4) expr += " && rawVal(fEvent, TrackID, 1) < " + std::to_string(kRes4Mm);
+                  if (zdc) expr += " && fDEnergy > " + std::to_string(initialKE * 0.80);
+                  if (level == 2) expr += " && (rawVal(fEvent, TrackID, 17) == 2 || rawVal(fEvent, TrackID, 17) == 4 || rawVal(fEvent, TrackID, 17) == 6 || rawVal(fEvent, TrackID, 17) == 8)";
+                  const std::string label = std::string(level == 0 ? "MEGA CUT: at most " : level == 1 ? "MEGA CUT 2: ZDC KE > 80%, at most " : "MEGA CUT 3: ZDC KE > 80%, at most ") + std::to_string(maxP) + (maxP == 1 ? " reconstructed particle" : " reconstructed particles") + " in event AND number of times the reconstructed particle hits tracker [2,4,6,8], recon theta and recon block theta from 0 degrees to 1 degree" + (res4 ? ", block residual resDRms < 4 mm" : "") + (level == 2 ? " AND charged tracker plane hits in the event (all particles added up) [2,4,6,8]" : "");
+                  const char* file = level == 0 ? "cut_megacut_" : level == 1 ? "cut_megacut2_" : "cut_megacut3_";
+                  v.push_back({top + "/" + megaNames[i - 1], expr, label, top, std::string(file) + std::to_string(i), zdc});
+              }
+          };
+          addMega(0); addMega(1);
+          v.push_back({"8_nZdcParticles/1_1zdcparticlecut", "rawVal(fEvent, TrackID, 7) <= 1", "cut at most 1 charged particle at the ZDC in the event", "8_nZdcParticles", "cut_nZdc1", false}); // P3_CUT 13
+          addMega(2); // P3_CUT 14 to 17
           return v;
         }();
         struct RankRow {std::string cut, sample; double nCEin, nAllIn, nCEtotal, nCEreconBefore, fom[2], pol[2], polErr[2], nPartIn, nNonProtBefore, nNonPartBefore;}; // nAllIn: recon protons (pdg 2212) in the cut, nPartIn: every recon particle in the cut, nNon*Before: the non-CE protons / particles of the sample the cut is made on (the base of the row), so out of cut = before - in;  fom, pol (fitted P), polErr: [0] recon theta / phi, [1] recon block theta / phi
@@ -488,7 +496,7 @@ void Plot3D(){
                                                        "(the \"cut and ZDC KE > 80%\" row of cut_ratios.csv and the 0_KE_KECUT80 plots also need a ZDC hit and ZDC KE > 80% of initial KE).";
                     fprintf(tf, "%s: %s\n\n%s\n\n"
                                 "Cuts applied (all must pass):\n  baseline of every 6_cuts folder: recon theta and recon block theta 0 to 1 deg (%s)\n  this folder: %s\n\n"
-                                "rawVal columns: 1 resDRms (mm), 6 nProtonsEv, 9 recon theta (deg), 10 nHits\nCut file: cuts/%s.root (CutPlots.cpp (samples))\n",
+                                "rawVal columns: 1 resDRms (mm), 6 nProtonsEv, 7 nZdcCharged, 9 recon theta (deg), 10 nHits, 17 nTrackerHitsEv, 18 nTrackerTracksEv\nCut file: cuts/%s.root (CutPlots.cpp (samples))\n",
                             sc.dir.c_str(), sc.label.c_str(), zdcNote, thetaBase.c_str(), sc.expr.c_str(), sc.file.c_str());
                     fclose(tf);
                 }
@@ -864,6 +872,8 @@ void Plot3D(){
             {"resDRms", "3_ResCuts", "residual, block position (mm)", 1, 0, 0, 100},
             {"nParticlesEv", "4_nParticles", "reconstructed particles in the event", 6, -0.5, 19.5, 20},
             {"nHits", "5_nHits", "tracker hits", 10, -0.5, 10.5, 11},
+            {"nZdcCharged", "8_nZdcParticles", "charged particles at the ZDC in the event", 7, -0.5, 9.5, 10},
+            {"nChargedTrackerHitsEv", "10_nChargedTrackerHits", "charged tracker plane hits in the event", 17, -0.5, 40.5, 41}, // all charged particles of the event added up
             {"thetaBlock", "7_theta", "recon block theta (degrees)", 11, 0, 2.3, 100}};
         // 1st and 99th percentile of every fitted proton's value k (the raw_k column of the AnglesRaw cache where ok_k is 1), once per variable
         // kept in cuts/info_quantiles.tsv (k, 1%, 99%) while it is newer than cut_angles_all.root, so the passes over AnglesRaw run once per run folder, not in every Plot3D process

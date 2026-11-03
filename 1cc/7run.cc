@@ -78,6 +78,17 @@ MyRunAction::MyRunAction()
     man->CreateNtupleDColumn("CENDirZ");
     man->FinishNtuple(1);
 
+    //8event.cc: one row per event with the particles that reached the ZDC (every particle, no reconstruction needed)
+    man->CreateNtuple("EventSummary", "Per-event ZDC and tracker counts");
+    man->CreateNtupleIColumn("fEvent");
+    man->CreateNtupleIColumn("nZdcAll"); // every particle at the ZDC entry, neutral ones too
+    man->CreateNtupleIColumn("nZdcCharged");
+    man->CreateNtupleDColumn("zdcKEAll"); // summed kinetic energy at the ZDC entry (MeV)
+    man->CreateNtupleDColumn("zdcKECharged");
+    man->CreateNtupleIColumn("nTrackerHitsEv"); // every charged tracker entry of every particle in the event (6detector.hh)
+    man->CreateNtupleIColumn("nTrackerTracksEv"); // charged tracks that hit at least kMinTrackerPlanesSaved tracker planes
+    man->FinishNtuple(2);
+
 };
 
 MyRunAction::~MyRunAction()

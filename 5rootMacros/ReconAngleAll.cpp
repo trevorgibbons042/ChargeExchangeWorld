@@ -175,6 +175,29 @@ void ReconAngleAll(){
         for (auto &[ev, ids] : m) ceTracks[ev].insert(ids.begin(), ids.end());
     }
 
+    // Per-event counts of the sim (EventSummary: every event, no reconstruction needed): event -> charged particles at the ZDC, tracker entries of all charged particles, charged tracks that hit 2+ tracker planes.
+    // -1 for an event without a row, a sim without the tree or without that column.
+    struct EvCounts {int zdcCharged = -1, trackerHits = -1, trackerTracks = -1;};
+    std::vector<EvCounts> evCountsOf;
+    {
+        TChain es("EventSummary");
+        es.Add("output0_t*.root");
+        if (es.LoadTree(0) >= 0){
+            ROOT::RDataFrame dfEsAll(es);
+            ROOT::RDF::RNode dfEs = dfEsAll;
+            for (const char* col : {"nZdcCharged", "nTrackerHitsEv", "nTrackerTracksEv"}){
+                if (!es.GetBranch(col)) dfEs = dfEs.Define(col, []{return (int)-1;}); // a sim run before that column
+            }
+            std::vector<std::vector<std::pair<int, EvCounts>>> slotRows(dfEsAll.GetNSlots());
+            dfEs.ForeachSlot([&](unsigned slot, int eventID, int nZ, int nH, int nT){slotRows[slot].push_back({eventID, EvCounts{nZ, nH, nT}});},
+                             {"fEvent", "nZdcCharged", "nTrackerHitsEv", "nTrackerTracksEv"});
+            int maxEvent = -1;
+            for (const auto& rows : slotRows) for (const auto& r : rows) maxEvent = std::max(maxEvent, r.first);
+            evCountsOf.assign(maxEvent + 1, EvCounts());
+            for (const auto& rows : slotRows) for (const auto& r : rows) evCountsOf[r.first] = r.second;
+        }
+    }
+
     // One proton tree: every recon proton before the quality cut (QualityStudy.cpp). The old trees Angles, AnglesCE and their _DE copies are views of it
     // (AngleSelection, CutFiles.h): inCE picks the rows, finalKE / finalKED the true / smeared ZDC KE.
     // The file is written through a TBufferMerger: the shards fill their own trees on all the threads (see the write below).
@@ -214,7 +237,7 @@ void ReconAngleAll(){
         }, {"boundaryType", "fEvent", "TrackID", "pdg", "fX", "fY", "fZ", "fDx", "fDy", "fDz", "fKEnergy", "fDEnergy", "ParentID", "entryNo"});
         // The fits run on every thread: each shard builds its tracks, fits them and keeps the results as rows. Only the TTree fills below are serial.
         struct Row {
-            int trackID, pdg, eventID, parentID, isFromCE, inCE, passResD, nProtonsEv, nProtEv, nHits;
+            int trackID, pdg, eventID, parentID, isFromCE, inCE, passResD, nProtonsEv, nZdcCharged, nTrackerHitsEv, nTrackerTracksEv, nHits;
             double theta, phi, dTheta, dPhi, x0, y0, bx, by, x0D, y0D, bxD, byD, finalKE, finalKED;
             double xVertex, yVertex, zVertex, zBxRecon, zByRecon, zBxReconDIFF, zByReconDIFF;
             double resRms, resDRms, impact, impactD, r2, r2D, firstXD, firstYD, resHalfRatioD;
@@ -262,12 +285,10 @@ void ReconAngleAll(){
                 for (j = i + 1; j < keys.size() && keys[j].track == keys[i].track; j++) {}
                 runs.emplace_back(i, j);
             }
-            std::vector<int> nProtonsInEvent(runs.size()), nProtInEvent(runs.size()); // tracks of any pdg in the event, and the ones with pdg 2212
+            std::vector<int> nProtonsInEvent(runs.size()); // tracks of any pdg in the event
             for (std::size_t i = 0, j; i < runs.size(); i = j) {
                 for (j = i + 1; j < runs.size() && (keys[runs[j].first].track >> 32) == (keys[runs[i].first].track >> 32); j++) {}
-                int nProt = 0;
-                for (std::size_t k = i; k < j; k++) nProt += at(runs[k].first).pdg == 2212;
-                for (std::size_t k = i; k < j; k++) {nProtonsInEvent[k] = int(j - i); nProtInEvent[k] = nProt;}
+                for (std::size_t k = i; k < j; k++) nProtonsInEvent[k] = int(j - i);
             }
 
             std::vector<Row> &rows = shardRows[shard];
@@ -337,7 +358,9 @@ void ReconAngleAll(){
 
                 r.passResD = PassesBlockResidual(r.resDRms) ? 1 : 0; // block plots only, see QualityCut.h
 
-                r.nProtonsEv = nProtonsInEvent[run]; r.nProtEv = nProtInEvent[run];
+                r.nProtonsEv = nProtonsInEvent[run];
+                const EvCounts ec = (r.eventID >= 0 && (size_t)r.eventID < evCountsOf.size()) ? evCountsOf[r.eventID] : EvCounts();
+                r.nZdcCharged = ec.zdcCharged; r.nTrackerHitsEv = ec.trackerHits; r.nTrackerTracksEv = ec.trackerTracks;
                 {
                     blockHits.clear();
                     for (std::size_t i = 0; i < t.size(); i++) {if (t.zD[i] != 0.0) {blockHits.push_back(i);}}
@@ -372,7 +395,7 @@ void ReconAngleAll(){
         double resRms, resDRms, impact, impactD; // quality variables, see QualityCut.h
         double r2, r2D; // R^2 of the line fit (true and block position), plotted by QualityStudy.cpp, not cut on
         double firstXD = NAN, firstYD = NAN; // block position (mm) of the first tracker hit (lowest z)
-        int nProtonsEv, nProtEv, nHits; // tracks with a fit in the event (any pdg), the ones with pdg 2212, tracker hits (block points)
+        int nProtonsEv, nZdcCharged, nTrackerHitsEv, nTrackerTracksEv, nHits; // (the two tracker counts: sim EventSummary, all charged particles) // tracks with a fit in the event (any pdg), charged particles at the ZDC in the event (-1 without EventSummary), tracker hits (block points)
         double resHalfRatioD; // block residual of the tracker hits after the first 2 over the first 2 hits, NAN with 2 or fewer hits
         int passResD = 1; // block residual cut, cut on only by the block plots (QualityCut.h)
         int isFromCE;
@@ -413,7 +436,9 @@ void ReconAngleAll(){
     tree->Branch("r2D", &r2D);
     tree->Branch("passResD", &passResD);
     tree->Branch("nProtonsEv", &nProtonsEv);
-    tree->Branch("nProtEv", &nProtEv);
+    tree->Branch("nZdcCharged", &nZdcCharged);
+    tree->Branch("nTrackerHitsEv", &nTrackerHitsEv);
+    tree->Branch("nTrackerTracksEv", &nTrackerTracksEv);
     tree->Branch("nHits", &nHits);
     tree->Branch("firstXD", &firstXD); tree->Branch("firstYD", &firstYD);
     tree->Branch("resHalfRatioD", &resHalfRatioD);
@@ -428,7 +453,7 @@ void ReconAngleAll(){
                 z_bx_reconVertexDIFFOut = r.zBxReconDIFF; z_by_reconVertexDIFFOut = r.zByReconDIFF;
                 isFromCE = r.isFromCE;
                 resRms = r.resRms; resDRms = r.resDRms; impact = r.impact; impactD = r.impactD; r2 = r.r2; r2D = r.r2D;
-                passResD = r.passResD; nProtonsEv = r.nProtonsEv; nProtEv = r.nProtEv; nHits = r.nHits;
+                passResD = r.passResD; nProtonsEv = r.nProtonsEv; nZdcCharged = r.nZdcCharged; nTrackerHitsEv = r.nTrackerHitsEv; nTrackerTracksEv = r.nTrackerTracksEv; nHits = r.nHits;
                 firstXD = r.firstXD; firstYD = r.firstYD; resHalfRatioD = r.resHalfRatioD;
 
                 inCE = r.inCE;
