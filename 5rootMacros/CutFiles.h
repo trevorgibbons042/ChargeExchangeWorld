@@ -28,10 +28,11 @@ static std::vector<KeCut> KeCuts(const std::string& keLabel = "KE"){
 // for the trees with block position quantities (kBlockTrees).
 // cut_angles_all.root holds one tree, AnglesRaw (every fitted proton, ReconAngleAll.cpp). The "trees" Angles and AnglesCE are views of it: the rows with
 // AngleSelection(view) set. Their lists are named view + suffix, so the lists of both energies live side by side in one cuts/<ke dir>.root.
-static const std::string kAngleTree = "AnglesRaw";
-static const std::vector<std::string> kApTrees = {"CE", "CalcValsRe", "CalcValsReD", "CalcValsReDIFF", "CalcValsReDDIFF"}; // cut_APandT.root
-static const std::vector<std::string> kAngleTrees = {"Angles", "AnglesCE"};                                               // views of kAngleTree
-static const std::vector<std::string> kBlockTrees = {"CalcValsReD", "CalcValsReDDIFF", "Angles", "AnglesCE"};
+// No namespace-scope globals with a runtime initializer (std::string, std::vector): ACLiC cannot load such a macro on LCRC (Failed to materialize symbols).
+static constexpr const char* kAngleTree = "AnglesRaw";
+inline const std::vector<std::string>& ApTrees(){static const std::vector<std::string> v = {"CE", "CalcValsRe", "CalcValsReD", "CalcValsReDIFF", "CalcValsReDDIFF"}; return v;} // cut_APandT.root
+inline const std::vector<std::string>& AngleTrees(){static const std::vector<std::string> v = {"Angles", "AnglesCE"}; return v;}                                               // views of kAngleTree
+inline const std::vector<std::string>& BlockTrees(){static const std::vector<std::string> v = {"CalcValsReD", "CalcValsReDDIFF", "Angles", "AnglesCE"}; return v;}
 
 // The rows of AnglesRaw a view stands for: every fitted proton for Angles, only those of a CE event (inCE) for AnglesCE.
 static std::string AngleSelection(const std::string& view){return view == "AnglesCE" ? "inCE == 1" : "1";}
@@ -69,6 +70,6 @@ static void ApplyCut(TTree* t, const std::string& dir, bool block = false, const
 static std::string ListCut(const std::string& dir, bool block){
     std::string cut;
     for (const auto& ke : KeCuts()) if (ke.dir == dir) cut = ke.cut;
-    if (block) cut = cut.empty() ? std::string(kBlockCut) : cut + " && " + kBlockCut;
+    if (block) cut = cut.empty() ? BlockCut() : cut + " && " + BlockCut();
     return cut;
 }

@@ -178,7 +178,7 @@ static void CalcAPandTOne(std::string energy){ // energy: "fKEnergy" (true KE) o
         double outAPReDDIFF;
         double outFOMReDDIFF;
         int outPassResD; // block residual cut (QualityCut.h), only on the block trees: the block plots cut on passResD == 1
-        double outResDRms; // block fit residual of the track, on every tree: CutPlots.cpp (trees) cuts it into the block lists (kBlockCut, QualityCut.h)
+        double outResDRms; // block fit residual of the track, on every tree: CutPlots.cpp (trees) cuts it into the block lists (BlockCut(), QualityCut.h)
 
         outTree->Branch("TrackID", &outTrackID);
         outTree->Branch("PDG", &outPDG);

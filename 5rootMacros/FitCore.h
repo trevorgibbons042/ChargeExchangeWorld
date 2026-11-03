@@ -30,11 +30,12 @@
 #include <TTree.h>
 
 // Every plotting macro includes this header: plain (not bold) Helvetica for every title, label, stats box, legend and text box.
-static const bool kPlainFonts = [](){
+// A function, not a global with a lambda initializer: ACLiC cannot load a macro with a runtime-initialized global on LCRC (Failed to materialize symbols).
+// NThreads() calls it, and every macro calls NThreads() at its start.
+inline void PlainFonts(){
     gStyle->SetTextFont(42); gStyle->SetStatFont(42); gStyle->SetLegendFont(42);
     gStyle->SetTitleFont(42, "XYZ"); gStyle->SetLabelFont(42, "XYZ"); gStyle->SetTitleFont(42, ""); // "": the pad title
-    return true;
-}();
+}
 
 // Beam of the run: the mean momentum and kinetic energy the generator (5generator.cc) wrote to settings.csv (BeamMomentum, BeamKE, MeV), set by /randGun/Energy
 // and /randGun/EnergySD. Without settings.csv or the keys (an older run) the old beam of 25 GeV/c, which is a KE of sqrt(p^2 + m^2) - m = 24078 MeV, not 25 GeV.
@@ -108,6 +109,7 @@ inline std::map<std::string, double> ReadSettings(const std::string& path = "set
 
 // Threads for ROOT::EnableImplicitMT: env ANA_NTHREADS, else the hardware thread count (plot.sh splits the cores between its lanes).
 inline unsigned NThreads(){
+    static const bool fonts = (PlainFonts(), true); (void)fonts; // first call sets the fonts of every plot
     if (const char* e = std::getenv("ANA_NTHREADS")){
         const long v = std::atol(e);
         if (v > 0) return (unsigned)v;
@@ -265,7 +267,7 @@ inline void DrawFitTails(TH1* h, TF1* f){
 
 // The fit equation in a box in the right margin under the stats box (the fit plots use a 0.30 right margin), added to h's
 // function list so it is drawn with h. Parameter names match the stats box.
-static const std::string kGausEq = "Constant #times exp(-(x - Mean)^{2} / 2 Sigma^{2})";
+static constexpr const char* kGausEq ="Constant #times exp(-(x - Mean)^{2} / 2 Sigma^{2})";
 // On every plot of all recon protons: the CE protons among them under the same cuts, bottom right below the stats and fit boxes.
 // nCEAll: the CE recon protons before any cut, for the share of them the plot's cuts lose (left out when not given), in its own box (DrawCELost).
 // nRecon < 0: a CE protons only plot, only the CE lost box.

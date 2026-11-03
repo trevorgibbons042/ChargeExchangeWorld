@@ -149,13 +149,13 @@ void PlotPolarization(std::string energy = "fKEnergy"){ // energy: "fKEnergy" (t
 
     TFile* ceFile = TFile::Open("cuts/cut_APandT.root", "READ");
     TFile* allFile = TFile::Open("cuts/cut_angles_all.root", "READ");
-    TTree* all = allFile ? (TTree*)allFile->Get(kAngleTree.c_str()) : nullptr; // every fitted proton
+    TTree* all = allFile ? (TTree*)allFile->Get(kAngleTree) : nullptr; // every fitted proton
     if (!ceFile || !all){printf("PlotPolarization: cut_APandT.root or AnglesRaw in cut_angles_all.root missing\n"); return;}
     const double nReconAll = (double)all->GetEntries(); // every recon proton (AnglesRaw row), before any cut
 
     const std::vector<KeCut> kes = {KeCuts(keLabel).front()}; // CutFiles.h, the one cut ke_gt80: no KE and no residual cut folders
 
-    // block: the block position set, which only takes the block AP and the block residual cut (kBlockCut, QualityCut.h); the recon set takes AP from CE and from recon
+    // block: the block position set, which only takes the block AP and the block residual cut (BlockCut(), QualityCut.h); the recon set takes AP from CE and from recon
     struct PosSet {std::string dir, name, ceTree, theta, phi, ap, allTheta, allPhi; bool block;};
     const std::vector<PosSet> sets = {
         {"1_reconTheta", "recon theta", "CalcValsRe", "thetaRe", "phiRe", "apRe", "outTheta", "outPhi", false},

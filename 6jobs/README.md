@@ -20,7 +20,13 @@ Runs `./sim <macro>` in `build/` on one 128-cpu node. The macro is a file in `bu
 bash ScanBlocks.sh <template macro> <total thickness m> [dz m]
 ```
 
-Block scan. Writes one macro per block count (1, 3, 5, 7, 9) from the template in `build/`, each with `/detector/CarbonThickness` set to the total divided by the count, and submits each with `Run.sh`. The run folder gets the suffix `_<n>block_<total>m`. dz (default 0.025 m) is the gap between the edge of a block and the edge of its tracker. It refuses if the trackers of neighbouring blocks would meet: the slot spacing 7.7 m / (n + 1) must exceed the block thickness plus 2 dz. Example: `bash ScanBlocks.sh run_0.mac 0.4`.
+Block scan. Writes one macro per block count (1, 3, 5, 7, 9) and beam energy from the template in `build/`, each with `/detector/CarbonThickness` set to the total divided by the count, and submits each with `Run.sh`. The energies are 25 GeV with a 0.92 GeV sigma, 50 GeV with 1.8 GeV and 137.5 GeV with 5 GeV, set through `/randGun/Energy` and `/randGun/EnergySD` and replacing any energy lines in the template, so one call submits 15 jobs. The run folder becomes `<folder>_<total>m/<E>GeV/<n>block` in `build/root/`, and `ScanBlockAnalysis.sh` analyses them all. dz (default 0.025 m) is the gap between the edge of a block and the edge of its tracker. It refuses if the trackers of neighbouring blocks would meet: the slot spacing 7.7 m / (n + 1) must exceed the block thickness plus 2 dz. Example: `bash ScanBlocks.sh run_0.mac 0.4`.
+
+```
+bash ScanBlockAnalysis.sh <scan folder in build/root> [cutdone | plot job]
+```
+
+Runs `SubmitEvents.sh` on every run folder two levels below the scan folder (`<scan folder>/<E>GeV/<n>block`), found by their `settings.csv`. The second argument goes to each call. Example: `bash ScanBlockAnalysis.sh Physics_801_0.4m`.
 
 ## Analysis chain, one job per step
 
@@ -96,7 +102,7 @@ Steps: `cutevents`, `recon`, `convert`, `calc`, `countce`, `cuttrees`, `cuts`, `
 
 ## Options
 
-- `-v ACLIC=+O` compiles the macros with ACLiC. The default is interpreted, because ROOT 6.32 on the cluster fails to load compiled macros.
+- The macros are compiled with ACLiC by default. `-v ACLIC=` runs them interpreted instead.
 - `DEPKIND=afterany` makes a job start after its dependencies end, whatever their exit code. `SubmitPlots.sh` uses it for the final Pdfs job.
 - `BASE=<path>` points the scripts at another copy of the project.
 

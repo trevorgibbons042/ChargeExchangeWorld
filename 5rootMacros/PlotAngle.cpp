@@ -99,7 +99,7 @@ static void DrawGroup(TCanvas* canvas, const std::string& groupDir, const std::v
         for (const auto& [key, exprs] : exprsOf) {
             nCEAll[key.first] = key.first->GetEntries(); // GetEntries(): every entry, the list ignored
             if (ke.dir.empty()) { // no KE cut: no entry list, only the block residual cut on the block plots, as a filter
-                const std::string keFilter = key.second ? (filter.empty() ? "" : filter + " && ") + "(" + kBlockCut + ")" : filter;
+                const std::string keFilter = key.second ? (filter.empty() ? "" : filter + " && ") + "(" + BlockCut() + ")" : filter;
                 cols[key] = Columns(key.first, exprs, keFilter);
                 continue;
             }
@@ -407,7 +407,7 @@ void PlotAngle(std::string energy = "fKEnergy"){ // energy: "fKEnergy" (true KE)
 
     //All protons and CE protons, theta/phi and block theta/phi
     TFile* FileAll = TFile::Open("cuts/cut_angles_all.root", "READ");
-    TTree *all = (TTree*)FileAll->Get(kAngleTree.c_str()); // every fitted proton
+    TTree *all = (TTree*)FileAll->Get(kAngleTree); // every fitted proton
     if (!all){Error("PlotAngle", "AnglesRaw missing in cuts/cut_angles_all.root (rerun ReconAngleAll.cpp)"); return;}
 
     printf("[PlotAngle] FOM setup %s\n", TDatime().AsSQLString()); fflush(stdout);

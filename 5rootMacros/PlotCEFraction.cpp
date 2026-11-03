@@ -26,9 +26,9 @@
 void PlotCEFraction(){
     ROOT::EnableImplicitMT(NThreads()); // implicit MT for the file reads (NThreads: ANA_NTHREADS, FitCore.h)
     gStyle->SetOptStat(0);
-    const auto &sets = kSets, &kes = kKes;
+    const auto &sets = Sets(), &kes = Kes();
     const auto &colors = kColors;
-    const auto &setName = kSetName;
+    const auto &setName = SetNames();
     auto cutNote = [](const std::string& set){return std::string("no KE cut") + (set == "2_reconBlockTheta" ? ", block residual < 2 mm" : "");};
     const auto keName = KeName;
 

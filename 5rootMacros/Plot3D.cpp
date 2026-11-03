@@ -49,6 +49,46 @@ struct SampleCut {std::string dir, expr, label, onFolder, file; bool zdcKE80 = f
 // files and writes the rank_*.csv files. Parts 3 and 4 also take P3_CUT=i to do one cut folder only (0: 1_hitZDC and 2_KECUT80). Without P3_PART all of it runs in one process.
 static bool RunPart(int n){const char* e = std::getenv("P3_PART"); return !e || !*e || std::atoi(e) == n;}
 static bool RunCut(int i){const char* e = std::getenv("P3_CUT"); return !e || !*e || std::atoi(e) == i;}
+// P3_SUB (0 to 3): in part 1 the four groups 1_position/1_true, 1_position/2_block, 2_energy and the 80% KE cut plots (1_hitZDC, 2_KECUT80, 0_cuts); in parts 3 and 4 of the four folders P3_CUT=0 stands for in parts 3 and 4 (1_hitZDC, 2_KECUT80, 0_cuts/1_noCuts, 0_cuts/2_theta0_1) only this one, so they can run as four processes. Without it all four.
+// The six counts of AnglesRaw every part 2, 4 and 5 process needs, in one event loop: CE protons / pdg 2212 / any particle with the theta baseline, then CE protons / pdg 2212 / any particle without it.
+// Kept in cuts/plot3d_totals.csv (first line the theta baseline, second the counts) and reused while the file is newer than cut_angles_all.root and the baseline is the same; else counted again (written to a
+// temporary file and renamed, so processes that start together do not clash).
+static std::array<double, 6> RawTotals(TTree* t, const std::string& thetaBase){
+    const char* file = "cuts/plot3d_totals.csv";
+    Long_t id, flags, mt = 0, mtRaw = 0; Long64_t size;
+    std::array<double, 6> r{};
+    if (!gSystem->GetPathInfo(file, &id, &size, &flags, &mt) && !gSystem->GetPathInfo("cuts/cut_angles_all.root", &id, &size, &flags, &mtRaw) && mt >= mtRaw){
+        if (FILE* f = fopen(file, "r")){
+            char line[4096]; bool ok = fgets(line, sizeof line, f) && std::string(line) == thetaBase + "\n";
+            ok = ok && fscanf(f, "%lf,%lf,%lf,%lf,%lf,%lf", &r[0], &r[1], &r[2], &r[3], &r[4], &r[5]) == 6;
+            fclose(f);
+            if (ok) return r;
+        }
+    }
+    const std::vector<std::string> cuts = {"isFromCE==1 && " + thetaBase, "PDG == 2212 && " + thetaBase, thetaBase, "isFromCE==1", "PDG == 2212", "1"};
+    std::map<std::string, std::string> aliases;
+    ROOT::RDataFrame df0(*t);
+    ROOT::RDF::RNode df = WithEntryNumber(df0, df0.GetNSlots());
+    std::vector<std::string> ex;
+    for (const auto& c : cuts) ex.push_back(c == "1" ? "" : ColumnsExpr(t, P3(c), aliases));
+    for (const auto& [alias, column] : aliases) df = df.Alias(alias, column);
+    std::vector<ROOT::RDF::RResultPtr<ULong64_t>> n;
+    for (const auto& e : ex) n.push_back(e.empty() ? df.Count() : df.Filter(e).Count());
+    for (size_t i = 0; i < n.size(); i++) r[i] = (double)n[i].GetValue(); // the first value runs the one event loop for all six
+    const std::string tmp = Form("%s.%d.tmp", file, (int)getpid());
+    if (FILE* f = fopen(tmp.c_str(), "w")){
+        fprintf(f, "%s\n%.0f,%.0f,%.0f,%.0f,%.0f,%.0f\n", thetaBase.c_str(), r[0], r[1], r[2], r[3], r[4], r[5]);
+        fclose(f);
+        std::rename(tmp.c_str(), file);
+    }
+    return r;
+}
+static bool RunSub(int i){const char* e = std::getenv("P3_SUB"); return !e || !*e || std::atoi(e) == i;}
+// P2Log: one line per step with the seconds since the first call, flushed, so the job log shows where part 2 spends its time (grep "^>>> p2")
+static void P2Log(const std::string& what){
+    static const auto t0 = std::chrono::steady_clock::now();
+    printf(">>> p2 %6.1f s  %s\n", std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count(), what.c_str()); fflush(stdout);
+}
 
 void Plot3D(){
     ROOT::EnableImplicitMT(NThreads()); // implicit MT for the file reads (NThreads: ANA_NTHREADS, FitCore.h)
@@ -172,6 +212,8 @@ void Plot3D(){
             const std::string zdcReco = zdcRecoAll + posKes[pk].second, zdcRecoD = zdcRecoDAll + posKes[pk].second;
             const std::string xySlice = zdcReco + " && fabs(fY) < 2", xySliceD = zdcRecoD + " && fabs(fDy) < 2";
             titleSuffix = ", has recon track, no KE cut" + posKeLabels[pk]; // the cut of the 1_true plots: hit ZDC and a recon track
+            const std::string zdcRecoP = zdcRecoPartAll + posKes[pk].second, xySliceP = zdcRecoP + " && fabs(fY) < 2";
+            if (RunSub(0)){ // P3_SUB 0: 1_true
             // ZDC position, true (fX, fY)
             drawXY(eventsAllEv, "fY:fX>>h2(100,-200,200,100,-200,200)", zdcReco, "Position at ZDC, all recon protons that hit ZDC;X Position (mm);Y Position (mm)", folder_pos + "2_xy_recon.pdf");
             drawXY(eventsAllEv, "fY:fX>>h2(100,-50,50,100,-50,50)", zdcReco, "Position at ZDC, all recon protons that hit ZDC;X Position (mm);Y Position (mm)", folder_pos + "4_xy_zoom_recon.pdf");
@@ -183,7 +225,6 @@ void Plot3D(){
             drawPlot(events2, "fX>>hSliceX(100,-50,50)", xySlice, "X Position at ZDC, CE recon protons that hit ZDC, |Y| < 2 mm;X Position (mm);Count", folder_pos + "7_x_fit_50_CE.pdf", "", [](TH1* h){FitCore(h);});
 
             // the same plots for every recorded particle that hit the ZDC and has a recon track (any pdg), own pdf next to each all recon protons one: <name>_allParticles.pdf
-            const std::string zdcRecoP = zdcRecoPartAll + posKes[pk].second, xySliceP = zdcRecoP + " && fabs(fY) < 2";
             drawXY(eventsAllPart, "fY:fX>>h2(100,-200,200,100,-200,200)", zdcRecoP, "Position at ZDC, all recon particles that hit ZDC;X Position (mm);Y Position (mm)", folder_pos + "2_xy_recon_allParticles.pdf");
             drawXY(eventsAllPart, "fY:fX>>h2(100,-50,50,100,-50,50)", zdcRecoP, "Position at ZDC, all recon particles that hit ZDC;X Position (mm);Y Position (mm)", folder_pos + "4_xy_zoom_recon_allParticles.pdf");
 
@@ -204,6 +245,8 @@ void Plot3D(){
             }
 
 
+            }
+            if (RunSub(1)){ // P3_SUB 1: 2_block
             titleSuffix = ", has recon track, block residual < 2 mm, no KE cut" + posKeLabels[pk]; // the cut of the 2_block plots: isRecoD
             // ZDC position, block (fDx, fDy): the ZDC is nCols_detector x nRows_detector blocks over 400 mm. Every bin holds the same whole number of blocks (BlockBins, FitCore.h):
             // 100 bins over 100 mm on a pitch of 400 / 801 mm put an extra block in the bin that starts at x = 0 (a cross at x = 0 and y = 0), and in one bin of ten along the x slices (spikes).
@@ -242,6 +285,7 @@ void Plot3D(){
                 drawPlot(eventsAllEv, "rawVal(fEvent, TrackID, 15)>>hPhiDY2AllEv" + tag + "(100,0,360)", xySliceB + phiOk + xWin, "Recon block phi, all recon protons that hit ZDC, |Y| < 2 mm" + winNote + ";Recon block phi (degrees);Count", folder_posD + pw.nRecon + "_phiBlock_" + tag + "_recon.pdf");
                 drawPlot(eventsAllPart, "rawVal(fEvent, TrackID, 15)>>hPhiDY2AllPart" + tag + "(100,0,360)", xySliceBP + phiOk + xWin, "Recon block phi, all recon particles that hit ZDC, |Y| < 2 mm" + winNote + ";Recon block phi (degrees);Count", folder_posD + pw.nRecon + "_phiBlock_" + tag + "_recon_allParticles.pdf");
             }
+            }
             titleSuffix.clear();
         }
 
@@ -252,7 +296,7 @@ void Plot3D(){
         auto binSpec = [](const KERange& r){return std::string(Form("(100,%g,%g)", r.lo, r.hi));};
 
         // 2_energy/ holds the energy plots, with the KE cut folders ke_cut_<pct>/ next to them
-        if (RunPart(1)) {
+        if (RunPart(1) && RunSub(2)) {
             const std::string folder_smear = folder + "/2_energy/";
             gSystem->mkdir(folder_smear.c_str(), true);
             const std::string zdcProtonsE = zdcProtons, zdcRecoE = zdcReco;
@@ -325,7 +369,7 @@ void Plot3D(){
         struct CutEnergy {std::string branch, dir, label;};
         std::vector<CutEnergy> cutEnergies;
         if (events->GetBranch("fDEnergy")) cutEnergies.push_back({"fDEnergy", "KEDetector", "ZDC KE"});
-        if (RunPart(1)) for (int pct : {80}){
+        if (RunPart(1) && RunSub(3)) for (int pct : {80}){
             const std::string zdcReco = zdcRecoAll;
             std::string cut = std::to_string(initialKE * pct / 100.0);
             std::string pctStr = std::to_string(pct) + "% of initial KE";
@@ -406,14 +450,16 @@ void Plot3D(){
             gROOT->cd();
             return t;
         };
-        if (rawT && (RunPart(2) || RunPart(4) || RunPart(5))) nCEreconTotal = CountMT(rawT, P3("isFromCE==1 && " + thetaBase));
-        const std::string rawCE = "isFromCE==1";
+        P2Log("start");
         double nNonProtTh = 0, nNonPartTh = 0, nNonProtAll = 0, nNonPartAll = 0; // non-CE fitted protons (pdg 2212) and particles before any cut: with the theta baseline (every folder but 0_cuts/1_noCuts) and without it
-        if (rawT && (RunPart(2) || RunPart(5))){
-            nNonProtTh = CountMT(rawT, P3("PDG == 2212 && " + thetaBase)) - nCEreconTotal; nNonPartTh = CountMT(rawT, P3(thetaBase)) - nCEreconTotal;
-            const double nCEraw = CountMT(rawT, P3(rawCE));
-            nNonProtAll = CountMT(rawT, P3("PDG == 2212")) - nCEraw; nNonPartAll = CountMT(rawT, P3("1")) - nCEraw;
+        if (rawT && (RunPart(0) || RunPart(2) || RunPart(4) || RunPart(5))){ // P3_PART=0 only makes cuts/plot3d_totals.csv (one pass of all the threads, Plot.pbs / plot.sh run it before the other parts)
+            const std::array<double, 6> tot = RawTotals(rawT, thetaBase);
+            nCEreconTotal = tot[0];
+            nNonProtTh = tot[1] - tot[0]; nNonPartTh = tot[2] - tot[0];
+            nNonProtAll = tot[4] - tot[3]; nNonPartAll = tot[5] - tot[3];
         }
+        P2Log("totals done");
+        const std::string rawCE = "isFromCE==1";
         std::vector<RankRow> rankRows; // every cut folder, with and without the 80% KE cut, for the rank_*.csv files below
         // FOM like 5_fomCalc/<theta set>/5_integral_ce_x_A2_dtheta.pdf (PlotCEFraction.cpp): sum over 0.05 deg theta bins of N_CE(bin) / N_neutrons * A_y^2(theta bin center) * 0.05 deg,
         // N_CE = CE recon protons that pass q (zdcRecoAll and the cut), t from theta and A_y from t with the model formula, theta from 0 to 15 deg
@@ -490,6 +536,7 @@ void Plot3D(){
         }
         for (const auto& sc : sampleCuts) for (const auto& e : cutEnergies) for (const bool ke80 : {false, true}){ // 0_KE_hitZDC (the cut and hitting the ZDC) and 0_KE_KECUT80 (also the 80% KE cut)
             if (!RunPart(2) || !RunCut(int(&sc - &sampleCuts[0]) + 1)) continue;
+            P2Log("cut " + sc.dir + (ke80 ? " ke80" : " nokecut") + " start");
             const std::string folder_res = folder_KEcuts + sc.dir + "/1_additionalinfo/";
             const double cutVal = initialKE * 0.80; // the 80% KE cut of 2_KECUT80
             const std::string qCut = zdcBase + " && " + sc.expr + (ke80 ? " && " + e.branch + " > " + std::to_string(cutVal) : "");
@@ -517,8 +564,11 @@ void Plot3D(){
                 const long long nCEc = CountMT(tS, P3(qSCE)), nAllc = ke80 ? nAllq : CountMT(tS, P3(qS));
                 const long long nPartc = ke80 ? CountMT(eventsAllPart, P3(zdcBasePart + " && " + sc.expr + " && " + e.branch + " > " + std::to_string(cutVal))) : CountMT(tS, P3("1")); // every recon particle of the cut
                 const double nonProtOut = nNonProtTh - double(nAllc - nCEc), nonPartOut = nNonPartTh - double(nPartc - nCEc); // the non-CE protons / particles the cut removes
+                P2Log("  counts done");
                 double fom[2], pol[2], polErr[2]; fomStats(tS, qSCE, fom);
+                P2Log("  fomStats done");
                 for (int j = 0; j < 2; j++) phiFit(tS, qSCE, j, "", "", &pol[j], &polErr[j]);
+                P2Log("  phiFit done");
                 fprintf(rf, "%s,%lld,%lld,%.6f,%lld,%.0f,%.6f,%lld,%.6f,%.6g,%.6g,%.5f,%.5f,%.5f,%.5f,%lld,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f\n", ke80 ? "cut and ZDC KE > 80%" : "cut", nCEc, nAllc, double(nCEc) / std::max<long long>(1, nAllc),
                         nCEallZdc, nCEreconTotal, nCEc / std::max(1.0, nCEreconTotal),
                         nAllc - nCEc, double(nAllc - nCEc) / std::max<long long>(1, nAllc), fom[0], fom[1], pol[0], polErr[0], pol[1], polErr[1],
@@ -527,6 +577,7 @@ void Plot3D(){
                 fclose(rf);
                 rankRows.push_back({sc.dir, ke80 ? "cut and ZDC KE > 80%" : "cut", double(nCEc), double(nAllc), double(nCEallZdc), nCEreconTotal, {fom[0], fom[1]}, {pol[0], pol[1]}, {polErr[0], polErr[1]}, double(nPartc), nNonProtTh, nNonPartTh});
             }
+            P2Log("  rank row done");
             if (ke80) for (const auto& r : keRanges) for (const bool lin : {false, true}){ // the ZDC KE plot only with the KE cut: the cut alone needs no ZDC hit. lin: the same plot with a linear y axis, saved as ..._linear.pdf
                 drawPlot(events2, e.branch + ">>hResCE" + binSpec(r), qCut, e.label + " of Protons that hit ZDC, " + sc.label + (ke80 ? ", ZDC KE > 80%" : "") + ", " + kThetaNote + ", CE recon protons vs all recon protons;" + e.label + " (MeV);Count", folder_res + "0_KE_KECUT80_" + e.dir + r.tag + (lin ? "_linear" : "") + ".pdf", "", [&](TH1* h){
                     h->SetLineColor(kRed);
@@ -635,7 +686,7 @@ void Plot3D(){
                 if (t) phiSets.push_back({Form("9_megaCut3/1_1particlecut_KE%d", pct), "", t, rawCE, "", ""});
             }
             for (const auto& ps : phiSets){
-                if (const int pi = int(&ps - &phiSets[0]); !RunCut(pi < 4 ? 0 : pi - 3)) continue; // P3_CUT: 0 the first four sets, i the sampleCuts[i - 1] set
+                if (const int pi = int(&ps - &phiSets[0]); !RunCut(pi < 4 ? 0 : pi - 3) || (pi < 4 && !RunSub(pi))) continue; // P3_CUT: 0 the first four sets (P3_SUB picks one), i the sampleCuts[i - 1] set
                 gSystem->mkdir((folder_KEcuts + ps.dir + "/2_phi_cosfit").c_str(), true);
                 const bool isZdc = ps.t == events2; // the ZDC folders hold the protons that hit the ZDC, the cut folders the fitted protons that pass the cut
                 struct Samp {TTree* t; std::string q, name; int color;}; // CE recon protons (red), all recon protons (pdg 2212, blue) and all recon particles (any pdg, green) of the folder, drawn together
@@ -944,7 +995,7 @@ void Plot3D(){
                 lapStart = now;
             };
             for (const auto& ic : infoCuts){
-                if (const int ii = int(&ic - &infoCuts[0]); !RunCut(ii < 4 ? 0 : ii - 3)) continue; // P3_CUT: 0 the first four folders, i the sampleCuts[i - 1] folder
+                if (const int ii = int(&ic - &infoCuts[0]); !RunCut(ii < 4 ? 0 : ii - 3) || (ii < 4 && !RunSub(ii))) continue; // P3_CUT: 0 the first four folders (P3_SUB picks one), i the sampleCuts[i - 1] folder
                 lapStart = std::chrono::steady_clock::now();
                 const SampleCut* sc = nullptr;
                 for (const auto& c : sampleCuts) if (c.dir == ic.first) sc = &c;
