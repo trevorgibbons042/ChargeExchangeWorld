@@ -60,6 +60,6 @@ wait
 python3 tidy_plots.py plots
 python3 cut_side_box.py plots # side box with the cut numbers on every 6_cuts pdf, after tidy_plots.py (the pdfs are final)
 python3 crop_pdfs.py plots # cuts the blank rest of ROOT's A4 page off every pdf, the side box included
-bash to_png.sh plots # last: every final pdf becomes a png
+# to_png.sh (pdf to png) is not run here: run it by hand on the machine you view the plots on
 cp settings.csv plots/ # the sim settings of this run beside its plots
 echo ">>> all plots took $((SECONDS - total)) s"

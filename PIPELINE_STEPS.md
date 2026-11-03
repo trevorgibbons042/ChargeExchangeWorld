@@ -19,4 +19,4 @@ Run with `bash 6jobs/SubmitEvents.sh <run> [cutdone]`. Each step is one PBS job 
    - **fom** [fom]: `PlotAngle`, `PlotCEFraction`, `PlotPolarization` and `PlotFomPolarization` write `3_ReconCalcVals` and `5_fomCalc`.
    - **ceblock** [ceblock]: `PlotDiffPhiCuts`, `GraphBlocks` and `CETCompare` write `4_CEblock`.
    - **secce** [secce]: `SecondaryCE.cpp` writes `7_secondaryCE`.
-9. **Pdfs** [pdfs]. Runs after every lane has ended. `tidy_plots.py` merges the per-cut csv files, `cut_side_box.py` stamps the cut numbers into a side box, `crop_pdfs.py` crops the pdfs, and `to_png.sh` makes the pngs.
+9. **Pdfs** [pdfs]. Runs after every lane has ended. `tidy_plots.py` merges the per-cut csv files, `cut_side_box.py` stamps the cut numbers into a side box, and `crop_pdfs.py` crops the pdfs. `to_png.sh` (pngs) is not part of the step; run it by hand where you view the plots.

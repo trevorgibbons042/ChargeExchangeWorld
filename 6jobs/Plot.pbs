@@ -96,6 +96,5 @@ if [ "$STEP" = pdfs ]; then
     python3 tidy_plots.py plots
     python3 cut_side_box.py plots
     python3 crop_pdfs.py plots
-    bash to_png.sh plots
     cp settings.csv plots/ # the sim settings of this run beside its plots
 fi
