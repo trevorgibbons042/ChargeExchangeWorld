@@ -317,7 +317,18 @@ static void CalcAPandTOne(std::string energy){ // energy: "fKEnergy" (true KE) o
 }
 
 // Both energies in one run: the true-KE pass writes cut_APandT.root, the detector-KE pass appends its _DE trees (the merger of each pass is closed before the next one starts).
+// The beam spread (settings.csv BeamMomentumSD) as relative errors on t and A_P, the same for every event (FitCore.h BeamTFrac, BeamAFrac); the P errors of the plots include
+// the A_P one. Printed and written to beam_errors.csv in the run folder.
+static void WriteBeamErrors(){
+    printf("beam p = %.1f MeV/c, SD = %.1f MeV/c: sigma_t/t = %.3f %%, sigma_A/A = %.3f %% (also the relative beam error on P)\n", kBeamMomentum, kBeamMomentumSD, 100 * kBeamTFrac, 100 * kBeamAFrac);
+    if (FILE* f = fopen("beam_errors.csv", "w")){
+        fprintf(f, "BeamMomentum,BeamMomentumSD,sigma_t_over_t,sigma_A_over_A\n%.6f,%.6f,%.8g,%.8g\n", kBeamMomentum, kBeamMomentumSD, kBeamTFrac, kBeamAFrac);
+        fclose(f);
+    }
+}
+
 void CalcAPandT(){
+    WriteBeamErrors();
     CalcAPandTOne("fKEnergy");
     CalcAPandTOne("fDEnergy");
 }

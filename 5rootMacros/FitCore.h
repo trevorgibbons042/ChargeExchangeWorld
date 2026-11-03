@@ -50,6 +50,20 @@ inline double BeamSetting(const char* name, double fallback){
 }
 static const double kBeamMomentum = BeamSetting("BeamMomentum", 25000.0); // MeV/c
 static const double kBeamKE = BeamSetting("BeamKE", std::sqrt(25000.0 * 25000.0 + kNeutronMass * kNeutronMass) - kNeutronMass); // MeV
+static const double kBeamMomentumSD = BeamSetting("BeamMomentumSD", 0.0); // MeV/c, the spread of the beam momentum (/randGun/EnergySD), 0 without one
+
+// The beam spread as relative errors, the same for every event. t = (p sin(theta))^2 gives sigma_t / t = 2 sigma_p / p. A_P is -kAPA (1 - exp(-kAPk p)) p sin(theta) (APFromT), so
+// sigma_A / |A| = sigma_p (1 / p + kAPk e^(-kAPk p) / (1 - e^(-kAPk p))), the theta cancels. P is the fit amplitude over A, so P carries the same fraction as A (PFit, AddBeamErrToP).
+// pBeam, sdP in MeV/c; kAPk is per GeV in the model.
+static const double kAPA = 0.7079, kAPk = 0.3860;
+inline double BeamTFrac(double pBeam, double sdP){return pBeam > 0 ? 2 * sdP / pBeam : 0;}
+inline double BeamAFrac(double pBeam, double sdP){
+    if (pBeam <= 0) return 0;
+    const double k = kAPk / 1000.0, e = std::exp(-k * pBeam); // per MeV
+    return sdP * (1 / pBeam + k * e / (1 - e));
+}
+static const double kBeamTFrac = BeamTFrac(kBeamMomentum, kBeamMomentumSD);
+static const double kBeamAFrac = BeamAFrac(kBeamMomentum, kBeamMomentumSD);
 
 // Transverse-only t in GeV^2: (p_n sin(theta))^2, theta = proton lab polar angle (rad), p_n = lab beam momentum
 // (MeV). The full invariant also has an energy term, which the measured final KE (after energy loss) overwhelms.
@@ -61,7 +75,6 @@ inline double TFromAngle(double pn, double theta){
 // Same formula as the model (G4ChargeExchange.cc, per GeV there), including its minus sign. pbeam in MeV, t in GeV^2.
 // AP times apScale (the sim's /CE/APScale), clamped to -1.0 at the low end like the model.
 inline double APFromT(double pbeam, double t, double apScale){
-    static const double kAPA = 0.7079, kAPk = 0.3860;
     return std::max(-1.0, apScale * -kAPA * (1 - std::exp(-kAPk * pbeam / 1000.0)) * std::sqrt(std::max(t, 0.0)));
 }
 
@@ -317,7 +330,14 @@ inline void AddFitEquation(TH1* h, const std::vector<std::string>& lines){
 // (1 + P A cos phi) / N(P), N(P) = (hi - lo) + P A (sin hi - sin lo) (angles in rad), A the model A of the sample (fixed, aFix) or of the proton itself (aEach). P is found with Newton's method,
 // limited to -1 to 1 (a polarization), and its error is 1 / sqrt(-d2lnL/dP2) at that P. The fit that replaced the chi2 fit of a 50 bin histogram, which the 45 degree grid of the recon block phi
 // (spikes) pushed to the limit of P.
-struct PFit {double p = 0, err = 0; bool ok = false;};
+// err is the error on P that every caller quotes: the likelihood error (errFit) and the error from the beam spread (errA = |P| * kBeamAFrac, the A_P error, see BeamAFrac) in quadrature.
+// Without a beam spread err == errFit.
+struct PFit {double p = 0, err = 0, errFit = 0, errA = 0; bool ok = false;};
+inline void AddBeamErrToP(PFit& r){
+    r.errFit = r.err;
+    r.errA = std::fabs(r.p) * kBeamAFrac;
+    r.err = std::sqrt(r.errFit * r.errFit + r.errA * r.errA);
+}
 // cosPhi: cos(phi) of every proton (a: its A, or null for aFix). parallel: the sums over the protons run on all threads (not when the caller is already one of the threads).
 inline PFit UnbinnedPFromCos(const double* cosPhi, Long64_t n, const double* a, double aFix, double loDeg, double hiDeg, bool parallel = true){
     PFit r;
@@ -350,6 +370,7 @@ inline PFit UnbinnedPFromCos(const double* cosPhi, Long64_t n, const double* a, 
     }
     const Sums t = sums(p);
     r.p = p; r.err = t.d2 < 0 ? 1 / std::sqrt(-t.d2) : 0; r.ok = true;
+    AddBeamErrToP(r);
     return r;
 }
 inline PFit UnbinnedP(const std::vector<double>& phiDeg, double aFix, double loDeg = 0, double hiDeg = 360, const std::vector<double>* aEach = nullptr, bool parallel = true){
@@ -407,6 +428,7 @@ inline PFit UnbinnedPFromMoments(const double* m, double n, double aFix, double 
     }
     derivs(p, d1, d2);
     r.p = p; r.err = d2 < 0 ? 1 / std::sqrt(-d2) : 0; r.ok = true;
+    AddBeamErrToP(r);
     return r;
 }
 
