@@ -191,7 +191,8 @@ void ReconAngleAll(){
     for (size_t first = 0; first < rawNames.size(); first += filesPerPass) {
         TChain group("ParticleInfo");
         for (size_t i = first; i < std::min(rawNames.size(), first + filesPerPass); i++) group.Add(rawNames[i].c_str());
-        ROOT::RDataFrame df(group);
+        ROOT::RDataFrame df0(group);
+        auto df = WithEntryNumber(df0, df0.GetNSlots()); // entryNo: the row of ParticleInfo in its file (rdfentry_ is wrong under MT on a tree with several clusters); orders the points of a track
 
         const auto tRead0 = Clock::now();
         // The read puts every point straight into the bucket of its shard (event % nShards) of its slot: all the tracks of an event land in one shard, so the per-event
@@ -210,7 +211,7 @@ void ReconAngleAll(){
             const unsigned shard = (unsigned)eventID % nShards;
             if (boundaryType == 2) {zdcBuckets[slot][shard].push_back({(ULong64_t(std::uint32_t(eventID)) << 32) | std::uint32_t(trackID), KE, KED}); return;}
             buckets[slot][shard].push_back({eventID, trackID, pdg, ParentID, x, y, z, xD, yD, zD, entry});
-        }, {"boundaryType", "fEvent", "TrackID", "pdg", "fX", "fY", "fZ", "fDx", "fDy", "fDz", "fKEnergy", "fDEnergy", "ParentID", "rdfentry_"});
+        }, {"boundaryType", "fEvent", "TrackID", "pdg", "fX", "fY", "fZ", "fDx", "fDy", "fDz", "fKEnergy", "fDEnergy", "ParentID", "entryNo"});
         // The fits run on every thread: each shard builds its tracks, fits them and keeps the results as rows. Only the TTree fills below are serial.
         struct Row {
             int trackID, pdg, eventID, parentID, isFromCE, inCE, passResD, nProtonsEv, nProtEv, nHits;

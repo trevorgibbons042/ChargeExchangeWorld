@@ -3,8 +3,8 @@
 //   book:   h = plan.H(tree, "e1:e2>>name(nx,lo,hi,ny,lo,hi)", selection, listCut), n = plan.N(tree, selection), c = plan.C(tree, {"e1", "e2"}, selection)
 //   run:    plan.Run()   one event loop per tree (ROOT::EnableImplicitMT(NThreads())), values collected with their entry numbers
 //   render: h.Get(), n.Get(), c.V(0) ... the histograms are filled on the main thread in entry order, the order TTree::Draw fills in, so the stats sums match it.
-// All TH1/TH2 filling, fits and graphics stay on the main thread; only the event loop is multithreaded, except for a tree with several clusters (rdfentry_ is wrong under implicit MT there,
-// SerialScope in FitCore.h): its loop runs on one thread. A request that cannot be translated (or if rdfentry_ is still not the TTree entry number)
+// All TH1/TH2 filling, fits and graphics stay on the main thread; only the event loop is multithreaded. The entry numbers come from WithEntryNumber (FitCore.h), not rdfentry_, which is wrong under
+// implicit MT on a tree with several clusters. A request that cannot be translated
 // runs as the plain TTree::Draw on the main thread during Run(), with a one-time warning. The fallback draws with the effective selection (selection and listCut), so the caller does not
 // need to set the TEntryList on the tree; listCut is the string the list stands for.
 #include <TError.h>
@@ -66,7 +66,6 @@ public:
     };
     std::vector<std::shared_ptr<Group>> groups;
     std::vector<std::shared_ptr<HistReq>> hists; std::vector<std::shared_ptr<CountReq>> counts; std::vector<std::shared_ptr<ColsReq>> cols;
-    std::map<TTree*, int> entryOk; // 1: rdfentry_ is the TTree entry number (checked), 0: not
     bool unordered = false; // set before Run(): the rows of a many-cluster tree may come back in any order (no rdfentry_), so it is read on all threads; the columns of a row stay together
 };
 
@@ -194,50 +193,6 @@ inline DrawPlan::Cols DrawPlan::C(TTree* t, const std::vector<std::string>& expr
 
 namespace DrawPlanImpl {
 
-// Is rdfentry_ the TTree entry number of this tree under the current IMT? Checked once per tree on a sample of entries against TTree::GetEntry.
-inline bool EntryNumberOk(DrawPlan& plan, TTree* t){
-    auto it = plan.entryOk.find(t);
-    if (it != plan.entryOk.end()) return it->second == 1;
-    SerialScope serial(t); // the check reads the tree the way Run() will, one thread for a tree with several clusters
-    bool ok = false;
-    try {
-        // Up to 3 scalar leaves, continuous ones (Double_t, Float_t) first: a leaf like fEvent repeats over neighbouring entries, so a small entry offset would pass on it alone.
-        TObjArray* leaves = t->GetListOfLeaves();
-        std::vector<TLeaf*> chk;
-        for (const bool continuous : {true, false})
-            for (int i = 0; i < leaves->GetEntries() && chk.size() < 3; i++){
-                TLeaf* l = (TLeaf*)leaves->At(i);
-                const std::string tn = l->GetTypeName();
-                const bool isCont = tn == "Double_t" || tn == "Float_t", isInt = tn == "Int_t" || tn == "Long64_t";
-                if (l->GetLeafCount() == nullptr && l->GetLen() == 1 && (continuous ? isCont : isInt)) chk.push_back(l);
-            }
-        if (chk.empty() || t->GetEntries() == 0) throw std::runtime_error("no scalar leaf");
-        const Long64_t n = t->GetEntries();
-        const Long64_t step = std::max<Long64_t>(1, n / 997);
-        ROOT::RDataFrame df(*t);
-        ROOT::RDF::RNode sample = df.Filter("rdfentry_ % " + std::to_string(step) + " == 0");
-        for (size_t c = 0; c < chk.size(); c++) sample = sample.Define("__chk" + std::to_string(c), "(double)(" + std::string(chk[c]->GetName()) + ")");
-        auto es = sample.Take<ULong64_t>("rdfentry_");
-        std::vector<ROOT::RDF::RResultPtr<std::vector<double>>> vs;
-        for (size_t c = 0; c < chk.size(); c++) vs.push_back(sample.Take<double>("__chk" + std::to_string(c)));
-        TEntryList* saved = t->GetEntryList(); t->SetEntryList(nullptr);
-        {std::vector<ROOT::RDF::RResultHandle> hh{es}; for (auto& v : vs) hh.push_back(v); ROOT::RDF::RunGraphs(hh);}
-        ok = !es->empty();
-        for (auto& v : vs) ok = ok && es->size() == v->size();
-        for (size_t i = 0; ok && i < es->size(); i++){
-            t->GetEntry((*es)[i]);
-            for (size_t c = 0; ok && c < chk.size(); c++){
-                const double a = chk[c]->GetValue(), b = (*vs[c])[i];
-                if (a != b && !(std::isnan(a) && std::isnan(b))) ok = false;
-            }
-        }
-        t->SetEntryList(saved);
-    } catch (const std::exception& e){ Warning("DrawPlan", "entry number check failed (%s): plain TTree::Draw", e.what()); ok = false; }
-    plan.entryOk[t] = ok ? 1 : 0;
-    if (!ok) Warning("DrawPlan", "rdfentry_ is not the TTree entry number of %s: its requests run as plain TTree::Draw", t->GetName());
-    return ok;
-}
-
 // Fill like TTree::Draw: line, fill and marker attributes of the tree, in gDirectory, an old object of that name replaced.
 inline TH1* MakeHist(HistReq& r){
     if (r.model) return r.model;
@@ -281,7 +236,7 @@ inline void DrawPlan::Run(){
     // 1. book one filter node + one row collector (or Count) per group, all run together
     struct Booked {std::shared_ptr<Group> g; std::vector<std::vector<double>>* buf = nullptr; std::shared_ptr<ROOT::RDF::RResultPtr<ULong64_t>> cnt; std::shared_ptr<ROOT::RDF::RResultPtr<std::vector<std::vector<double>>>> rows; bool ordFree = false;};
     std::vector<Booked> booked;
-    std::vector<ROOT::RDF::RResultHandle> handles, handlesSerial; // serial: trees with several clusters, whose rdfentry_ is only exact on one thread (SerialScope, FitCore.h)
+    std::vector<ROOT::RDF::RResultHandle> handles;
     std::vector<std::unique_ptr<ROOT::RDataFrame>> dfs;
     std::map<TTree*, TEntryList*> savedLists;
     auto pending = groups;
@@ -292,14 +247,14 @@ inline void DrawPlan::Run(){
         for (auto& r : counts) if (r->g == g && !r->done) want = true;
         for (auto& r : cols) if (r->g == g && !r->done) want = true;
         if (!want) {g->done = true; continue;}
-        const bool ordFree = unordered && MultiCluster(g->tree); // rdfentry_ is not used: the tree is read on all threads and its rows are not put back in entry order
-        if (ForceFallback() || (!ordFree && !EntryNumberOk(*this, g->tree))){g->failed = true; continue;}
+        const bool ordFree = unordered && MultiCluster(g->tree); // no entry number is read: the rows of the tree are not put back in entry order
+        if (ForceFallback()){g->failed = true; continue;}
         try {
             if (!savedLists.count(g->tree)){savedLists[g->tree] = g->tree->GetEntryList(); g->tree->SetEntryList(nullptr);} // the list is in the selection (listCut)
-            const bool serial = MultiCluster(g->tree) && !ordFree;
-            {SerialScope scope(serial); dfs.emplace_back(new ROOT::RDataFrame(*g->tree));} // the number of slots is fixed when the RDataFrame is built
-            auto& hv = serial ? handlesSerial : handles;
+            dfs.emplace_back(new ROOT::RDataFrame(*g->tree)); // the number of slots is fixed when the RDataFrame is built
+            auto& hv = handles;
             ROOT::RDF::RNode node = *dfs.back();
+            if (!ordFree) node = WithEntryNumber(node, dfs.back()->GetNSlots()); // exact entry numbers, before any Filter
             std::string wexpr;
             if (g->weighted){ // the selection is the weight: entries with weight 0 are dropped
                 node = node.Define("__w", "(double)(" + g->sel + ")").Filter("__w != 0");
@@ -308,7 +263,7 @@ inline void DrawPlan::Run(){
             if (!g->needRows){ // N only
                 b.cnt = std::make_shared<ROOT::RDF::RResultPtr<ULong64_t>>(node.Count()); hv.push_back(*b.cnt);
             } else {
-                std::string list = ordFree ? "ROOT::RVecD{0.0" : "ROOT::RVecD{(double)rdfentry_"; // column 0 is not read when the order is free
+                std::string list = ordFree ? "ROOT::RVecD{0.0" : "ROOT::RVecD{(double)entryNo"; // column 0 is not read when the order is free
                 for (size_t i = 0; i < g->exprs.size(); i++) list += ", (double)(" + g->exprs[i] + ")";
                 if (g->weighted) list += ", __w";
                 list += "}";
@@ -330,10 +285,9 @@ inline void DrawPlan::Run(){
         }
     }
     bool ranOk = true;
-    if (!handles.empty() || !handlesSerial.empty()){
+    if (!handles.empty()){
         try {
-            if (!handles.empty()) ROOT::RDF::RunGraphs(handles);
-            if (!handlesSerial.empty()){SerialScope scope(true); ROOT::RDF::RunGraphs(handlesSerial);} // built with one slot, so run with implicit MT off as well
+            ROOT::RDF::RunGraphs(handles);
         }
         catch (const std::exception& e){ranOk = false; Warning("DrawPlan", "event loop failed (%s): plain TTree::Draw for every request", e.what());}
     }

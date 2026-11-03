@@ -67,13 +67,14 @@ static void CutTrees(){
             out.cd();
             hits[0] = {new TEntryList((n + sfx).c_str(), ke.cut.c_str(), t), std::vector<std::vector<ULong64_t>>(nSlots)};
             if (hasBlock) hits[1] = {new TEntryList((n + sfx + "_block").c_str(), (ke.cut + " && " + kBlockCut).c_str(), t), std::vector<std::vector<ULong64_t>>(nSlots)};
-            ROOT::RDataFrame df(n + sfx, "cuts/cut_APandT.root");
+            ROOT::RDataFrame df0(n + sfx, "cuts/cut_APandT.root");
+            auto df = WithEntryNumber(df0, df0.GetNSlots()); // the true entry numbers (rdfentry_ is wrong under MT on a tree with several clusters)
             const double minKE = ke.minKE;
             df.ForeachSlot([&](unsigned slot, ULong64_t e, double keVal, double res){
                 if (!(keVal > minKE)) return;
                 hits[0].perSlot[slot].push_back(e);
                 if (hasBlock && PassesBlockResidual(res)) hits[1].perSlot[slot].push_back(e);
-            }, {"rdfentry_", "finalKE", "resDRms"});
+            }, {"entryNo", "finalKE", "resDRms"});
             finish(t, hits);
         }
         // AnglesRaw: the views Angles and AnglesCE of both energies in one loop
@@ -87,7 +88,8 @@ static void CutTrees(){
                 const std::string cut = AngleSelection(wants[i].view == 2 ? "AnglesCE" : "Angles") + " && " + KeCutFor(ke.cut, wants[i].detector ? "_DE" : "") + (wants[i].block ? " && " + kBlockCut : "");
                 hits[i] = {new TEntryList(wants[i].name.c_str(), cut.c_str(), raw), std::vector<std::vector<ULong64_t>>(nSlots)};
             }
-            ROOT::RDataFrame df(kAngleTree, "cuts/cut_angles_all.root");
+            ROOT::RDataFrame df0(kAngleTree, "cuts/cut_angles_all.root");
+            auto df = WithEntryNumber(df0, df0.GetNSlots());
             const double minKE = ke.minKE;
             df.ForeachSlot([&](unsigned slot, ULong64_t e, int inCE, double keTrue, double keDet, double res){
                 const bool blockOk = PassesBlockResidual(res);
@@ -98,7 +100,7 @@ static void CutTrees(){
                     if (w.block && !blockOk) continue;
                     hits[i].perSlot[slot].push_back(e);
                 }
-            }, {"rdfentry_", "inCE", "finalKE", "finalKED", "resDRms"});
+            }, {"entryNo", "inCE", "finalKE", "finalKED", "resDRms"});
             finish(raw, hits);
         }
         out.Write();

@@ -44,8 +44,11 @@ static void CalcAPandTOne(std::string energy){ // energy: "fKEnergy" (true KE) o
     
     bool Verbose = false;
     
-    ROOT::RDataFrame dfCEV("ChargeExchange_values", "cuts/cut_CE.root");
-    ROOT::RDataFrame dfAnglesAll(kAngleTree, "cuts/cut_angles_all.root");
+    // entryNo: the true entry number of each row (rdfentry_ is wrong under MT on a tree with several clusters), taken before the Filter below
+    ROOT::RDataFrame dfCEV0("ChargeExchange_values", "cuts/cut_CE.root");
+    auto dfCEV = WithEntryNumber(dfCEV0, dfCEV0.GetNSlots());
+    ROOT::RDataFrame dfAnglesAll0(kAngleTree, "cuts/cut_angles_all.root");
+    auto dfAnglesAll = WithEntryNumber(dfAnglesAll0, dfAnglesAll0.GetNSlots());
     auto dfAngles = dfAnglesAll.Filter("isFromCE==1"); // the fitted CE protons, ReconAngleAll.cpp fits every proton
     
     using Key3 = std::tuple<int, int, int>;
@@ -84,7 +87,7 @@ static void CalcAPandTOne(std::string energy){ // energy: "fKEnergy" (true KE) o
         auto &t = slotTracksCE[slot][{eventID, trackID, 0}];
         // the CE phi is the lab phi of the proton (LastPhiLab, same secondary as LastTheta), wrapped to 0 to 2 pi like the recon phi
         t.points.push_back({LastPhi < 0 ? LastPhi + 2.0 * M_PI : LastPhi, LastTheta, LastMomentum, LastT, LastAP, 2112, 0.0, entry});
-    },{"fEvent", "TrackID", "LastPhiLab", "LastTheta", "LastMomentum", "LastT", "LastAP", "fZ", "rdfentry_"});
+    },{"fEvent", "TrackID", "LastPhiLab", "LastTheta", "LastMomentum", "LastT", "LastAP", "fZ", "entryNo"});
     std::vector<TrackMap> tracksCE = mergeSlots(slotTracksCE);
 
 
@@ -101,7 +104,7 @@ static void CalcAPandTOne(std::string energy){ // energy: "fKEnergy" (true KE) o
         auto &tReconBlock = slotTracksAngles[slot][{eventID, ParentID, 2}];
 
         tReconBlock.points.push_back({outDPhi, outDTheta, 0.0, 0.0, 0.0, pdg, finalKE, entry, passResD, resDRms});
-        },{"fEvent", "ParentID","outTheta", "outPhi", "outDTheta", "outDPhi", KeVar(suffix), "PDG","rdfentry_", "passResD", "resDRms"});
+        },{"fEvent", "ParentID","outTheta", "outPhi", "outDTheta", "outDPhi", KeVar(suffix), "PDG","entryNo", "passResD", "resDRms"});
     std::vector<TrackMap> tracksAngles = mergeSlots(slotTracksAngles);
     
 
