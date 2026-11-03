@@ -45,7 +45,7 @@ struct SampleCut {std::string dir, expr, label, onFolder, file; bool zdcKE80 = f
 
 // Plot3D has four independent parts that each write their own plots/ folders: 1 position, energy, 2_KECUT80 and 1_hitZDC; 2 the cut ratios and rank csv files of the 6_cuts folders;
 // 3 their 1_additionalinfo plots; 4 their phi fits. P3_PART=n runs part n only, so the four can run as four processes side by side (Plot.pbs, plot.sh). Without it all four run.
-// Part 2 is one process per cut with P3_CUT=i (0: the 1_hitZDC baseline, 1 to 17: sampleCuts in order), each writing its rank rows to cuts/rank_rows_<i>.tsv; part 5 reads those
+// Part 2 is one process per cut with P3_CUT=i (0: the 1_hitZDC baseline, 1 to 11: sampleCuts in order), each writing its rank rows to cuts/rank_rows_<i>.tsv; part 5 reads those
 // files and writes the rank_*.csv files. Parts 3 and 4 also take P3_CUT=i to do one cut folder only (0: 1_hitZDC and 2_KECUT80). Without P3_PART all of it runs in one process.
 static bool RunPart(int n){const char* e = std::getenv("P3_PART"); return !e || !*e || std::atoi(e) == n;}
 static bool RunCut(int i){const char* e = std::getenv("P3_CUT"); return !e || !*e || std::atoi(e) == i;}
@@ -373,15 +373,14 @@ void Plot3D(){
             {"5_nHits", "(rawVal(fEvent, TrackID, 10) == 2 || rawVal(fEvent, TrackID, 10) == 4 || rawVal(fEvent, TrackID, 10) == 6 || rawVal(fEvent, TrackID, 10) == 8)", "cut 2, 4, 6 or 8 tracker hits", "5_nHits", "cut_nHits"},
           };
           // 6_megaCut (no ZDC requirement), 7_megaCut2 (ZDC KE > 80%) and 9_megaCut3 (megaCut2 and 2, 4, 6 or 8 charged tracker hits in the event, all particles added up), each with
-          // 1_1particlecut: at most 1 particle, 2_2particlecut: at most 2, 3_1particleREScut and 4_2particleREScut: the same with resDRms < 4 mm
-          static const char* const megaNames[4] = {"1_1particlecut", "2_2particlecut", "3_1particleREScut", "4_2particleREScut"}; // folder names of 6_megaCut, 7_megaCut2 and 9_megaCut3
+          // 1_1particlecut: at most 1 particle, 2_2particlecut: at most 2
+          static const char* const megaNames[2] = {"1_1particlecut", "2_2particlecut"}; // folder names of 6_megaCut, 7_megaCut2 and 9_megaCut3
           auto addMega = [&](int level){ // 0: megaCut, 1: megaCut2, 2: megaCut3
-              for (int i = 1; i <= 4; i++){
-                  const int maxP = i % 2 ? 1 : 2;
-                  const bool res4 = i > 2, zdc = level >= 1;
+              for (int i = 1; i <= 2; i++){
+                  const int maxP = i;
+                  const bool zdc = level >= 1;
                   const std::string top = level == 0 ? "6_megaCut" : level == 1 ? "7_megaCut2" : "9_megaCut3";
                   std::string expr = "rawVal(fEvent, TrackID, 6) <= " + std::to_string(maxP) + " && (rawVal(fEvent, TrackID, 10) == 2 || rawVal(fEvent, TrackID, 10) == 4 || rawVal(fEvent, TrackID, 10) == 6 || rawVal(fEvent, TrackID, 10) == 8) && rawVal(fEvent, TrackID, 9) >= 0 && rawVal(fEvent, TrackID, 9) <= 1 && rawVal(fEvent, TrackID, 11) >= 0 && rawVal(fEvent, TrackID, 11) <= 1";
-                  if (res4) expr += " && rawVal(fEvent, TrackID, 1) < " + std::to_string(kRes4Mm);
                   if (zdc) expr += " && fDEnergy > " + std::to_string(initialKE * 0.80);
                   if (level == 2) expr += " && (rawVal(fEvent, TrackID, 17) == 2 || rawVal(fEvent, TrackID, 17) == 4 || rawVal(fEvent, TrackID, 17) == 6 || rawVal(fEvent, TrackID, 17) == 8)";
                   const std::string label = std::string(level == 0 ? "MEGA CUT: at most " : level == 1 ? "MEGA CUT 2: ZDC KE > 80%, at most " : "MEGA CUT 3: ZDC KE > 80%, at most ") + std::to_string(maxP) + (maxP == 1 ? " reconstructed particle" : " reconstructed particles") + " in event AND number of times the reconstructed particle hits tracker [2,4,6,8], recon theta and recon block theta from 0 degrees to 1 degree" + (res4 ? ", block residual resDRms < 4 mm" : "") + (level == 2 ? " AND charged tracker plane hits in the event (all particles added up) [2,4,6,8]" : "");
@@ -390,8 +389,8 @@ void Plot3D(){
               }
           };
           addMega(0); addMega(1);
-          v.push_back({"8_nZdcParticles/1_1zdcparticlecut", "rawVal(fEvent, TrackID, 7) <= 1", "cut at most 1 charged particle at the ZDC in the event", "8_nZdcParticles", "cut_nZdc1", false}); // P3_CUT 13
-          addMega(2); // P3_CUT 14 to 17
+          v.push_back({"8_nZdcParticles/1_1zdcparticlecut", "rawVal(fEvent, TrackID, 7) <= 1", "cut at most 1 charged particle at the ZDC in the event", "8_nZdcParticles", "cut_nZdc1", false}); // P3_CUT 9
+          addMega(2); // P3_CUT 10 and 11
           return v;
         }();
         struct RankRow {std::string cut, sample; double nCEin, nAllIn, nCEtotal, nCEreconBefore, fom[2], pol[2], polErr[2], nPartIn, nNonProtBefore, nNonPartBefore;}; // nAllIn: recon protons (pdg 2212) in the cut, nPartIn: every recon particle in the cut, nNon*Before: the non-CE protons / particles of the sample the cut is made on (the base of the row), so out of cut = before - in;  fom, pol (fitted P), polErr: [0] recon theta / phi, [1] recon block theta / phi
@@ -629,7 +628,7 @@ void Plot3D(){
             struct PhiSet {std::string dir, expr; TTree* t; std::string base, basePart, note;}; // base: the sample the cut applies to (hit ZDC and reconstructed, or any fitted track for the cuts)
             std::vector<PhiSet> phiSets = {{"1_hitZDC", "", events2, zdcBase, zdcBasePart, kThetaNote}, {"2_KECUT80", " && fDEnergy > " + std::to_string(initialKE * 0.80), events2, zdcBase, zdcBasePart, kThetaNote}, {"0_cuts/1_noCuts", "", events2, zdcRecoAll, zdcRecoPartAll, kNoCutNote}, {"0_cuts/2_theta0_1", "", events2, zdcBase, zdcBasePart, kThetaNote}};
             for (const auto& sc : sampleCuts) phiSets.push_back({sc.dir, "", cutTree(sc), rawCE, "", ""});
-            for (const int pct : {85, 90, 95}){ // KE scan of 9_megaCut3/1_1particlecut (CutPlots.cpp (samples)): P_CUT 18 to 20
+            for (const int pct : {85, 90, 95}){ // KE scan of 9_megaCut3/1_1particlecut (CutPlots.cpp (samples)): P3_CUT 12 to 14
                 TTree* t = OpenCut(Form("cuts/cut_megacut3_1_ke%d.root", pct), "AnglesRaw");
                 if (t && !t->GetAlias("raw_0")) Plot3DRawAliases(t);
                 gROOT->cd();

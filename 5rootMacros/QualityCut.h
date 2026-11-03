@@ -21,7 +21,7 @@ static const std::string kBlockCut = "resDRms <= " + std::to_string(kMaxResidual
 // The 2 mm block residual limit of the _res2mm twins of the KE cuts (isRes2, Plot3DCols.h).
 // resDRms is a branch of AnglesRaw (ReconAngleAll.cpp) and of every cut_APandT.root tree (CalcAPandT.cpp).
 static const double kRes2Mm = 2.0;
-// The 4 mm block residual limit of 3_ResCuts and of the 3_1particleREScut and 4_2particleREScut folders of 6_megaCut, 7_megaCut2 and 9_megaCut3 (CutPlots.cpp (samples), Plot3D.cpp).
+// The 4 mm block residual limit of 3_ResCuts (CutPlots.cpp (samples), Plot3D.cpp).
 static const double kRes4Mm = 4.0;
 
 inline bool PassesBlockResidual(double resD){return resD <= kMaxResidualDMm;}
