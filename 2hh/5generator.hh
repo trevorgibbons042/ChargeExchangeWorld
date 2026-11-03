@@ -58,7 +58,8 @@ private:
     static G4double PPSigma;
     G4int randPos = -1;
     G4int randPAngle = -1;
-    G4double EnergySD = 0;
+    G4double beamEnergy = 24.078084; //neutron kinetic energy in GeV, default is the old 25 GeV/c beam
+    G4double EnergySD = 0;           //Gaussian sigma on the kinetic energy in GeV, 0 for none
 };
 
 #endif

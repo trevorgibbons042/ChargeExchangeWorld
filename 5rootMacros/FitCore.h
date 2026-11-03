@@ -36,10 +36,20 @@ static const bool kPlainFonts = [](){
     return true;
 }();
 
-// Beam: the generator (5generator.cc) fires neutrons with 25 GeV/c momentum, so the beam KE is sqrt(p^2 + m^2) - m = 24078 MeV, not 25 GeV.
+// Beam of the run: the mean momentum and kinetic energy the generator (5generator.cc) wrote to settings.csv (BeamMomentum, BeamKE, MeV), set by /randGun/Energy
+// and /randGun/EnergySD. Without settings.csv or the keys (an older run) the old beam of 25 GeV/c, which is a KE of sqrt(p^2 + m^2) - m = 24078 MeV, not 25 GeV.
+inline std::map<std::string, double> ReadSettings(const std::string& path); // defined below, its default path is added there
 static const double kNeutronMass = 939.565;   // MeV
-static const double kBeamMomentum = 25000.0;  // MeV/c
-static const double kBeamKE = std::sqrt(kBeamMomentum * kBeamMomentum + kNeutronMass * kNeutronMass) - kNeutronMass; // MeV
+inline double BeamSetting(const char* name, double fallback){
+    try {
+        const auto s = ReadSettings("settings.csv");
+        const auto it = s.find(name);
+        if (it != s.end() && it->second > 0) return it->second;
+    } catch (const std::exception&) {}
+    return fallback;
+}
+static const double kBeamMomentum = BeamSetting("BeamMomentum", 25000.0); // MeV/c
+static const double kBeamKE = BeamSetting("BeamKE", std::sqrt(25000.0 * 25000.0 + kNeutronMass * kNeutronMass) - kNeutronMass); // MeV
 
 // Transverse-only t in GeV^2: (p_n sin(theta))^2, theta = proton lab polar angle (rad), p_n = lab beam momentum
 // (MeV). The full invariant also has an energy term, which the measured final KE (after energy loss) overwhelms.

@@ -23,8 +23,13 @@
 /run/reinitializeGeometry
 
 #Paritcle Position
-#/randGun/randPAngle
-#/randGun/randPos
+/randGun/randPAngle 1
+/randGun/randPos 1
+
+#Beam neutron kinetic energy and its Gaussian sigma, both in GeV
+#Setups: 25 with 0.92, 50 with 1.8, 137.5 with 5
+/randGun/Energy 25
+/randGun/EnergySD 0.92
 
 #ZDC energy smearing, sigma/E = sqrt((a/sqrt(E[GeV]))^2 + b^2)
 #/zdc/resStochastic 0.30
@@ -35,7 +40,7 @@
 #/Polarization/PPSigma 0
 
 #NP and AP scaling
-/CE/NPCrossSectionFactor 1
+#/CE/NPCrossSectionFactor 1
 #/CE/APScale 1
 
 #Turn off the neutron quark exchange (charge exchange) inside FTF, neutronChargeExNP stays on
