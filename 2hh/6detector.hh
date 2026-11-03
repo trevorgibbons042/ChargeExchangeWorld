@@ -35,12 +35,18 @@ struct ParticleRow
 //rows of the track being tracked on this worker thread, a thread tracks one track at a time
 inline thread_local std::vector<ParticleRow> gTrackRows;
 
+//per-event tracker counts of this worker thread, reset in BeginOfEventAction and written to EventSummary in EndOfEventAction (8event.cc)
+//hits: every charged tracker entry of every particle, tracks: charged tracks that hit at least kMinTrackerPlanesSaved distinct planes
+inline thread_local G4int gEventTrackerHits = 0;
+inline thread_local G4int gEventTrackerTracks = 0;
+
 //boundaryType: 0 tracker entry, 1 tracker exit, 2 ZDC, 3 track start
 //the row is only buffered here, FlushParticleInfo (MyTrackingAction::PostUserTrackingAction) decides if the track is saved
 inline void FillParticleInfo(const G4Track *, G4int boundaryType, const G4ThreeVector &pos, G4double KE,
                              const G4ThreeVector &detectorCenter, G4double measuredKE)
 {
     gTrackRows.push_back({boundaryType, pos, KE, detectorCenter, measuredKE});
+    if (boundaryType == 0){gEventTrackerHits++;}
 }
 
 //writes the buffered rows of the finished track to ntuple 0 if it is worth saving, then empties the buffer
@@ -51,6 +57,8 @@ inline void FlushParticleInfo(const G4Track *track)
     for (const auto &row : gTrackRows){
         if (row.boundaryType == 0){planes.insert(std::lround(row.detectorCenter.z() / um));}
     }
+
+    if (static_cast<G4int>(planes.size()) >= kMinTrackerPlanesSaved){gEventTrackerTracks++;}
 
     const G4VProcess *creator = track->GetCreatorProcess();
     const bool ceProton = track->GetParticleDefinition()->GetPDGEncoding() == 2212 && creator != nullptr &&
