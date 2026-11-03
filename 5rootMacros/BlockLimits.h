@@ -8,7 +8,7 @@
 #include <TMath.h>
 
 // Theta limit of each carbon block (deg): a proton leaving the block center on the beam axis still lands in the ZDC (its corner, the largest radius) below it.
-// Geometry as in 2construction.cc: elements along z at dz spacing around zCenter, the blocks as StackZ (FitCore.h) gives them.
+// Geometry as in 2construction.cc: blocks in evenly spaced slots from z = 0 to the ZDC face, dz the gap between block and tracker edges (an old run: centred at 4 m, dz centre to centre), the blocks as StackZ (FitCore.h) gives them.
 // Shared by Plot3D.cpp (the 10_thetacut folder of 6_cuts) and SecondaryCE.cpp (the same cut in 7_secondaryCE).
 struct BlockLimit {double zMm, thetaMaxDeg;};
 inline std::vector<BlockLimit> gBlockLimits;
