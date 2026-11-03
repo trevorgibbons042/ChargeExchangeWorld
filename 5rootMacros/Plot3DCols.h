@@ -192,8 +192,9 @@ inline void Plot3DRawAliases(TTree* raw){
 // and overflow of a TH1D(50, 0, 360), the others its bins) and the sum of their model A (the one at the center of their 0.05 deg theta bin), and aMeanAll, the mean A over every proton of the sample.
 // Row ranges run on all threads (MapRows, FitCore.h) and are added in range order; the bin counts are exact, the A sums can differ from a serial sum in the last digits.
 inline constexpr int kScanStarts = 100, kScanBins = 52;
-struct StartScan {std::vector<std::array<double, kScanBins>> phi = std::vector<std::array<double, kScanBins>>(kScanStarts); std::vector<double> aSum = std::vector<double>(kScanStarts, 0.0); double aAll = 0;};
-inline StartScan ScanStartTheta(const std::vector<double>& th, const std::vector<double>& ph, double apScale){
+// fit[b]: the unbinned P (UnbinnedPFromCos, FitCore.h) of the protons of start b, A fixed to their mean model A (aSum[b] / count), phi normalised over loDeg to hiDeg; ok is false below 10 protons.
+struct StartScan {std::vector<std::array<double, kScanBins>> phi = std::vector<std::array<double, kScanBins>>(kScanStarts); std::vector<double> aSum = std::vector<double>(kScanStarts, 0.0); double aAll = 0; std::vector<PFit> fit = std::vector<PFit>(kScanStarts);};
+inline StartScan ScanStartTheta(const std::vector<double>& th, const std::vector<double>& ph, double apScale, double loDeg = 0, double hiDeg = 360){
     constexpr int kTable = 400; // 0.05 deg bins up to 20 deg; further out the model is evaluated per proton
     auto aOfBin = [&](long k){return APFromT(kBeamMomentum, TFromAngle(kBeamMomentum, (k + 0.5) * 0.05 * TMath::Pi() / 180), apScale);};
     std::vector<double> table(kTable);
@@ -229,5 +230,27 @@ inline StartScan ScanStartTheta(const std::vector<double>& th, const std::vector
         s.aSum[b] += s.aSum[b + 1];
     }
     s.aAll /= std::max<size_t>(1, th.size());
+    { // the unbinned P of every start: the protons of the buckets b and above (th 0 to 1 deg), sorted by bucket so that start b is one stretch of the cos(phi) array
+        const auto bucketOf = [](double t){
+            int b = std::min(kScanStarts - 1, (int)std::floor(t / 0.01)); // the same bucket as the loop above
+            while (b < kScanStarts - 1 && (b + 1) * 0.01 <= t) b++;
+            while (b > 0 && b * 0.01 > t) b--;
+            return b;
+        };
+        std::vector<Long64_t> off(kScanStarts + 1, 0);
+        std::vector<int> bk(th.size(), -1);
+        for (size_t i = 0; i < th.size(); i++) if (th[i] >= 0 && th[i] <= 1.0){bk[i] = bucketOf(th[i]); off[bk[i] + 1]++;}
+        for (int b = 0; b < kScanStarts; b++) off[b + 1] += off[b];
+        std::vector<double> cosSorted(off[kScanStarts]);
+        std::vector<Long64_t> pos(off.begin(), off.end() - 1);
+        for (size_t i = 0; i < th.size(); i++) if (bk[i] >= 0) cosSorted[pos[bk[i]]++] = std::cos(ph[i] * TMath::Pi() / 180);
+        std::vector<int> starts(kScanStarts);
+        std::iota(starts.begin(), starts.end(), 0);
+        ROOT::TThreadExecutor ex(NThreads());
+        s.fit = ex.Map([&](int b){
+            const Long64_t n = off[kScanStarts] - off[b];
+            return n >= 10 ? UnbinnedPFromCos(cosSorted.data() + off[b], n, nullptr, s.aSum[b] / n, loDeg, hiDeg, false) : PFit();
+        }, starts);
+    }
     return s;
 }

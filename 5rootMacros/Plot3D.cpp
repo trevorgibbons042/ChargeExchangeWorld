@@ -178,7 +178,7 @@ void Plot3D(){
             drawXY(events2, "fY:fX>>h2(100,-200,200,100,-200,200)", zdcReco, "Position at ZDC, CE recon protons that hit ZDC;X Position (mm);Y Position (mm)", folder_pos + "1_xy_CE.pdf");
             drawXY(events2, "fY:fX>>h2(100,-50,50,100,-50,50)", zdcReco, "Position at ZDC, CE recon protons that hit ZDC;X Position (mm);Y Position (mm)", folder_pos + "3_xy_zoom_CE.pdf");
 
-            gStyle->SetOptFit(1111); // probability, chi2/ndf, fit parameters with errors
+            gStyle->SetOptFit(11); // fit parameters with errors (the fits are unbinned: no chi2 or probability)
             drawPlot(events2, "fX>>hSliceX200(100,-200,200)", xySlice, "X Position at ZDC, CE recon protons that hit ZDC, |Y| < 2 mm;X Position (mm);Count", folder_pos + "5_x_fit_200_CE.pdf", "", [](TH1* h){FitCore(h);});
             drawPlot(events2, "fX>>hSliceX(100,-50,50)", xySlice, "X Position at ZDC, CE recon protons that hit ZDC, |Y| < 2 mm;X Position (mm);Count", folder_pos + "7_x_fit_50_CE.pdf", "", [](TH1* h){FitCore(h);});
 
@@ -457,18 +457,16 @@ void Plot3D(){
             if (!path.empty()) h->Draw();
             if (h && h->GetEntries() >= 10){
                 h->SetTitle((title + ";Angle (degrees);Count").c_str());
-                TF1 fit("fPhiCosCut", "[0] * (1 + [1] * [2] * cos(x * TMath::Pi() / 180))", 0, 360);
-                fit.SetParNames("N0", "P", "A");
-                fit.FixParameter(0, h->GetEntries() / 50); fit.FixParameter(2, aMean); fit.SetParameter(1, 0.5); fit.SetParLimits(1, -1, 1);
-                h->Fit(&fit, path.empty() ? "QN" : "Q");
+                const PFit uf = UnbinnedP(cols[1], aMean, j ? kBlockPhiLo : 0, j ? kBlockPhiHi : 360); // unbinned fit of the phi of every proton (FitCore.h), the histogram only shows it
+                AddUnbinnedFit(h, "fPhiCosCut", uf, aMean, !path.empty());
                 h->SetMinimum(0); h->SetMaximum(1.1 * h->GetMaximum());
-                *pol = fit.GetParameter(1); *polErr = fit.GetParError(1);
+                *pol = uf.p; *polErr = uf.err;
                 if (!path.empty()){
                     h->SetName(StatsTitle(h).c_str()); // stats box title; h is deleted below
                     canvas->Update();
                     if (auto* st = (TPaveStats*)h->FindObject("stats")){st->SetX1NDC(0.76); st->SetX2NDC(0.995); st->SetY1NDC(0.55); st->SetY2NDC(0.83);}
                     TLatex tx; tx.SetNDC(); tx.SetTextSize(0.028);
-                    tx.DrawLatex(0.13, 0.90, "Fit  N(#phi) = N_{0} (1 + P #upoint #LTA#GT cos#phi),   N_{0} = Entries / bins (fixed)");
+                    tx.DrawLatex(0.13, 0.90, "Unbinned fit  N(#phi) #propto 1 + P #upoint #LTA#GT cos#phi (every proton, no bins)");
                     tx.DrawLatex(0.13, 0.865, Form("#LTA#GT = %.4f (fixed, model A at the %s theta),   P = %.2f #pm %.2f", aMean, j ? "recon block" : "recon", *pol, *polErr));
                     canvas->Modified(); canvas->Update();
                     canvas->SaveAs(path.c_str());
@@ -667,7 +665,7 @@ void Plot3D(){
                         // the rows only feed histograms and sums, so a multi-cluster tree (a cut file of AnglesRaw) is read on all threads in any order
                         auto c = MultiCluster(samps[s].t) ? ColumnsUnordered(samps[s].t, {P3(colT), P3(colPh)}, P3(qs)) : Columns(samps[s].t, {P3(colT), P3(colPh)}, P3(qs));
                         th[s] = std::move(c[0]); ph[s] = std::move(c[1]);
-                        scanned[s] = ScanStartTheta(th[s], ph[s], apScalePhi);
+                        scanned[s] = ScanStartTheta(th[s], ph[s], apScalePhi, j ? kBlockPhiLo : 0, j ? kBlockPhiHi : 360);
                     }
                     // 1: phi distribution and cos fit of the three samples on one plot, N(phi) = N0 (1 + P <A> cos(phi)), N0 = entries / 50 bins fixed, <A> = mean model A of the sample fixed, only P fitted
                     const std::string allNames = "CE recon protons, all recon protons and all recon particles";
@@ -682,11 +680,9 @@ void Plot3D(){
                             aMean[s] = scanned[s].aAll;
                             hP[s]->SetLineColor(samps[s].color); hP[s]->SetLineWidth(2);
                             if (hP[s]->GetEntries() >= 10){
-                                TF1 fit(Form("fPhiOv%d", s), "[0] * (1 + [1] * [2] * cos(x * TMath::Pi() / 180))", 0, 360);
-                                fit.SetParNames("N0", "P", "A");
-                                fit.FixParameter(0, hP[s]->GetEntries() / 50); fit.FixParameter(2, aMean[s]); fit.SetParameter(1, 0.5); fit.SetParLimits(1, -1, 1);
-                                hP[s]->Fit(&fit, "Q0"); // the fit stays in the histogram for stats.csv and fit_values.csv, drawn below
-                                pol[s] = fit.GetParameter(1); polErr[s] = fit.GetParError(1);
+                                const PFit uf = UnbinnedP(ph[s], aMean[s], j ? kBlockPhiLo : 0, j ? kBlockPhiHi : 360); // unbinned fit of every proton's phi (FitCore.h)
+                                AddUnbinnedFit(hP[s], Form("fPhiOv%d", s), uf, aMean[s], false); // the fit stays in the histogram for stats.csv and fit_values.csv, drawn below
+                                pol[s] = uf.p; polErr[s] = uf.err;
                             }
                             hMax = std::max(hMax, hP[s]->GetMaximum());
                         }
@@ -702,7 +698,7 @@ void Plot3D(){
                             fd->SetParameters(hP[s]->GetEntries() / 50, pol[s], aMean[s]); fd->SetLineColor(samps[s].color); fd->SetLineStyle(2); fd->SetLineWidth(3); fd->Draw("same");
                         }
                         TLatex tx; tx.SetNDC(); tx.SetTextSize(0.030);
-                        tx.DrawLatex(0.18, 0.90, "N(#phi) = N_{0} (1 + P #upoint #LTA#GT cos#phi), dashed = fit, #LTA#GT fixed");
+                        tx.DrawLatex(0.18, 0.90, "Unbinned fit  N(#phi) #propto 1 + P #upoint #LTA#GT cos#phi, dashed = fit, #LTA#GT fixed");
                         for (int s = sLo; s < sHi; s++){
                             tx.SetTextColor(samps[s].color);
                             tx.DrawLatex(0.18, 0.855 - 0.045 * (s - sLo), Form("%s: %.0f entries, #LTA#GT = %.4f (%s theta),  P = %.3g #pm %.2g", samps[s].name.c_str(), hP[s]->GetEntries(), aMean[s], rb.c_str(), pol[s], polErr[s]));
@@ -734,11 +730,9 @@ void Plot3D(){
                             hS.SetEntries(nIn);
                             const double aSum = scanned[s].aSum[b];
                             if (hS.GetEntries() < 10) break; // the minimum the cosfit plot fits with
-                            TF1 fS("fPstart", "[0] * (1 + [1] * [2] * cos(x * TMath::Pi() / 180))", 0, 360);
-                            fS.FixParameter(0, hS.GetEntries() / 50); fS.FixParameter(2, aSum / hS.GetEntries()); fS.SetParameter(1, 0.5); fS.SetParLimits(1, -1, 1);
-                            hS.Fit(&fS, "QN");
-                            if (b % 10 == 0){TH1D* hc = (TH1D*)hS.Clone(Form("hPage%d_%d", s, b)); hc->SetDirectory(nullptr); pages[s].push_back({hc, start, fS.GetParameter(1), fS.GetParError(1), aSum / hS.GetEntries()});}
-                            scan[s].x.push_back(start); scan[s].y.push_back(fS.GetParameter(1)); scan[s].ey.push_back(fS.GetParError(1));
+                            const PFit uf = scanned[s].fit[b]; // unbinned P of the protons of this start (ScanStartTheta, Plot3DCols.h)
+                            if (b % 10 == 0){TH1D* hc = (TH1D*)hS.Clone(Form("hPage%d_%d", s, b)); hc->SetDirectory(nullptr); pages[s].push_back({hc, start, uf.p, uf.err, aSum / hS.GetEntries()});}
+                            scan[s].x.push_back(start); scan[s].y.push_back(uf.p); scan[s].ey.push_back(uf.err);
                             scan[s].kept.push_back(100.0 * hS.GetEntries() / std::max(1.0, s ? double(n) : nCEreconTotal));
                         }
                     }
@@ -766,7 +760,7 @@ void Plot3D(){
                                 fds.push_back(fd);
                             }
                             TLatex tx; tx.SetNDC(); tx.SetTextSize(0.033);
-                            tx.DrawLatex(0.18, 0.90, Form("start theta %.2f deg: N(#phi) = N_{0} (1 + P #upoint #LTA#GT cos#phi), dashed = fit", key / 100.0));
+                            tx.DrawLatex(0.18, 0.90, Form("start theta %.2f deg: unbinned fit N(#phi) #propto 1 + P #upoint #LTA#GT cos#phi, dashed = fit", key / 100.0));
                             for (int s = 0; s < 3; s++) if (pgOf[s]){
                                 tx.SetTextColor(samps[s].color);
                                 tx.DrawLatex(0.18, 0.855 - 0.045 * s, Form("%s: %.0f entries, #LTA#GT = %.4f,  P = %.3g #pm %.2g", samps[s].name.c_str(), pgOf[s]->h->GetEntries(), pgOf[s]->A, pgOf[s]->P, pgOf[s]->eP));

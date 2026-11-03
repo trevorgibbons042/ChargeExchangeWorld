@@ -148,13 +148,29 @@ inline ROOT::RDF::RNode WithEntryNumber(ROOT::RDF::RNode df, unsigned nSlots, co
              .Filter([](ULong64_t){return true;}, {col});
 }
 
-// z (mm) of the carbon blocks and tracker planes of the run (2construction.cc): centre of the stack at 4 m, elements dz apart. Each block is followed by nBlocksTracking
+// z (mm) of the carbon blocks and tracker planes of the run (2construction.cc). stackSpread = 1 (settings.csv): the blocks sit in evenly spaced slots between z = 0 and the ZDC
+// front face (7700 mm), the face being the last slot (block i at i * 7700 / (nBlocks + 1)); a tracker plane dz behind every block and dz in front of every block but the first,
+// and one plane dz in front of the ZDC (last in planeZ). Here dz is the gap between the edge of the block and the edge of the 0.5 mm tracker (the ZDC face for the last plane).
+// A run without the key is the old layout, stack centred at 4 m, elements dz apart centre to centre: each block is followed by nBlocksTracking
 // tracker planes; frontTrackers (settings.csv, 1 when the run has none, an older sim) puts one more group of planes before the first block.
 struct StackLayout {std::vector<double> blockZ, planeZ;};
 inline StackLayout StackZ(const std::map<std::string, double>& s){
     const int nBlocks = (int)std::lround(s.at("nBlocks")), nTrk = (int)std::lround(s.at("nBlocksTracking"));
-    const int front = s.count("frontTrackers") ? (int)std::lround(s.at("frontTrackers")) : 1;
     const double dzMm = s.at("dz") * 1000.0;
+    if (s.count("stackSpread") && std::lround(s.at("stackSpread")) == 1){
+        const double zdcFrontMm = 7700.0, pitch = zdcFrontMm / (nBlocks + 1);
+        const double offset = s.at("CarbonThickness") * 1000.0 / 2.0 + dzMm + 0.25; // block centre to tracker centre: half block + gap + half tracker (0.5 mm)
+        StackLayout sp;
+        for (int i = 0; i < nBlocks; i++){
+            const double zc = (i + 1) * pitch;
+            sp.blockZ.push_back(zc);
+            if (i > 0) sp.planeZ.push_back(zc - offset);
+            sp.planeZ.push_back(zc + offset);
+        }
+        sp.planeZ.push_back(zdcFrontMm - dzMm - 0.25);
+        return sp;
+    }
+    const int front = s.count("frontTrackers") ? (int)std::lround(s.at("frontTrackers")) : 1;
     const int nElements = (nBlocks + front) * nTrk + nBlocks;
     const double zStart = 4000.0 - (nElements - 1) * dzMm / 2.0;
     StackLayout st; int element = 0;
@@ -165,7 +181,7 @@ inline StackLayout StackZ(const std::map<std::string, double>& s){
 }
 
 // The charge exchange selection of every stage: a CE with its vertex inside one of the carbon blocks (CE in the tracker silicon is left out).
-// The block z positions mirror MyDetectorConstruction (2construction.cc): centre of the stack at 4 m, the blocks and planes as StackZ gives them.
+// The block z positions mirror MyDetectorConstruction (2construction.cc): the blocks and planes as StackZ gives them. fZ < 7700 is the front face of the ZDC.
 inline std::string CarbonCeCut(){
     static std::string memo; static std::map<std::string, double> memoSettings;
     const auto s = ReadSettings();
@@ -177,7 +193,7 @@ inline std::string CarbonCeCut(){
         char w[96]; std::snprintf(w, sizeof w, "%s(fZ>%.3f && fZ<%.3f)", windows.empty() ? "" : " || ", zc - halfMm, zc + halfMm);
         windows += w;
     }
-    memo = "didChargeExchange>0 && fZ<7000 && (" + windows + ")";
+    memo = "didChargeExchange>0 && fZ<7700 && (" + windows + ")";
     return memo;
 }
 
@@ -287,18 +303,101 @@ inline void AddFitEquation(TH1* h, const std::vector<std::string>& lines){
     h->GetListOfFunctions()->Add(eq);
 }
 
-// Phi distribution (degrees, 0 to 360) fit with N0 (1 + AP P cos(phi)): AP fixed to ap (the mean AP of the CE protons under the same
-// cuts), N0 and the polarization P (limited to -1 to 1) free.
-inline void FitCosPhi(TH1* h, double ap){
-    if (h->GetEntries() < 10 || std::fabs(ap) < 1e-12) return;
-    TF1 f("fCosPhi", "[0]*(1+[1]*[2]*cos(x*TMath::DegToRad()))", 0, 360);
-    f.SetParNames("N_{0}", "AP", "P");
-    f.SetParameters(h->GetEntries() / h->GetNbinsX(), ap, 0.0);
-    f.FixParameter(1, ap);
-    f.SetParLimits(2, -1, 1);
-    h->Fit(&f, "QL");
-    h->SetMinimum(0); h->SetMaximum(1.1 * h->GetMaximum());
-    if (h->GetFunction("fCosPhi")) AddFitEquation(h, {"N_{0} (1 + AP #times P #times cos#phi)", "AP fixed: mean AP of the CE protons"});
+// Unbinned fit of the polarization P to the phi of the protons (degrees, from loDeg to hiDeg): every proton enters the likelihood with its own phi, no bins. The density of a proton is
+// (1 + P A cos phi) / N(P), N(P) = (hi - lo) + P A (sin hi - sin lo) (angles in rad), A the model A of the sample (fixed, aFix) or of the proton itself (aEach). P is found with Newton's method,
+// limited to -1 to 1 (a polarization), and its error is 1 / sqrt(-d2lnL/dP2) at that P. The fit that replaced the chi2 fit of a 50 bin histogram, which the 45 degree grid of the recon block phi
+// (spikes) pushed to the limit of P.
+struct PFit {double p = 0, err = 0; bool ok = false;};
+// cosPhi: cos(phi) of every proton (a: its A, or null for aFix). parallel: the sums over the protons run on all threads (not when the caller is already one of the threads).
+inline PFit UnbinnedPFromCos(const double* cosPhi, Long64_t n, const double* a, double aFix, double loDeg, double hiDeg, bool parallel = true){
+    PFit r;
+    if (n < 10 || (!a && std::fabs(aFix) < 1e-12)) return r;
+    const double lo = loDeg * TMath::Pi() / 180, hi = hiDeg * TMath::Pi() / 180, span = hi - lo, s = std::sin(hi) - std::sin(lo);
+    struct Sums {double d1 = 0, d2 = 0;};
+    const auto sums = [&](double p){
+        const auto range = [&](Long64_t from, Long64_t to){
+            Sums t;
+            for (Long64_t i = from; i < to; i++){
+                const double ai = a ? a[i] : aFix, ci = ai * cosPhi[i], q = 1 + p * ci, as = ai * s, nr = span + p * as;
+                t.d1 += ci / q - as / nr;
+                t.d2 += -ci * ci / (q * q) + as * as / (nr * nr);
+            }
+            return t;
+        };
+        Sums tot;
+        if (parallel && n > 200000) for (const Sums& t : MapRows(n, range)){tot.d1 += t.d1; tot.d2 += t.d2;}
+        else tot = range(0, n);
+        return tot;
+    };
+    double p = 0;
+    for (int it = 0; it < 100; it++){
+        const Sums t = sums(p);
+        if (!(t.d2 < 0)) break;
+        const double next = std::max(-1.0, std::min(1.0, p - t.d1 / t.d2));
+        const bool done = std::fabs(next - p) < 1e-10;
+        p = next;
+        if (done) break;
+    }
+    const Sums t = sums(p);
+    r.p = p; r.err = t.d2 < 0 ? 1 / std::sqrt(-t.d2) : 0; r.ok = true;
+    return r;
+}
+inline PFit UnbinnedP(const std::vector<double>& phiDeg, double aFix, double loDeg = 0, double hiDeg = 360, const std::vector<double>* aEach = nullptr, bool parallel = true){
+    std::vector<double> cs(phiDeg.size());
+    for (size_t i = 0; i < cs.size(); i++) cs[i] = std::cos(phiDeg[i] * TMath::Pi() / 180);
+    return UnbinnedPFromCos(cs.data(), (Long64_t)cs.size(), aEach ? aEach->data() : nullptr, aFix, loDeg, hiDeg, parallel);
+}
+
+// The curve N0 (1 + P A cos phi) of the unbinned P in the histogram h (50 bins over 0 to 360, N0 = entries / bins), where the stats box and WritePlotNumbers (fit_values.csv) look for a fit.
+// Without chi2: chi2 and ndf stay 0. draw: the curve is drawn with the histogram; otherwise it only sits in the function list, like a fit with option "0".
+inline TF1* AddUnbinnedFit(TH1* h, const char* name, const PFit& r, double aFix, bool draw){
+    TF1* f = new TF1(name, "[0] * (1 + [1] * [2] * cos(x * TMath::Pi() / 180))", 0, 360);
+    f->SetParNames("N0", "P", "A");
+    f->SetParameters(h->GetEntries() / h->GetNbinsX(), r.p, aFix);
+    f->SetParError(1, r.err);
+    f->SetNDF(0); f->SetChisquare(0);
+    if (!draw) f->SetBit(TF1::kNotDraw);
+    h->GetListOfFunctions()->Add(f);
+    return f;
+}
+
+// The same unbinned fit from sums, for the maps that fit thousands of theta ranges (PlotFomPolarization.cpp): ln(1 + x) = x - x^2/2 + ... with x = P A cos(phi) never exceeds |0.12| (|A| < 0.2),
+// so the log likelihood of any set of protons is the polynomial sum_k (-1)^(k+1) (P A)^k m_k / k - n ln N(P), m_k = sum over the protons of cos^k(phi), and the sums of cos^k add over slices.
+// Eight terms: the left out term is below 1e-8 of n. Same density, range and limit of P as UnbinnedP.
+inline constexpr int kPhiMoments = 8;
+inline void AddCosMoments(double* m, double phiDeg){
+    const double c = std::cos(phiDeg * TMath::Pi() / 180);
+    double pw = 1;
+    for (int k = 0; k < kPhiMoments; k++){pw *= c; m[k] += pw;}
+}
+inline PFit UnbinnedPFromMoments(const double* m, double n, double aFix, double loDeg = 0, double hiDeg = 360){
+    PFit r;
+    if (n < 10 || std::fabs(aFix) < 1e-12) return r;
+    const double lo = loDeg * TMath::Pi() / 180, hi = hiDeg * TMath::Pi() / 180, span = hi - lo, as = aFix * (std::sin(hi) - std::sin(lo));
+    const auto derivs = [&](double p, double& d1, double& d2){
+        d1 = 0; d2 = 0;
+        double ak = 1; // A^k
+        for (int k = 1; k <= kPhiMoments; k++){
+            ak *= aFix;
+            const double sign = k % 2 ? 1 : -1;
+            d1 += sign * ak * std::pow(p, k - 1) * m[k - 1];
+            if (k > 1) d2 += sign * (k - 1) * ak * std::pow(p, k - 2) * m[k - 1];
+        }
+        const double nr = span + p * as;
+        d1 -= n * as / nr; d2 += n * as * as / (nr * nr);
+    };
+    double p = 0, d1, d2;
+    for (int it = 0; it < 100; it++){
+        derivs(p, d1, d2);
+        if (!(d2 < 0)) break;
+        const double next = std::max(-1.0, std::min(1.0, p - d1 / d2));
+        const bool done = std::fabs(next - p) < 1e-12;
+        p = next;
+        if (done) break;
+    }
+    derivs(p, d1, d2);
+    r.p = p; r.err = d2 < 0 ? 1 / std::sqrt(-d2) : 0; r.ok = true;
+    return r;
 }
 
 // The RDataFrame string expressions (Filter, Define, Histo of a Draw string) are compiled by cling when the macro runs, with the optimizer on, and that was most of the time of the plot macros:

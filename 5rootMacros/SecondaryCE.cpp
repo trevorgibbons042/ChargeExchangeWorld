@@ -249,13 +249,14 @@ void SecondaryCE(){
     const auto phiFitPlot = [&](const std::string& phiFile, const std::string& what, const std::function<bool(Long64_t)>& keep){
         TH1D hPhi[2] = {TH1D("hPhiAll", "", 50, 0, 360), TH1D("hPhiBeam", "", 50, 0, 360)};
         double sAng[2] = {0, 0}; long long nPhi[2] = {0, 0};
+        std::vector<double> phiV[2]; // phi of every CE proton of each set: the unbinned fit below uses them, the histogram only shows them
         for (Long64_t k = 0; k < nCE; k++){
             if (!keep(k)) continue;
             const double phiRad = cePhiLab[k], lastAP = ceAP[k]; const int trackID = (int)ceTrack[k];
             const double phiDeg = (phiRad < 0 ? phiRad + TMath::TwoPi() : phiRad) * 180 / TMath::Pi();
             for (int g = 0; g < 2; g++){
                 if (g == 1 && trackID != 1) continue;
-                hPhi[g].Fill(phiDeg); sAng[g] += lastAP; nPhi[g]++;
+                hPhi[g].Fill(phiDeg); phiV[g].push_back(phiDeg); sAng[g] += lastAP; nPhi[g]++;
             }
         }
         const char* phiName[2] = {"all CE", "beam neutron CE (TrackID 1)"};
@@ -264,16 +265,17 @@ void SecondaryCE(){
         double pFit[2], pFitErr[2];
         double phiMax = 0;
         for (int g = 0; g < 2; g++){
-            phiFit[g] = TF1(Form("fPhiCos%d", g), "[0] * (1 + [1] * [2] * cos(x * TMath::Pi() / 180))", 0, 360);
-            phiFit[g].FixParameter(0, hPhi[g].GetEntries() / 50); phiFit[g].FixParameter(2, sAng[g] / std::max<long long>(1, nPhi[g])); phiFit[g].SetParameter(1, 0.5); phiFit[g].SetParLimits(1, -1, 1);
-            hPhi[g].Fit(&phiFit[g], "Q0");
-            pFit[g] = phiFit[g].GetParameter(1); pFitErr[g] = phiFit[g].GetParError(1);
+            const double aFixG = sAng[g] / std::max<long long>(1, nPhi[g]);
+            const PFit uf = UnbinnedP(phiV[g], aFixG); // unbinned fit of every proton's phi (FitCore.h), A fixed to the mean
+            phiFit[g] = *AddUnbinnedFit(&hPhi[g], Form("fPhiCos%d", g), uf, aFixG, false); // in the function list for fit_values.csv, a copy here for the dashed curve
+            phiFit[g].ResetBit(TF1::kNotDraw);
+            pFit[g] = uf.p; pFitErr[g] = uf.err;
             hPhi[g].SetLineColor(phiColor[g]); hPhi[g].SetLineWidth(2); hPhi[g].SetStats(0);
             phiFit[g].SetLineColor(phiColor[g]); phiFit[g].SetLineStyle(2); phiFit[g].SetLineWidth(2);
             phiMax = std::max(phiMax, hPhi[g].GetMaximum());
         }
         hPhi[0].SetMinimum(0); hPhi[0].SetMaximum(1.5 * phiMax); // headroom for the fit text
-        hPhi[0].SetTitle(PlotTitle(phiFile, "CE proton lab phi, cos fit N_{0} (1 + P #LTA#GT cos#phi) with N_{0} and #LTA#GT fixed, beam neutron CE vs all CE" + what + ";Angle (degrees);Count").c_str());
+        hPhi[0].SetTitle(PlotTitle(phiFile, "CE proton lab phi, unbinned cos fit N(#phi) #propto 1 + P #LTA#GT cos#phi with #LTA#GT fixed, beam neutron CE vs all CE" + what + ";Angle (degrees);Count").c_str());
         canvas.Clear(); canvas.SetLogy(0);
         hPhi[0].Draw("hist"); hPhi[1].Draw("hist same");
         phiFit[0].DrawCopy("same"); phiFit[1].DrawCopy("same");
@@ -285,7 +287,7 @@ void SecondaryCE(){
         for (int g = 0; g < 2; g++){ // two lines per curve, kept inside the plot area (the legend box sits lower in the right margin)
             txPhi.SetTextColor(phiColor[g]);
             txPhi.DrawLatex(0.13, 0.875 - 0.10 * g, Form("%s,   P = %.3f #pm %.3f", phiName[g], pFit[g], pFitErr[g]));
-            txPhi.DrawLatex(0.13, 0.845 - 0.10 * g, Form("#LTA#GT = %.4f,   #chi^{2}/ndf = %.1f/%d", sAng[g] / std::max<long long>(1, nPhi[g]), phiFit[g].GetChisquare(), phiFit[g].GetNDF()));        }
+            txPhi.DrawLatex(0.13, 0.845 - 0.10 * g, Form("#LTA#GT = %.4f,   %lld CE protons", sAng[g] / std::max<long long>(1, nPhi[g]), nPhi[g]));        }
         WritePlotNumbers(&hPhi[0], outDir + phiFile, numbersStarted);
         canvas.SaveAs((outDir + phiFile).c_str());
     };

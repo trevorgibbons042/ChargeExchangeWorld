@@ -236,9 +236,11 @@ static void PhiCosFit(TCanvas* canvas, TTree* t, const std::string& phiBranch, c
     canvas->Clear(); canvas->SetRightMargin(0.25); canvas->SetTopMargin(weighted ? 0.2 : 0.17); // weighted: a third text line above the frame
     double aFit = aMean, nFit = 0, pSum = 0, pSumErr = 0;
     TH1* h = nullptr;
+    std::vector<double> phiAll, aAll; // phi (deg) and, weighted, the A of every proton: the unbinned fit below uses them, the histogram only shows them
     if (weighted){
         const auto ap = Columns(t, {aExpr, phiBranch}, cut); // A, phi (degrees)
         const size_t n = ap[0].size();
+        phiAll = ap[1]; aAll = ap[0];
         double sA = 0, sA2 = 0, sAc = 0;
         for (size_t k = 0; k < n; k++){const double a = ap[0][k]; sA += a; sA2 += a * a; sAc += a * std::cos(ap[1][k] * TMath::Pi() / 180);}
         if (n < 10 || sA == 0){canvas->SetRightMargin(0.30); canvas->SetTopMargin(0.1); return;}
@@ -252,6 +254,7 @@ static void PhiCosFit(TCanvas* canvas, TTree* t, const std::string& phiBranch, c
         h = MakeHist(name + "(" + std::to_string(nBins) + ",0,360)");
         if (h){
             const auto phis = Columns(t, {phiBranch}, cut)[0];
+            phiAll = phis;
             for (double phi : phis) h->Fill(phi);
             h->Draw();
             nFit = h->GetEntries();
@@ -260,11 +263,11 @@ static void PhiCosFit(TCanvas* canvas, TTree* t, const std::string& phiBranch, c
     if (!h || h->GetEntries() < 10){canvas->SetRightMargin(0.30); canvas->SetTopMargin(0.1); return;}
     h->SetTitle((title + ";Angle (degrees);" + (weighted ? "Weighted count (weight -A)" : "Count")).c_str());
     h->SetLineColor(kRed); // CE protons are red
-    TF1 fit("fPhiCos", "[0] * (1 + [1] * [2] * cos(x * TMath::Pi() / 180))", 0, 360);
+    const bool block = phiBranch == "phiReD"; // the block phi fit leaves out the spike at 0 (kBlockPhiLo to kBlockPhiHi), the likelihood is normalised over that range
+    const PFit uf = UnbinnedP(phiAll, aFit, block ? kBlockPhiLo : 0, block ? kBlockPhiHi : 360, weighted ? &aAll : nullptr); // unbinned fit of every proton's phi (FitCore.h), weighted: each with its own A
+    TF1& fit = *AddUnbinnedFit(h, "fPhiCos", uf, aFit, true);
+    fit.SetParameter(0, nFit / nBins);
     fit.SetLineColor(kBlack);
-    fit.SetParNames("N0", "P", "A");
-    fit.FixParameter(0, nFit / nBins); fit.FixParameter(2, aFit); fit.SetParameter(1, 0.5); fit.SetParLimits(1, -1, 1);
-    h->Fit(&fit, "Q");
     h->SetMinimum(0); h->SetMaximum(1.1 * h->GetMaximum());
     h->SetName("Fit results"); // the first line of the stats box is the histogram name
     if (weighted) fit.DrawCopy("same"); // the "hist" draw option leaves out the fitted function
@@ -272,12 +275,12 @@ static void PhiCosFit(TCanvas* canvas, TTree* t, const std::string& phiBranch, c
     if (auto* st = (TPaveStats*)h->FindObject("stats")){st->SetX1NDC(0.76); st->SetX2NDC(0.995); st->SetY1NDC(0.55); st->SetY2NDC(0.83);}
     TLatex tx; tx.SetNDC(); tx.SetTextSize(0.028);
     if (weighted){
-        tx.DrawLatex(0.13, 0.90, "Fit  N(#phi) = N_{0} (1 + P #upoint A_{eff} cos#phi),   weight -A per event,   N_{0} = #Sigma(-A) / bins (fixed)");
-        tx.DrawLatex(0.13, 0.865, Form("A_{eff} = #SigmaA^{2} / #SigmaA = %.4f (fixed),   P = %.2f #pm %.2f", aFit, fit.GetParameter(1), fit.GetParError(1)));
+        tx.DrawLatex(0.13, 0.90, "Unbinned fit  N(#phi) #propto 1 + P #upoint A cos#phi,   the A of each event,   histogram weight -A per event");
+        tx.DrawLatex(0.13, 0.865, Form("A_{eff} = #SigmaA^{2} / #SigmaA = %.4f,   P = %.2f #pm %.2f", aFit, uf.p, uf.err));
         tx.DrawLatex(0.13, 0.83, Form("P = 2 #SigmaA cos#phi / #SigmaA^{2} = %.2f #pm %.2f", pSum, pSumErr));
     } else {
-        tx.DrawLatex(0.13, 0.90, "Fit  N(#phi) = N_{0} (1 + P #upoint #LTA#GT cos#phi),   N_{0} = Entries / bins (fixed)");
-        tx.DrawLatex(0.13, 0.865, Form("#LTA#GT = %.4f (fixed, %s),   P = %.2f #pm %.2f", aMean, aLabel.c_str(), fit.GetParameter(1), fit.GetParError(1)));
+        tx.DrawLatex(0.13, 0.90, "Unbinned fit  N(#phi) #propto 1 + P #upoint #LTA#GT cos#phi (every proton, no bins)");
+        tx.DrawLatex(0.13, 0.865, Form("#LTA#GT = %.4f (fixed, %s),   P = %.2f #pm %.2f", aMean, aLabel.c_str(), uf.p, uf.err));
     }
     canvas->Modified(); canvas->Update();
     canvas->SaveAs(path.c_str());
@@ -288,7 +291,7 @@ void PlotAngle(std::string energy = "fKEnergy"){ // energy: "fKEnergy" (true KE)
     FastJit();
     ROOT::EnableImplicitMT(NThreads()); // implicit MT for the file reads (NThreads: ANA_NTHREADS, FitCore.h)
     const std::string suffix = (energy == "fDEnergy") ? "_DE" : "";
-    gStyle->SetOptFit(1111); // probability, chi2/ndf, fit parameters with errors
+    gStyle->SetOptFit(11); // fit parameters with errors (the fits are unbinned: no chi2 or probability)
     std::string foldermain = "plots/3_ReconCalcVals/";
     gSystem->mkdir(foldermain.c_str(), true);
 
