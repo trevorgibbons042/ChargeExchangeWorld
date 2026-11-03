@@ -68,6 +68,17 @@ inline bool LoadPlot3DMaps(){
     TFile* fReco = TFile::Open("cuts/cut_angles_all.root", "READ");
     TTree* raw = fReco ? (TTree*)fReco->Get("AnglesRaw") : nullptr;
     if (!raw){Error("Plot3D", "missing AnglesRaw tree in cut_angles_all.root (run ReconAngleAll.cpp first)"); return false;}
+    // Only the rows of AnglesRaw that a ZDC input of CutPlots.cpp (zdc) asks for are kept: the (fEvent, TrackID) keys of those inputs are read first (small files), sorted, and the AnglesRaw
+    // rows are filtered on them before any other branch is read. A key that is not kept is never looked up, so the columns do not change.
+    std::vector<std::pair<int, int>> want;
+    for (const char* keyFile : {"cuts/cut_ParentZdc.root", "cuts/cut_AllEvProtons.root", "cuts/cut_AllEvParticles.root"}){
+        ROOT::RDataFrame dfKeys("ParticleInfo", keyFile);
+        std::vector<std::vector<std::pair<int, int>>> slotKeys(dfKeys.GetNSlots());
+        dfKeys.ForeachSlot([&slotKeys](unsigned slot, int ev, int tid){slotKeys[slot].emplace_back(ev, tid);}, {"fEvent", "TrackID"});
+        for (const auto& v : slotKeys) want.insert(want.end(), v.begin(), v.end());
+    }
+    std::sort(want.begin(), want.end());
+    want.erase(std::unique(want.begin(), want.end()), want.end());
     // one pass over AnglesRaw, each entry read once and on all the threads (RDataFrame): every row is a reconstructed track (the Angles tree), gP3Vals has every row.
     // Every slot collects its rows in a vector, the vectors are sorted and merged on all the threads, and the arrays are filled from the merged vector in key order.
     const bool withRaw = raw->GetBranch("nProtonsEv") != nullptr;
@@ -77,6 +88,7 @@ inline bool LoadPlot3DMaps(){
     for (const char* col : {"nZdcCharged", "nTrackerHitsEv", "nTrackerTracksEv"}){
         if (!raw->GetBranch(col)) df = df.Define(col, []{return (int)-1;}); // an AnglesRaw file made before this column
     }
+    df = df.Filter([&want](int ev, int tid){return std::binary_search(want.begin(), want.end(), std::make_pair(ev, tid));}, {"fEvent", "TrackID"}); // before the ForeachSlot: its other branches are read for the kept rows only
     std::vector<std::vector<P3Item>> parts(df.GetNSlots());
     auto flagsOf = [&](double resDRms){
         return (unsigned char)(kReco | (PassesBlockResidual(resDRms) ? kRecoD : 0) | (resDRms < kRes2Mm ? kRes2 : 0));
@@ -183,7 +195,7 @@ inline void Plot3DRawAliases(TTree* raw){
         raw->SetAlias(Form("ok_%d", k), Form("TMath::Finite(raw_%d)", k));
     }
     raw->SetAlias("isReco", "1");
-    raw->SetAlias("isRecoD", ("(" + std::string(kBlockCut) + ")").c_str());
+    raw->SetAlias("isRecoD", ("(" + std::string(BlockCut()) + ")").c_str());
     raw->SetAlias("isRes2", Form("(resDRms < %g)", kRes2Mm));
 }
 

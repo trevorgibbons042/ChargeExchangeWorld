@@ -8,6 +8,7 @@
 #include <TTree.h>
 #include <algorithm>
 #include <cstdlib>
+#include <sstream>
 #include <string>
 #include <vector>
 
@@ -20,11 +21,12 @@
 //   trees    cuts/ke_gt80.root, the KE cut entry lists of cut_APandT.root and cut_angles_all.root (CutTrees, CutFiles.h)
 //   zdc      cuts/cut_ZdcCE.root and cut_ZdcAllEv.root, the ZDC protons with the Plot3D columns (ZdcColumns, Plot3DCols.h)
 //   samples  one cut file per cut of 6_cuts and cut_hitZDC_AllEv.root (CutSamples)
-// CutPlots() runs all three; CutPlots("samples") only the last one (plot_cut.sh).
+// CutPlots() runs all three; CutPlots("samples") only the last one (plot_cut.sh). Only the samples that have a ZDC KE cut (megacut2, megacut3, the KE scan, hitZDC) read the zdc files, so Plot.pbs runs trees, zdc and the other samples
+// side by side, then the ZDC KE samples as several processes (CUT_ONLY).
 
 // Applies every shared cut (KeCuts, CutFiles.h) once to the already cut trees of cut_APandT.root (CalcAPandT.cpp) and to the proton tree AnglesRaw of cut_angles_all.root
 // (ReconAngleAll.cpp), true and detector energy, and writes the entries that pass as TEntryLists to cuts/<ke dir>.root (the residual threshold from RES_CUT_MM, QualityCut.h): one list per tree,
-// named like the tree, plus <tree>_block with the block residual cut (kBlockCut) on top for the trees that have it. Run after CalcAPandT.cpp.
+// named like the tree, plus <tree>_block with the block residual cut (BlockCut()) on top for the trees that have it. Run after CalcAPandT.cpp.
 // AnglesRaw gets one list per view (Angles, AnglesCE: the rows AngleSelection picks) and energy, named view + suffix, with the KE cut on that energy's KE branch.
 static void CutTrees(){
     TFile* fAP = TFile::Open("cuts/cut_APandT.root", "READ");
@@ -33,10 +35,10 @@ static void CutTrees(){
     // One list to build: the tree it indexes, its name (without _block), the rows it covers (sel) and the energy suffix of its KE cut.
     struct Job {TTree* t; std::string name, base, sel, sfx;};
     std::vector<Job> jobs;
-    TTree* raw = (TTree*)fAng->Get(kAngleTree.c_str());
+    TTree* raw = (TTree*)fAng->Get(kAngleTree);
     for (const std::string sfx : {"", "_DE"}){
-        for (const auto& n : kApTrees) jobs.push_back({(TTree*)fAP->Get((n + sfx).c_str()), n + sfx, n, "", sfx});
-        for (const auto& n : kAngleTrees) jobs.push_back({raw, n + sfx, n, AngleSelection(n), sfx});
+        for (const auto& n : ApTrees()) jobs.push_back({(TTree*)fAP->Get((n + sfx).c_str()), n + sfx, n, "", sfx});
+        for (const auto& n : AngleTrees()) jobs.push_back({raw, n + sfx, n, AngleSelection(n), sfx});
     }
     for (const auto& j : jobs) if (!j.t){Error("CutTrees", "a tree is missing (rerun CalcAPandT.cpp / ReconAngleAll.cpp)"); return;}
 
@@ -60,13 +62,13 @@ static void CutTrees(){
             }
         };
         // cut_APandT.root: one tree per name and energy, every list on finalKE (the _DE trees hold the detector KE there) and resDRms
-        for (const std::string sfx : {"", "_DE"}) for (const auto& n : kApTrees){
+        for (const std::string sfx : {"", "_DE"}) for (const auto& n : ApTrees()){
             TTree* t = (TTree*)fAP->Get((n + sfx).c_str());
-            const bool hasBlock = std::find(kBlockTrees.begin(), kBlockTrees.end(), n) != kBlockTrees.end();
+            const bool hasBlock = std::find(BlockTrees().begin(), BlockTrees().end(), n) != BlockTrees().end();
             std::vector<Hit> hits(hasBlock ? 2 : 1);
             out.cd();
             hits[0] = {new TEntryList((n + sfx).c_str(), ke.cut.c_str(), t), std::vector<std::vector<ULong64_t>>(nSlots)};
-            if (hasBlock) hits[1] = {new TEntryList((n + sfx + "_block").c_str(), (ke.cut + " && " + kBlockCut).c_str(), t), std::vector<std::vector<ULong64_t>>(nSlots)};
+            if (hasBlock) hits[1] = {new TEntryList((n + sfx + "_block").c_str(), (ke.cut + " && " + BlockCut()).c_str(), t), std::vector<std::vector<ULong64_t>>(nSlots)};
             ROOT::RDataFrame df0(n + sfx, "cuts/cut_APandT.root");
             auto df = WithEntryNumber(df0, df0.GetNSlots()); // the true entry numbers (rdfentry_ is wrong under MT on a tree with several clusters)
             const double minKE = ke.minKE;
@@ -80,12 +82,12 @@ static void CutTrees(){
         // AnglesRaw: the views Angles and AnglesCE of both energies in one loop
         {
             std::vector<Want> wants;
-            for (const std::string sfx : {"", "_DE"}) for (const auto& v : kAngleTrees) for (const bool block : {false, true})
+            for (const std::string sfx : {"", "_DE"}) for (const auto& v : AngleTrees()) for (const bool block : {false, true})
                 wants.push_back({v + sfx + (block ? "_block" : ""), "", block, v == "AnglesCE" ? 2 : 1, !sfx.empty()});
             std::vector<Hit> hits(wants.size());
             out.cd();
             for (size_t i = 0; i < wants.size(); i++){
-                const std::string cut = AngleSelection(wants[i].view == 2 ? "AnglesCE" : "Angles") + " && " + KeCutFor(ke.cut, wants[i].detector ? "_DE" : "") + (wants[i].block ? " && " + kBlockCut : "");
+                const std::string cut = AngleSelection(wants[i].view == 2 ? "AnglesCE" : "Angles") + " && " + KeCutFor(ke.cut, wants[i].detector ? "_DE" : "") + (wants[i].block ? " && " + BlockCut() : "");
                 hits[i] = {new TEntryList(wants[i].name.c_str(), cut.c_str(), raw), std::vector<std::vector<ULong64_t>>(nSlots)};
             }
             ROOT::RDataFrame df0(kAngleTree, "cuts/cut_angles_all.root");
@@ -116,13 +118,17 @@ static void ZdcColumns(){
     ROOT::RDF::RSnapshotOptions lazy;
     lazy.fLazy = true;
 
+    const time_t t0 = time(nullptr);
     const ColumnAdder addColumns = Plot3DColumns(); // loads the maps on its first call
     ROOT::RDataFrame dfCE("ParticleInfo", "cuts/cut_ParentZdc.root"), dfAllEv("ParticleInfo", "cuts/cut_AllEvProtons.root"), dfAllPart("ParticleInfo", "cuts/cut_AllEvParticles.root");
     std::vector<ROOT::RDF::RResultHandle> handles;
     handles.emplace_back(addColumns(dfCE).Snapshot("ParticleInfo", "cuts/cut_ZdcCE.root", "", lazy));
+    const time_t t1 = time(nullptr); // the first addColumns call has loaded the maps
+    printf(">>> CutPlots zdc maps took %.0f s\n", difftime(t1, t0)); fflush(stdout);
     handles.emplace_back(addColumns(dfAllEv).Snapshot("ParticleInfo", "cuts/cut_ZdcAllEv.root", "", lazy));
     handles.emplace_back(addColumns(dfAllPart).Snapshot("ParticleInfo", "cuts/cut_ZdcAllPart.root", "", lazy)); // the same for every recorded particle, any pdg (the "all recon particles" plots)
     ROOT::RDF::RunGraphs(handles);
+    printf(">>> CutPlots zdc write took %.0f s\n", difftime(time(nullptr), t1)); fflush(stdout);
 }
 
 // Writes one cut file per cut of 6_cuts (Plot3D.cpp), each holding only the rows that pass, so Plot3D reads the file instead of cutting all of AnglesRaw with a Draw string.
@@ -137,6 +143,15 @@ static void ZdcColumns(){
 // ZDC cut (cut_ZdcAllEv.root, the ZDC protons with the Plot3D columns of ZdcColumns.cpp):
 //   cut_hitZDC_AllEv           the proton has a reconstructed track (isReco)
 // Run after ZdcColumns.cpp, with all the threads: every input is read once and all the cut files of it are written in the same pass.
+// CUT_ONLY (environment, comma separated, e.g. megacut3 or megacut3,ResCuts): CutSamples writes only the cut files whose name holds one of these (cut_megacut3_1.root, cut_megacut3_1_ke85.root, ...),
+// and CutPlots("all") then runs only the samples part (the trees and zdc files stay as they are). Empty: every file.
+static bool CutWanted(const std::string& file){
+    const char* e = std::getenv("CUT_ONLY");
+    if (!e || !*e) return true;
+    std::stringstream ss(e);
+    for (std::string w; std::getline(ss, w, ',');) if (!w.empty() && file.find(w) != std::string::npos) return true;
+    return false;
+}
 static void CutSamples(){
     ROOT::EnableImplicitMT(NThreads());
     ROOT::RDF::RSnapshotOptions lazy;
@@ -148,7 +163,7 @@ static void CutSamples(){
     ROOT::RDataFrame raw("AnglesRaw", "cuts/cut_angles_all.root");
     // baseline of every cut of 6_cuts: recon theta and recon block theta from 0 to 1 degree (NaN fails)
     auto base = raw.Filter([](double theta, double thetaBlock){const double deg = theta * TMath::RadToDeg(), degBlock = thetaBlock * TMath::RadToDeg(); return deg >= 0 && deg <= 1 && degBlock >= 0 && degBlock <= 1;}, {"outTheta", "outDTheta"});
-    auto snap = [&](ROOT::RDF::RNode node, const char* file){handles.emplace_back(node.Snapshot("AnglesRaw", file, rawCols, lazy));};
+    auto snap = [&](ROOT::RDF::RNode node, const char* file){if (CutWanted(file)) handles.emplace_back(node.Snapshot("AnglesRaw", file, rawCols, lazy));};
     snap(base.Filter([](double resD){return resD < kRes4Mm;}, {"resDRms"}), "cuts/cut_ResCuts.root");
     snap(base.Filter([](int n){return n <= 1;}, {"nProtonsEv"}), "cuts/cut_nParticles1.root");
     snap(base.Filter([](int n){return n <= 2;}, {"nProtonsEv"}), "cuts/cut_nParticles2.root");
@@ -166,15 +181,18 @@ static void CutSamples(){
         for (size_t i = 0; i < ev->size(); i++) keys.emplace_hint(keys.end(), (*ev)[i], (*tid)[i]);
         return keys;
     };
-    const KeyKeys ke80Keys = keKeys(0.80);
+    // only the keys a wanted file needs are read (CUT_ONLY): the jobs of Plot.pbs run the sample files in several processes, and the files without a ZDC KE cut do not wait for the zdc part
+    const bool need80 = CutWanted("cuts/cut_megacut2_1.root") || CutWanted("cuts/cut_megacut2_2.root") || CutWanted("cuts/cut_megacut3_1.root") || CutWanted("cuts/cut_megacut3_2.root");
+    const KeyKeys ke80Keys = need80 ? keKeys(0.80) : KeyKeys();
     // KE scan of 9_megaCut3/1_1particlecut: the same cuts with ZDC KE > 85, 90 and 95% of the beam KE (cut_megacut3_1_ke85.root to _ke95.root, phi fits in Plot3D.cpp part 4)
     std::vector<KeyKeys> scanKeys;
     scanKeys.reserve(3); // the filters keep a reference into it
     for (const int pct : {85, 90, 95}){
-        scanKeys.push_back(keKeys(pct / 100.0));
+        const std::string scanFile = Form("cuts/cut_megacut3_1_ke%d.root", pct);
+        scanKeys.push_back(CutWanted(scanFile) ? keKeys(pct / 100.0) : KeyKeys());
         const KeyKeys& keys = scanKeys.back();
         snap(base.Filter([&keys](int np, int n, int e, int t, int nTh, int nZ){return np <= 1 && (n == 2 || n == 4 || n == 6 || n == 8) && keys.count({e, t}) > 0 && (nTh == 2 || nTh == 4 || nTh == 6 || nTh == 8) && nZ == 1;},
-                         {"nProtonsEv", "nHits", "fEvent", "TrackID", "nTrackerHitsEv", "nZdcCharged"}), Form("cuts/cut_megacut3_1_ke%d.root", pct));
+                         {"nProtonsEv", "nHits", "fEvent", "TrackID", "nTrackerHitsEv", "nZdcCharged"}), scanFile.c_str());
     }
     for (const int maxP : {1, 2}){ // 1_1particlecut and 2_2particlecut of 6_megaCut and 7_megaCut2: at most 1 / 2 reconstructed particles in the event
         snap(base.Filter([maxP](int np, int n){return np <= maxP && (n == 2 || n == 4 || n == 6 || n == 8);},
@@ -187,9 +205,9 @@ static void CutSamples(){
     }
 
     ROOT::RDataFrame zdcAllEv("ParticleInfo", "cuts/cut_ZdcAllEv.root"); // stays alive until RunGraphs
-    handles.emplace_back(zdcAllEv.Filter([](int r){return r == 1;}, {"isReco"}).Snapshot("ParticleInfo", "cuts/cut_hitZDC_AllEv.root", "", lazy));
+    if (CutWanted("cuts/cut_hitZDC_AllEv.root")) handles.emplace_back(zdcAllEv.Filter([](int r){return r == 1;}, {"isReco"}).Snapshot("ParticleInfo", "cuts/cut_hitZDC_AllEv.root", "", lazy));
     ROOT::RDataFrame zdcAllPart("ParticleInfo", "cuts/cut_ZdcAllPart.root"); // every recorded particle at the ZDC that has a reconstructed track, any pdg
-    handles.emplace_back(zdcAllPart.Filter([](int r){return r == 1;}, {"isReco"}).Snapshot("ParticleInfo", "cuts/cut_hitZDC_AllPart.root", "", lazy));
+    if (CutWanted("cuts/cut_hitZDC_AllPart.root")) handles.emplace_back(zdcAllPart.Filter([](int r){return r == 1;}, {"isReco"}).Snapshot("ParticleInfo", "cuts/cut_hitZDC_AllPart.root", "", lazy));
     ROOT::RDF::RunGraphs(handles);
 }
 
@@ -202,7 +220,9 @@ void CutPlots(const char* partArg = "all"){ // a const char*: calling a macro wi
         f();
         printf(">>> CutPlots %s took %.0f s\n", name, difftime(time(nullptr), t0)); fflush(stdout);
     };
-    if (part == "all" || part == "trees") timed("trees", CutTrees);
-    if (part == "all" || part == "zdc") timed("zdc", ZdcColumns);
+    const char* only = std::getenv("CUT_ONLY");
+    const bool samplesOnly = only && *only; // CUT_ONLY: one cut file is redone, the trees and zdc parts are not
+    if ((part == "all" || part == "trees") && !samplesOnly) timed("trees", CutTrees);
+    if ((part == "all" || part == "zdc") && !samplesOnly) timed("zdc", ZdcColumns);
     if (part == "all" || part == "samples") timed("samples", CutSamples);
 }
