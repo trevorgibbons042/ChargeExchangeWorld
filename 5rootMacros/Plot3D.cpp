@@ -530,15 +530,24 @@ void Plot3D(){
                 fclose(rf);
                 rankRows.push_back({sc.dir, ke80 ? "cut and ZDC KE > 80%" : "cut", double(nCEc), double(nAllc), double(nCEallZdc), nCEreconTotal, {fom[0], fom[1]}, {pol[0], pol[1]}, {polErr[0], polErr[1]}, double(nPartc), nNonProtTh, nNonPartTh});
             }
-            if (ke80) for (const auto& r : keRanges){ // the ZDC KE plot only with the KE cut: the cut alone needs no ZDC hit
-                drawPlot(events2, e.branch + ">>hResCE" + binSpec(r), qCut, e.label + " of Protons that hit ZDC, " + sc.label + (ke80 ? ", ZDC KE > 80%" : "") + ", " + kThetaNote + ", CE recon protons vs all recon protons;" + e.label + " (MeV);Count", folder_res + "0_KE_KECUT80_" + e.dir + r.tag + ".pdf", "", [&](TH1* h){
+            if (ke80) for (const auto& r : keRanges) for (const bool lin : {false, true}){ // the ZDC KE plot only with the KE cut: the cut alone needs no ZDC hit. lin: the same plot with a linear y axis, saved as ..._linear.pdf
+                drawPlot(events2, e.branch + ">>hResCE" + binSpec(r), qCut, e.label + " of Protons that hit ZDC, " + sc.label + (ke80 ? ", ZDC KE > 80%" : "") + ", " + kThetaNote + ", CE recon protons vs all recon protons;" + e.label + " (MeV);Count", folder_res + "0_KE_KECUT80_" + e.dir + r.tag + (lin ? "_linear" : "") + ".pdf", "", [&](TH1* h){
                     h->SetLineColor(kRed);
                     TH1* hf = HistMT(eventsAllEv, P3(e.branch + ">>hResAll" + binSpec(r)), P3(qCut)); hf->Draw("same");
                     hf->SetLineColor(kBlue);
                     const std::string qCutPart = zdcBasePart + " && " + sc.expr + (ke80 ? " && " + e.branch + " > " + std::to_string(cutVal) : ""); // the same cut on every recon particle (any pdg)
                     TH1* hp = HistMT(eventsAllPart, P3(e.branch + ">>hResPart" + binSpec(r)), P3(qCutPart)); hp->Draw("same");
                     hp->SetLineColor(kGreen + 2);
-                    h->SetMinimum(0.5); h->SetMaximum(2.0 * std::max(h->GetMaximum(), std::max(hf->GetMaximum(), hp->GetMaximum()))); canvas->SetLogy(1);
+                    if (lin){ // per bin counts and the CE share of the recon protons and of the recon particles in the cut, beside the linear pdf
+                        FILE* bf = fopen((folder_res + "0_KE_KECUT80_" + e.dir + r.tag + "_perbin.csv").c_str(), "w");
+                        fprintf(bf, "KE_lo_MeV,KE_hi_MeV,CE_recon_protons,all_recon_protons,all_recon_particles,CE_over_all_protons_percent,CE_over_all_particles_percent\n");
+                        for (int b = 1; b <= h->GetNbinsX(); b++){
+                            const double ce = h->GetBinContent(b), pr = hf->GetBinContent(b), pa = hp->GetBinContent(b);
+                            fprintf(bf, "%g,%g,%g,%g,%g,%.3f,%.3f\n", h->GetBinLowEdge(b), h->GetBinLowEdge(b) + h->GetBinWidth(b), ce, pr, pa, pr > 0 ? 100 * ce / pr : 0., pa > 0 ? 100 * ce / pa : 0.);
+                        }
+                        fclose(bf);
+                    }
+                    h->SetMinimum(lin ? 0 : 0.5); h->SetMaximum((lin ? 1.1 : 2.0) * std::max(h->GetMaximum(), std::max(hf->GetMaximum(), hp->GetMaximum()))); canvas->SetLogy(lin ? 0 : 1);
                     TLegend* leg = new TLegend(0.745, 0.44, 0.99, 0.55); leg->SetTextSize(0.012);
                     leg->AddEntry(h, Form("CE recon protons that hit ZDC%s, %lld", ke80 ? ", KE > 80%" : "", nCEq), "l");
                     leg->AddEntry(hf, Form("all recon protons that hit ZDC%s, %lld", ke80 ? ", KE > 80%" : "", nAllq), "l");
@@ -622,6 +631,12 @@ void Plot3D(){
             struct PhiSet {std::string dir, expr; TTree* t; std::string base, basePart, note;}; // base: the sample the cut applies to (hit ZDC and reconstructed, or any fitted track for the cuts)
             std::vector<PhiSet> phiSets = {{"1_hitZDC", "", events2, zdcBase, zdcBasePart, kThetaNote}, {"2_KECUT80", " && fDEnergy > " + std::to_string(initialKE * 0.80), events2, zdcBase, zdcBasePart, kThetaNote}, {"0_cuts/1_noCuts", "", events2, zdcRecoAll, zdcRecoPartAll, kNoCutNote}, {"0_cuts/2_theta0_1", "", events2, zdcBase, zdcBasePart, kThetaNote}};
             for (const auto& sc : sampleCuts) phiSets.push_back({sc.dir, "", cutTree(sc), rawCE, "", ""});
+            for (const int pct : {85, 90, 95}){ // KE scan of 9_megaCut3/1_1particlecut (CutPlots.cpp (samples)): P_CUT 18 to 20
+                TTree* t = OpenCut(Form("cuts/cut_megacut3_1_ke%d.root", pct), "AnglesRaw");
+                if (t && !t->GetAlias("raw_0")) Plot3DRawAliases(t);
+                gROOT->cd();
+                if (t) phiSets.push_back({Form("9_megaCut3/1_1particlecut_KE%d", pct), "", t, rawCE, "", ""});
+            }
             for (const auto& ps : phiSets){
                 if (const int pi = int(&ps - &phiSets[0]); !RunCut(pi < 4 ? 0 : pi - 3)) continue; // P3_CUT: 0 the first four sets, i the sampleCuts[i - 1] set
                 gSystem->mkdir((folder_KEcuts + ps.dir + "/2_phi_cosfit").c_str(), true);
@@ -633,6 +648,7 @@ void Plot3D(){
                 const std::string cutTxt = [&]() -> std::string { // every cut the folder applies, for the title
                     if (isZdc) return "hit ZDC, " + ps.note + (ps.expr.empty() ? ", no KE cut" : ", ZDC KE > 80%");
                     for (const auto& c : sampleCuts) if (c.dir == ps.dir) return c.label + (c.zdcKE80 ? ", hit ZDC" : ", no ZDC requirement");
+                    if (const size_t k = ps.dir.rfind("_KE"); k != std::string::npos) return "9_megaCut3 1 particle cut, hit ZDC, ZDC KE > " + ps.dir.substr(k + 3) + "%";
                     return ps.dir;
                 }();
                 const std::string where = isZdc ? " that hit ZDC" : " in the cut", dirP = folder_KEcuts + ps.dir + "/2_phi_cosfit/";
