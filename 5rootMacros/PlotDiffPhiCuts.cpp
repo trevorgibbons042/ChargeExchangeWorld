@@ -49,7 +49,7 @@ void PlotDiffPhiCuts(double absLo = 50, double absHi = 180, std::string energy =
     // Every recon proton (the rows of AnglesRaw in cut_angles_all.root, all events): (fEvent, TrackID) for the positions,
     // the KE of the energy (finalKE / finalKED), isFromCE and the block line fit quality (ReconAngleAll.cpp)
     TFile* fAng = TFile::Open("cuts/cut_angles_all.root", "READ");
-    TTree* ang = fAng ? (TTree*)fAng->Get(kAngleTree.c_str()) : nullptr;
+    TTree* ang = fAng ? (TTree*)fAng->Get(kAngleTree) : nullptr;
     if (!ang || !ang->GetBranch("r2D")){Error("PlotDiffPhiCuts", "AnglesRaw with r2D missing in cut_angles_all.root (rerun ReconAngleAll.cpp)"); return;}
     const std::string angSel = AngleSelection("Angles"); // the same rows for both column sets, so they line up
     auto cAng = plan.C(ang, {"fEvent", "TrackID", KeVar(suffix), "isFromCE", "resDRms", "outPhi", "outDPhi", "ParentID", "PDG"}, angSel);

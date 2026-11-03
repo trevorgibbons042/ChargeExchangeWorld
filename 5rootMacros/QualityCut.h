@@ -16,12 +16,14 @@ static double ResidualCut(double fallback)
     if (!env || !*env) return fallback;
     return std::string(env) == "none" ? 1e9 : std::atof(env);
 }
-static const double kMaxResidualDMm = ResidualCut(2.0);
-static const std::string kBlockCut = "resDRms <= " + std::to_string(kMaxResidualDMm); // TTree::Draw cut for every block position quantity
+// Functions with a function-local static, not namespace-scope globals: a global with a runtime initializer makes ACLiC fail to load the macro on LCRC
+// (runStaticInitializersOnce: Failed to materialize symbols).
+inline double MaxResidualDMm(){static const double v = ResidualCut(2.0); return v;}
+inline const std::string& BlockCut(){static const std::string c = "resDRms <= " + std::to_string(MaxResidualDMm()); return c;} // TTree::Draw cut for every block position quantity
 // The 2 mm block residual limit of the _res2mm twins of the KE cuts (isRes2, Plot3DCols.h).
 // resDRms is a branch of AnglesRaw (ReconAngleAll.cpp) and of every cut_APandT.root tree (CalcAPandT.cpp).
 static const double kRes2Mm = 2.0;
 // The 4 mm block residual limit of 3_ResCuts (CutPlots.cpp (samples), Plot3D.cpp).
 static const double kRes4Mm = 4.0;
 
-inline bool PassesBlockResidual(double resD){return resD <= kMaxResidualDMm;}
+inline bool PassesBlockResidual(double resD){return resD <= MaxResidualDMm();}

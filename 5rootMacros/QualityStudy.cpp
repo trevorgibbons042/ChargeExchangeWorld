@@ -155,7 +155,7 @@ void QualityStudy(double keepCE = 0.95){
             fprintf(rc, "%s,%g,%zu,%zu,%.4f,%zu,%zu,%.4f\n", name, resMax, nCE, ceAfter, 100.0 * ceAfter / nCE, nRecon, reconAfter, 100.0 * (nRecon - reconAfter) / nRecon);
         };
         for (double r : {2.0, 3.1, 5.0}) row(Form("block residual < %g mm", r), r);
-        row("block residual default", kMaxResidualDMm);
+        row("block residual default", MaxResidualDMm());
         fclose(rc);
     }
 

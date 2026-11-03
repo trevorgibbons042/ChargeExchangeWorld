@@ -25,7 +25,7 @@ export LD_LIBRARY_PATH=/lcrc/project/eic/tgibbons/xxhash-install/lib:$LD_LIBRARY
 export LD_LIBRARY_PATH=/lcrc/project/eic/tgibbons/gif-lib:$LD_LIBRARY_PATH
 
 export NCPUS=128 # run_norecon.sh and plot.sh split these between their steps and lanes (NThreads(), FitCore.h)
-export ACLIC=${ACLIC-} # interpreted, not ACLiC-compiled: ROOT 6.32 on the cluster fails to materialize the header globals when a compiled macro loads (see Plot.pbs). Submit with -v ACLIC=+O to compile.
+export ACLIC=${ACLIC-+O} # compiled with ACLiC (see Plot.pbs). Submit with -v ACLIC= to run interpreted.
 
 echo Jobid: $PBS_JOBID
 echo Running on host `hostname`

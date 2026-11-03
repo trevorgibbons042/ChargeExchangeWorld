@@ -1,9 +1,9 @@
 #!/bin/bash
-# Block scan: one sim run per block count (1, 3, 5, 7, 9), the total CE thickness split evenly over the blocks.
+# Block scan: one sim run per block count (1, 3, 5, 7, 9) and beam energy (25, 50, 137.5 GeV), the total CE thickness split evenly over the blocks.
 # Writes one macro per count into build/ from a template macro and submits each with Run.sh.
 # Usage: bash ScanBlocks.sh <template macro in build/> <total thickness in m> [dz in m, default 0.025], e.g. bash ScanBlocks.sh run_0.mac 0.4
 # Each macro is the template with /detector/nBlocks, /detector/CarbonThickness (total/n) and /detector/dz set before /run/reinitializeGeometry,
-# and /output/folder suffixed with _<n>block_<total>m. The analysis reads output0_t*.root, so every count is its own run and run folder.
+# /randGun/Energy and /randGun/EnergySD set to the beam energy and its sigma, and /output/folder continued with _<total>m/<E>GeV/<n>block, so the runs sit in build/root/<folder>_<total>m/<E>GeV/<n>block (analyse them all with ScanBlockAnalysis.sh). The analysis reads output0_t*.root, so every count is its own run and run folder.
 TEMPLATE=$1
 TOTAL=$2
 DZ=${3:-0.025}
@@ -14,6 +14,7 @@ grep -q '^/run/reinitializeGeometry' "../build/$TEMPLATE" || { echo "$TEMPLATE h
 grep -q '^/output/folder ' "../build/$TEMPLATE" || { echo "$TEMPLATE has no /output/folder line"; exit 1; }
 
 COUNTS="1 3 5 7 9"
+ENERGIES="25:0.92 50:1.8 137.5:5" # beam kinetic energy:Gaussian sigma, both in GeV
 TRACKER_HALF=0.00025 # tracker planes are 500 um thick (2construction.cc)
 ZDC_FRONT=7.7 # m, front face of the ZDC: the blocks sit in evenly spaced slots from z = 0 to here
 
@@ -26,15 +27,21 @@ for n in $COUNTS; do
 done
 
 BASE=${TEMPLATE%.mac}
-for n in $COUNTS; do
-    t=$(awk -v t="$TOTAL" -v n="$n" 'BEGIN{printf "%.6g", t/n}')
-    mac="${BASE}_${n}block_${TOTAL}m.mac"
-    awk -v n="$n" -v t="$t" -v dz="$DZ" -v suffix="_${n}block_${TOTAL}m" '
-        /^#?\/detector\/(nBlocks|CarbonThickness|dz) / { next }
-        /^\/run\/reinitializeGeometry/ { print "/detector/nBlocks " n; print "/detector/CarbonThickness " t; print "/detector/dz " dz }
-        /^\/output\/folder / { print $0 suffix; next }
-        { print }
-    ' "../build/$TEMPLATE" > "../build/$mac"
-    echo "$mac: $n blocks x $t m"
-    bash Run.sh "$mac"
+for es in $ENERGIES; do
+    e=${es%%:*}
+    esd=${es##*:}
+    for n in $COUNTS; do
+        t=$(awk -v t="$TOTAL" -v n="$n" 'BEGIN{printf "%.6g", t/n}')
+        tag="${e}GeV_${n}block_${TOTAL}m"
+        mac="${BASE}_${tag}.mac"
+        awk -v n="$n" -v t="$t" -v dz="$DZ" -v e="$e" -v esd="$esd" -v suffix="_${TOTAL}m/${e}GeV/${n}block" '
+            /^#?\/detector\/(nBlocks|CarbonThickness|dz) / { next }
+            /^#?\/randGun\/(Energy|EnergySD) / { next }
+            /^\/run\/reinitializeGeometry/ { print "/detector/nBlocks " n; print "/detector/CarbonThickness " t; print "/detector/dz " dz; print "/randGun/Energy " e; print "/randGun/EnergySD " esd }
+            /^\/output\/folder / { print $0 suffix; next }
+            { print }
+        ' "../build/$TEMPLATE" > "../build/$mac"
+        echo "$mac: $e GeV (sigma $esd), $n blocks x $t m"
+        bash Run.sh "$mac"
+    done
 done

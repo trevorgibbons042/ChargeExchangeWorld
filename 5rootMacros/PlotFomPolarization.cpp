@@ -131,9 +131,9 @@ void PlotFomPolarization(std::string energy = "fKEnergy"){ // energy: "fKEnergy"
     TFile* ceFile = TFile::Open("cuts/cut_APandT.root", "READ");
     if (!ceFile){printf("PlotFomPolarization: cut_APandT.root missing\n"); return;}
     TFile* allFile = TFile::Open("cuts/cut_angles_all.root", "READ");
-    TTree* all = allFile ? (TTree*)allFile->Get(kAngleTree.c_str()) : nullptr; // every fitted proton
+    TTree* all = allFile ? (TTree*)allFile->Get(kAngleTree) : nullptr; // every fitted proton
     if (!all){printf("PlotFomPolarization: AnglesRaw in cut_angles_all.root missing\n"); return;}
-    // block: the block position set, which only takes the block AP and the block residual cut (kBlockCut, QualityCut.h); the recon set takes AP from CE and from recon
+    // block: the block position set, which only takes the block AP and the block residual cut (BlockCut(), QualityCut.h); the recon set takes AP from CE and from recon
     struct ThetaSet {std::string dir, name, tree, theta, phi, allTheta, allPhi; bool block;}; // all* : theta and phi (rad) of every proton with a reconstructed path in the Angles tree
     // types: CE recon protons, all recon protons (pdg 2212) and all recon particles (every charged particle of AnglesRaw, any pdg)
     const std::vector<std::string> typeTags = {"CE", "recon", "reconParticles"}, typeNames = {"CE recon protons", "all recon protons", "all recon particles"};

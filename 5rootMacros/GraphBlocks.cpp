@@ -166,7 +166,7 @@ void GraphBlocks(){
     std::set<std::pair<int,int>> reconKeys;
     {
         TFile *fAng = TFile::Open("cuts/cut_angles_all.root", "READ");
-        TTree *a = fAng ? (TTree*)fAng->Get(kAngleTree.c_str()) : nullptr; // the AnglesCE view: AnglesRaw rows with inCE set
+        TTree *a = fAng ? (TTree*)fAng->Get(kAngleTree) : nullptr; // the AnglesCE view: AnglesRaw rows with inCE set
         if (!a || !a->GetBranch("inCE")){Error("GraphBlocks", "AnglesRaw with inCE missing in cuts/cut_angles_all.root (rerun ReconAngleAll.cpp)"); return;}
         const auto keys = ColumnsUnordered(a, {"fEvent", "ParentID"}, "inCE != 0"); // multithreaded read in any order (TreeColumns.h), the keys go into a set
         for (size_t i = 0; i < keys[0].size(); i++) reconKeys.insert({(int)keys[0][i], (int)keys[1][i]});

@@ -35,8 +35,9 @@ export ANA_NTHREADS=$(( NCPU / 4 > 0 ? NCPU / 4 : 1 ))
 
 # Lanes run at the same time. A lane holds the macros that write into the same plots/ folders (stats.csv and fit_values.csv are
 # truncated per folder) or read another's csv files, in order; no two lanes share a folder.
-{ # 1_position, 2_energy, 6_cuts: the four independent parts of Plot3D (P3_PART, Plot3D.cpp) side by side, then QualityStudy
-    for part in 1 3 4 2:0 2:1 2:2 2:3 2:4 2:5 2:6 2:7 2:8 2:9 2:10 2:11; do (export P3_PART=${part%%:*} P3_CUT=; [[ $part == *:* ]] && export P3_CUT=${part#*:}; run 'Plot3D.cpp') & done
+{ # 1_position, 2_energy, 6_cuts: the independent parts of Plot3D (P3_PART, P3_CUT, Plot3D.cpp) side by side, parts 2, 3 and 4 once per cut (4 also for the KE scan sets, 12 to 14; 3 and 4 of cut 0 once per folder, P3_SUB), then QualityStudy
+    (export P3_PART=0 P3_CUT= P3_SUB=; run 'Plot3D.cpp') # cuts/plot3d_totals.csv once (Plot3D.cpp RawTotals), then the parts read it
+    for part in 1::0 1::1 1::2 1::3 3:0:0 3:0:1 3:0:2 3:0:3 3:1 3:2 3:3 3:4 3:5 3:6 3:7 3:8 3:9 3:10 3:11 4:0:0 4:0:1 4:0:2 4:0:3 4:1 4:2 4:3 4:4 4:5 4:6 4:7 4:8 4:9 4:10 4:11 4:12 4:13 4:14 2:0 2:1 2:2 2:3 2:4 2:5 2:6 2:7 2:8 2:9 2:10 2:11; do (export P3_PART=${part%%:*} P3_CUT= P3_SUB=; [[ $part == *:* ]] && { export P3_CUT=${part#*:}; [[ $P3_CUT == *:* ]] && { export P3_SUB=${P3_CUT#*:}; export P3_CUT=${P3_CUT%%:*}; }; }; run 'Plot3D.cpp') & done
     wait
     (export P3_PART=5 P3_CUT=; run 'Plot3D.cpp') # part 5: the rank_*.csv files from the rows of the part 2 processes
     run 'QualityStudy.cpp'

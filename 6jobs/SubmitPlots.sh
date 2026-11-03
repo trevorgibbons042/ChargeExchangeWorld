@@ -1,5 +1,6 @@
 #!/bin/bash
 # Submits the plotting chain for one run folder as PBS jobs (Plot.pbs), the lanes of 5rootMacros/plot.sh in parallel, instead of running plot.sh in one go.
+# Quick redo of one cut: CUT_ONLY=megacut3 bash SubmitPlots.sh <run> "" CutPlots 6_cuts/9_megaCut3 rewrites only the cut_megacut3* files (CutPlots.cpp) and then replots only that folder.
 # Usage: bash SubmitPlots.sh <folder in build/root> [job ids CutPlots waits for, colon separated] [first job] [plots/ folder to redo], e.g. bash SubmitPlots.sh Physics_xs1e10
 # first job: CutPlots (default), Cuts, Fom, CEblock, SecCE or Pdfs. The jobs before it are not submitted (their files are already in cuts/), so e.g. "Cuts" runs Cuts, Fom, CEblock, SecCE and Pdfs: bash SubmitPlots.sh Physics_801 "" Cuts
 # plots/ folder to redo: one folder of plots/ (a leading plots/ is dropped), e.g. bash SubmitPlots.sh Physics_801 "" CutPlots 6_cuts/3_ResCuts. It is deleted, then only the jobs that write it run (none of CutPlots), then Pdfs.
@@ -44,11 +45,15 @@ if [ -n "$TARGET" ]; then
     case "$TARGET" in ""|.*|*..*|/*) echo "bad folder: $4"; exit 1;; esac
     top=${TARGET%%/*}; rest=; [ "$top" != "$TARGET" ] && rest=${TARGET#*/}
     case $top in
-        1_position|2_energy) PARTS=1 ;;
+        1_position|2_energy) PARTS=1::0+1::1+1::2+1::3 ;;
         6_cuts)
             idx=$(cut_indexes "$rest") || { echo "unknown cut folder: 6_cuts/$rest"; exit 1; }
-            for i in $idx; do PARTS+="2:$i+3:$i+4:$i+"; done
-            case " $idx " in *" 0 "*) PARTS+="1+" ;; esac # 1_hitZDC, 0_cuts and 2_KECUT80 also hold plots of part 1
+            for i in $idx; do
+                if [ "$i" = 0 ]; then PARTS+="2:0+3:0:0+3:0:1+3:0:2+3:0:3+4:0:0+4:0:1+4:0:2+4:0:3+" # cut 0 holds four folders (P3_SUB), a process each
+                else PARTS+="2:$i+3:$i+4:$i+"; fi
+            done
+            [ -z "$rest" ] && PARTS+="4:12+4:13+4:14+" # all of 6_cuts: also the KE scan sets of Plot3D.cpp part 4 (cuts 12 to 14)
+            case " $idx " in *" 0 "*) PARTS+="1::3+" ;; esac # 1_hitZDC, 0_cuts and 2_KECUT80 also hold plots of part 1
             PARTS=${PARTS%+}
             case $rest in ""|3_ResCuts*|4_nParticles*|5_nHits*) QS=1 ;; esac ;;
         3_ReconCalcVals|5_fomCalc) LANE=fom ;;
