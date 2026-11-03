@@ -46,7 +46,22 @@ This submits Cuts, Fom, CEblock, SecCE and Pdfs, and needs the `cuts/` files fro
 bash SubmitPlots.sh <run> [jobids] [first job]
 ```
 
-Needs `cut_*.root` and `settings.csv` in the run folder. `jobids` is an optional colon-separated list of jobs that CutPlots should wait for (use `""` for none). `first job` is one of the plot job names above; the default is `CutPlots`, so the whole plot chain runs.
+Needs `cut_*.root` and `settings.csv` in the run folder. `jobids` is an optional colon-separated list of jobs that CutPlots should wait for (use `""` for none). `first job` is one of the plot job names above; the default is `CutPlots`, so the whole plot chain runs. A run from `CutPlots` deletes the old `plots/` and the `Plot3D_part*.log` files of the run folder first (`cuts/` stays). A later first job keeps `plots/`.
+
+### Redo one folder of plots/
+
+```
+bash SubmitPlots.sh <run> "" CutPlots 6_cuts/3_ResCuts
+```
+
+The 4th argument is a folder of `plots/` (a leading `plots/` is dropped). The script deletes that folder, submits only the jobs that write it (no CutPlots; the `cuts/` files must already be there), then Pdfs. Which jobs run:
+
+- `1_position`, `2_energy`: Plot3D part 1.
+- `6_cuts`: Plot3D parts 2, 3 and 4 for every cut, part 5 (the `rank_*.csv` files), QualityStudy.
+- `6_cuts/<cut folder>` (for example `6_cuts/9_megaCut3` or `6_cuts/9_megaCut3/1_1particlecut`): parts 2, 3 and 4 of that cut only, then part 5. QualityStudy also runs for `3_ResCuts`, `4_nParticles` and `5_nHits`. The cut numbers are the `P3_CUT` numbers of `Plot3D.cpp`, listed in `cut_indexes` in `SubmitPlots.sh`.
+- `3_ReconCalcVals`, `5_fomCalc`: the Fom jobs. `4_CEblock`: CEblock. `7_secondaryCE`: SecCE. These write csv files the next macro reads, so the whole lane reruns and only the named folder is deleted first.
+
+An unknown folder is refused before anything is deleted. The new steps `plot3d` (Plot3D parts in `PARTS`, joined with `+`, for example `PARTS=2:1+3:1+4:1`) and `quality` can also be given to `Plot.pbs` by hand.
 
 ## Whole chain in a single job
 
