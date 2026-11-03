@@ -1,3 +1,4 @@
+#include <cstring>
 #include <TAxis.h>
 #include <TCanvas.h>
 #include <TF1.h>
@@ -63,16 +64,18 @@ static void Gather(TTree* t, const std::string& expr, const std::string& keDir, 
 static int SliceOf(double theta){return (theta >= 0 && theta < kThetaMax) ? (int)(theta / kThetaStep) : -1;}
 
 // Fills h (kPhiBins over 0 to 360) with phis (deg) and fits it with f = N0 (1 + AP P cos(phi)), AP fixed to ap. False when there are too few
-// protons or the fit fails. opt "LQ" keeps the fit in h for drawing, "LQ0" does not.
+// protons or the fit fails. opt "LQ" keeps the fit in h for drawing, "LQ0" does not. The fit is unbinned (UnbinnedP, FitCore.h): f only holds N0 = entries / bins, P, its error and AP for the curve.
 static bool FitPhi(const std::vector<double>& phis, double ap, TH1D& h, TF1& f, const char* opt){
     if (phis.size() < kMinN || std::fabs(ap) < 1e-12) return false;
     h.SetDirectory(nullptr);
     for (double phi : phis) h.Fill(phi);
-    f.SetParameters(h.GetEntries() / kPhiBins, 0.5, ap);
+    const PFit r = UnbinnedP(phis, ap); // unbinned fit of every proton's phi (FitCore.h), P limited to -1 to 1; the histogram only shows it
+    if (!r.ok || r.err <= 0) return false;
+    f.SetParameters(h.GetEntries() / kPhiBins, r.p, ap);
     f.SetParName(0, "N0"); f.SetParName(1, "P"); f.SetParName(2, "AP");
-    f.FixParameter(2, ap);
-    f.SetParLimits(1, -1, 1); // P is a polarization
-    return h.Fit(&f, opt) == 0;
+    f.SetParError(1, r.err);
+    if (!std::strchr(opt, '0')) h.GetListOfFunctions()->Add(f.Clone()); // like a fit with option "0" left out: the curve is drawn with the histogram
+    return true;
 }
 
 // Fits one slice's phi values (deg). With draw, the histogram and fit are drawn in the current pad.
@@ -91,11 +94,10 @@ static bool FitSlice(const std::vector<double>& phis, Slice& s, bool draw, const
         TPaveText* box = new TPaveText(0.76, 0.58, 0.995, 0.88, "NDC");
         box->SetBorderSize(1); box->SetFillColor(0); box->SetTextAlign(12); box->SetTextSize(0.018);
         box->AddText("Fit function:");
-        box->AddText("N_{0} (1 + AP #times P #times cos#phi)");
+        box->AddText("Unbinned fit: N(#phi) #propto 1 + AP #times P #times cos#phi");
         box->AddText(gApName.c_str());
         box->AddText(Form("AP_{avg} = %.4f  (fixed)", s.ap));
         box->AddText(Form("P = %.3f #pm %.3f", s.p, s.pErr));
-        box->AddText(Form("N_{0} = %.2f #pm %.2f", f.GetParameter(0), f.GetParError(0)));
         box->AddText(Form("entries = %.0f", s.nPhi));
         box->Draw(); // before DrawCEPercent: the CE lost box goes under it
         DrawCEPercent(s.nCE, s.nCE != s.nPhi ? s.nPhi : -1, s.nCEAll, s.nReconAll); // recon protons fit: CE share and CE lost, CE fit: CE lost
@@ -113,7 +115,7 @@ static void DrawSliceGrid(const std::vector<std::vector<double>>& phis, const st
     top.cd();
     TPaveText head(0, 0, 1, 1, "NDC");
     head.SetBorderSize(0); head.SetFillColor(0); head.SetTextSize(0.32);
-    head.AddText(PlotTitle(path, "Phi fits N_{0} (1 + AP #times P #times cos#phi), AP fixed, per #theta slice, " + what).c_str());
+    head.AddText(PlotTitle(path, "Unbinned phi fits N(#phi) #propto 1 + AP #times P #times cos#phi, AP fixed, per #theta slice, " + what).c_str());
     head.Draw();
     body.Divide(3, 3, 0.004, 0.004);
     const float titleSize = gStyle->GetTitleFontSize();
