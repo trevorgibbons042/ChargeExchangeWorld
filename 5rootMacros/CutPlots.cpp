@@ -8,6 +8,7 @@
 #include <TTree.h>
 #include <algorithm>
 #include <cstdlib>
+#include <memory>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -204,10 +205,16 @@ static void CutSamples(){
                          {"nProtonsEv", "nHits", "fEvent", "TrackID", "nTrackerHitsEv", "nZdcCharged"}), Form("cuts/cut_megacut3_%d.root", maxP)); // 9_megaCut3: megaCut2, 2, 4, 6 or 8 charged tracker hits in the event and exactly 1 charged particle at the ZDC
     }
 
-    ROOT::RDataFrame zdcAllEv("ParticleInfo", "cuts/cut_ZdcAllEv.root"); // stays alive until RunGraphs
-    if (CutWanted("cuts/cut_hitZDC_AllEv.root")) handles.emplace_back(zdcAllEv.Filter([](int r){return r == 1;}, {"isReco"}).Snapshot("ParticleInfo", "cuts/cut_hitZDC_AllEv.root", "", lazy));
-    ROOT::RDataFrame zdcAllPart("ParticleInfo", "cuts/cut_ZdcAllPart.root"); // every recorded particle at the ZDC that has a reconstructed track, any pdg
-    if (CutWanted("cuts/cut_hitZDC_AllPart.root")) handles.emplace_back(zdcAllPart.Filter([](int r){return r == 1;}, {"isReco"}).Snapshot("ParticleInfo", "cuts/cut_hitZDC_AllPart.root", "", lazy));
+    // opened only when their file is wanted: cut_ZdcAllEv.root and cut_ZdcAllPart.root are written by the zdc part, which Plot.pbs runs beside the samples without a ZDC KE cut; both stay alive until RunGraphs
+    std::unique_ptr<ROOT::RDataFrame> zdcAllEv, zdcAllPart;
+    if (CutWanted("cuts/cut_hitZDC_AllEv.root")){
+        zdcAllEv.reset(new ROOT::RDataFrame("ParticleInfo", "cuts/cut_ZdcAllEv.root"));
+        handles.emplace_back(zdcAllEv->Filter([](int r){return r == 1;}, {"isReco"}).Snapshot("ParticleInfo", "cuts/cut_hitZDC_AllEv.root", "", lazy));
+    }
+    if (CutWanted("cuts/cut_hitZDC_AllPart.root")){ // every recorded particle at the ZDC that has a reconstructed track, any pdg
+        zdcAllPart.reset(new ROOT::RDataFrame("ParticleInfo", "cuts/cut_ZdcAllPart.root"));
+        handles.emplace_back(zdcAllPart->Filter([](int r){return r == 1;}, {"isReco"}).Snapshot("ParticleInfo", "cuts/cut_hitZDC_AllPart.root", "", lazy));
+    }
     ROOT::RDF::RunGraphs(handles);
 }
 
