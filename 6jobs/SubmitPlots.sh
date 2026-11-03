@@ -20,20 +20,20 @@ source ./submit_lib.sh
 cut_indexes() {
     local n=${1#*/}
     case $1 in
-        "") echo 0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 ;;
+        "") echo 0 1 2 3 4 5 6 7 8 9 10 11 ;;
         0_cuts|0_cuts/*|1_hitZDC|1_hitZDC/*|2_KECUT80|2_KECUT80/*) echo 0 ;;
         3_ResCuts|3_ResCuts/*) echo 1 ;;
         4_nParticles) echo 2 3 ;;
         4_nParticles/1_*) echo 2 ;;
         4_nParticles/2_*) echo 3 ;;
         5_nHits|5_nHits/*) echo 4 ;;
-        6_megaCut) echo 5 6 7 8 ;;
-        6_megaCut/[1-4]_*) echo $((4 + ${n:0:1})) ;;
-        7_megaCut2) echo 9 10 11 12 ;;
-        7_megaCut2/[1-4]_*) echo $((8 + ${n:0:1})) ;;
-        8_nZdcParticles|8_nZdcParticles/*) echo 13 ;;
-        9_megaCut3) echo 14 15 16 17 ;;
-        9_megaCut3/[1-4]_*) echo $((13 + ${n:0:1})) ;;
+        6_megaCut) echo 5 6 ;;
+        6_megaCut/[1-2]_*) echo $((4 + ${n:0:1})) ;;
+        7_megaCut2) echo 7 8 ;;
+        7_megaCut2/[1-2]_*) echo $((6 + ${n:0:1})) ;;
+        8_nZdcParticles|8_nZdcParticles/*) echo 9 ;;
+        9_megaCut3) echo 10 11 ;;
+        9_megaCut3/[1-2]_*) echo $((9 + ${n:0:1})) ;;
         *) return 1 ;;
     esac
 }
