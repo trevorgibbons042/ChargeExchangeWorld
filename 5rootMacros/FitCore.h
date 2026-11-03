@@ -110,6 +110,7 @@ inline auto MapRows(Long64_t n, F f) -> std::vector<decltype(f(Long64_t(0), Long
 // Rows collected one entry at a time, per RDataFrame slot, as one vector per column (RowsAppend), and the slots appended column by column (RowsMerge, each slot column freed at once).
 // The values of one row go into the same position of every column, so the columns stay aligned whatever the order of the rows. Used by ColumnsUnordered (TreeColumns.h) and DrawPlan.
 #include <ROOT/RVec.hxx>
+#include <ROOT/RDataFrame.hxx>
 using RowCols = std::vector<std::vector<double>>;
 inline void RowsAppend(RowCols& acc, const ROOT::RVecD& v){
     if (acc.size() < v.size()) acc.resize(v.size());
@@ -129,22 +130,23 @@ inline void RowsMerge(std::vector<RowCols>& slots){
     }
 }
 
-// RDataFrame's rdfentry_ is not the TTree entry number under implicit MT once a tree has more than one cluster (ROOT 6.38: 10 clusters, 60% of the rows labelled wrong), and a multithreaded
-// Snapshot writes one cluster per task. A reader that sorts or matches by rdfentry_ builds its RDataFrame inside a SerialScope for such a tree: the loop is single threaded, rdfentry_ exact.
+// A tree with more than one cluster (a multithreaded Snapshot writes one cluster per task). rdfentry_ is wrong under implicit MT on such a tree (ROOT 6.38: 48 to 76% of the rows of a 5-cluster
+// AnglesRaw at 4 and 8 threads), so the macros take the entry number from WithEntryNumber below. MultiCluster only tells the order-free readers (ColumnsUnordered, DrawPlan::unordered) which trees they are for.
 inline bool MultiCluster(TTree* t){
     auto it = t->GetClusterIterator(0);
     const Long64_t n = t->GetEntries();
     return n > 0 && it.Next() < n && it.Next() < n; // a second cluster starts before the last entry
 }
-struct SerialScope {
-    unsigned nThreads = 0;
-    explicit SerialScope(bool serial){
-        if (serial && ROOT::IsImplicitMTEnabled()){nThreads = ROOT::GetThreadPoolSize(); ROOT::DisableImplicitMT();}
-    }
-    explicit SerialScope(TTree* t) : SerialScope(MultiCluster(t)) {}
-    ~SerialScope(){if (nThreads) ROOT::EnableImplicitMT(nThreads);}
-    SerialScope(const SerialScope&) = delete; SerialScope& operator=(const SerialScope&) = delete;
-};
+// The entry number of each row in its tree, exact under implicit MT, as a ULong64_t column col (default "entryNo"); use it instead of rdfentry_ (tested on a 5-cluster AnglesRaw: rdfentry_ labelled 48 to 76% of
+// the rows wrong at 4 and 8 threads, this was exact in 18 of 18 runs). Every task starts at s.EntryRange().first and counts the rows it reads. The counter has to see every row of the tree, so the column is
+// forced by an always true Filter right here, before any Filter of the caller drops rows. Call it on a node of an RDataFrame built after ROOT::EnableImplicitMT; nSlots is df.GetNSlots().
+// For a TChain the number is the one inside the file of the row, which orders the rows of one file (and so of one event) correctly.
+inline ROOT::RDF::RNode WithEntryNumber(ROOT::RDF::RNode df, unsigned nSlots, const std::string& col = "entryNo"){
+    auto count = std::make_shared<std::vector<Long64_t>>(std::max(1u, nSlots) + 1, 0);
+    return df.DefinePerSample(col + "_b", [count](unsigned slot, const ROOT::RDF::RSampleInfo& s){(*count)[slot] = 0; return (Long64_t)s.EntryRange().first;})
+             .DefineSlot(col, [count](unsigned slot, Long64_t first){return (ULong64_t)(first + (*count)[slot]++);}, {col + "_b"})
+             .Filter([](ULong64_t){return true;}, {col});
+}
 
 // z (mm) of the carbon blocks and tracker planes of the run (2construction.cc): centre of the stack at 4 m, elements dz apart. Each block is followed by nBlocksTracking
 // tracker planes; frontTrackers (settings.csv, 1 when the run has none, an older sim) puts one more group of planes before the first block.

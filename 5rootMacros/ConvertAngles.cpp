@@ -108,7 +108,7 @@ void ConvertAngles(){
     ROOT::EnableImplicitMT(nThreads);
     {
         ROOT::RDataFrame df("AnglesRaw", inPath);
-        auto withNew = df.Define("finalKED", [&finalKED](ULong64_t e){return finalKED[e];}, {"rdfentry_"})
+        auto withNew = WithEntryNumber(df, df.GetNSlots()).Define("finalKED", [&finalKED](ULong64_t e){return finalKED[e];}, {"entryNo"}) // entryNo: the true row of AnglesRaw (rdfentry_ is wrong under MT on a tree with many clusters)
                          .Define("inCE", [&ceEvents](int ev){return (int)ceEvents.count(ev);}, {"fEvent"});
         std::vector<std::string> outCols = columns;
         for (const char* c : {"finalKED", "inCE"}) outCols.push_back(c);

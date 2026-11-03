@@ -24,7 +24,7 @@
 #include <vector>
 
 // Multithreaded replacement for TTree::Draw(exprs, cut, "goff") and for GetEntry loops: one RDataFrame event loop on all the threads (ROOT::EnableImplicitMT(NThreads()) first, FitCore.h),
-// on one thread for a tree with several clusters (rdfentry_ is wrong under implicit MT there, SerialScope in FitCore.h)
+// on all threads, with the entry numbers of WithEntryNumber (FitCore.h; rdfentry_ is wrong under implicit MT on a tree with several clusters)
 // copies expressions of the tree out as columns. Like TTree::Draw it sees the TEntryList set on t (ApplyCut, CutFiles.h) and the friends of t, written "Friend.branch" in the expressions.
 // The rows come back in entry order, one vector per expression, so a fill or a sum over them runs in the same order as the serial Draw loop did.
 // T is double or std::string (CECreator: "std::string(CECreator.data())"). filter is an optional row selection, a C++ expression like a TTree::Draw cut.
@@ -57,20 +57,19 @@ inline std::string ColumnsExpr(TTree* t, std::string expr, std::map<std::string,
     return expr;
 }
 
-#include "FitCore.h" // SerialScope: a multi-cluster tree is read on one thread, rdfentry_ is wrong under implicit MT there
+#include "FitCore.h" // WithEntryNumber: rdfentry_ is wrong under implicit MT on a tree with several clusters
 
 template <class T = double>
 inline std::vector<std::vector<T>> Columns(TTree* t, const std::vector<std::string>& exprs, const std::string& filter = ""){
     static_assert(std::is_same<T, double>::value || std::is_same<T, std::string>::value, "Columns: T is double or std::string");
-    SerialScope serial(t); // the RDataFrame and its lazy Takes below all run inside it
     const std::string type = std::is_same<T, double>::value ? "double" : "std::string";
     using Row = std::pair<ULong64_t, T>; // (entry, value): the entries put the rows of the threads back in order
     std::map<std::string, std::string> aliases;
     const std::string cut = filter.empty() ? "" : ColumnsExpr(t, filter, aliases);
     std::vector<std::string> defs;
-    for (const auto& e : exprs) defs.push_back("std::make_pair((ULong64_t)rdfentry_, (" + type + ")(" + ColumnsExpr(t, e, aliases) + "))");
+    for (const auto& e : exprs) defs.push_back("std::make_pair((ULong64_t)entryNo, (" + type + ")(" + ColumnsExpr(t, e, aliases) + "))");
     ROOT::RDataFrame df0(*t);
-    ROOT::RDF::RNode df = df0;
+    ROOT::RDF::RNode df = WithEntryNumber(df0, df0.GetNSlots()); // all threads, exact entry numbers
     for (const auto& [alias, column] : aliases) df = df.Alias(alias, column);
     if (!cut.empty()) df = df.Filter(cut, "columns filter");
     std::vector<ROOT::RDF::RResultPtr<std::vector<Row>>> taken;
@@ -89,7 +88,7 @@ inline std::vector<std::vector<T>> Columns(TTree* t, const std::vector<std::stri
     return cols;
 }
 
-// Like Columns for double expressions, but the rows come back in no particular order, and a tree with several clusters is read on all threads: no rdfentry_, no SerialScope, no sort.
+// Like Columns for double expressions, but the rows come back in no particular order, and a tree with several clusters is read on all threads: no entry number, no sort.
 // Row k of every column is one entry (RowsAppend), so a loop over the columns sees the same rows as Columns, only permuted. Use it where the result does not depend on the order (counts,
 // sorts, matching by key); a sum over the rows can differ in the last digits between runs. Expressions, aliases, friends, the filter and the entry list of t work as in Columns.
 inline std::vector<std::vector<double>> ColumnsUnordered(TTree* t, const std::vector<std::string>& exprs, const std::string& filter = ""){
@@ -99,7 +98,7 @@ inline std::vector<std::vector<double>> ColumnsUnordered(TTree* t, const std::ve
     for (size_t i = 0; i < exprs.size(); i++) list += std::string(i ? ", " : "") + "(double)(" + ColumnsExpr(t, exprs[i], aliases) + ")";
     list += "}";
     ROOT::RDataFrame df0(*t);
-    ROOT::RDF::RNode df = df0;
+    ROOT::RDF::RNode df = WithEntryNumber(df0, df0.GetNSlots()); // all threads, exact entry numbers
     for (const auto& [alias, column] : aliases) df = df.Alias(alias, column);
     if (!cut.empty()) df = df.Filter(cut, "columns filter");
     df = df.Define("__row", list);
@@ -153,7 +152,7 @@ inline Long64_t CountMT(TTree* t, const std::string& cut = ""){
     const bool all = cut.empty() || cut == "1";
     const std::string c = all ? "" : ColumnsExpr(t, cut, aliases);
     ROOT::RDataFrame df0(*t);
-    ROOT::RDF::RNode df = df0;
+    ROOT::RDF::RNode df = WithEntryNumber(df0, df0.GetNSlots()); // all threads, exact entry numbers
     for (const auto& [alias, column] : aliases) df = df.Alias(alias, column);
     if (!all) df = df.Filter(c, "count filter");
     return (Long64_t)df.Count().GetValue();
@@ -178,7 +177,7 @@ inline std::vector<TH1*> HistsMT(TTree* t, const std::vector<std::pair<std::stri
         for (const auto& e : specs.back().exprs) defs.back().push_back("(double)(" + ColumnsExpr(t, e, aliases) + ")");
     }
     ROOT::RDataFrame df0(*t);
-    ROOT::RDF::RNode df = df0;
+    ROOT::RDF::RNode df = WithEntryNumber(df0, df0.GetNSlots()); // all threads, exact entry numbers
     for (const auto& [alias, column] : aliases) df = df.Alias(alias, column);
     std::vector<std::function<TH1*()>> src(reqs.size()); // the first call runs the event loop of every booked histogram
     for (size_t j = 0; j < reqs.size(); j++){
