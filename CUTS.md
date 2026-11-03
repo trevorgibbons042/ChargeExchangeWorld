@@ -2,7 +2,7 @@
 
 ## Event and track cuts (CutEvents.cpp, one `cuts/cut_<name>.root` each)
 
-- **cut_CE**: events with a carbon charge exchange. `CarbonCeCut()` selects `ChargeExchange_values` rows with `didChargeExchange > 0`, `fZ < 7000`, and fZ inside one of the four carbon blocks (2775-2975, 3525-3725, 4275-4475, 5025-5225).
+- **cut_CE**: events with a carbon charge exchange. `CarbonCeCut()` selects `ChargeExchange_values` rows with `didChargeExchange > 0`, `fZ < 7700`, and fZ inside one of the four carbon blocks (2775-2975, 3525-3725, 4275-4475, 5025-5225).
 - **cut_ParentID**: tracks whose parent is a CE track of the same event.
 - **cut_AllEvProtons**: every proton that reaches the ZDC (`boundaryType == 2 && pdg == 2212`), for all events.
 - **cut_ParentZdc, cut_ParentTracker, cut_CEtracker, cut_CEall**: the ZDC and first-tracker protons of the CE children, and the CE outside the carbon blocks.

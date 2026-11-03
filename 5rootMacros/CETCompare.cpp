@@ -30,7 +30,7 @@ void CETCompare(){
     TCanvas c("cT", "", 1500, 1200); c.SetLeftMargin(0.14); c.SetBottomMargin(0.13); c.SetRightMargin(0.05);
     // z where the CE happens, all CE of the sim: carbon blocks, silicon trackers, and both
     {
-        // the stack of the run (2construction.cc): nBlocks carbon blocks and the tracker planes (StackZ, FitCore.h), dz apart, centred at 4 m
+        // the stack of the run (2construction.cc): nBlocks carbon blocks and the tracker planes (StackZ, FitCore.h), blocks evenly spread from z = 0 to the ZDC face, trackers either side, dz the gap between block and tracker edges (an old run: centred at 4 m, dz centre to centre)
         const auto st = ReadSettings();
         const StackLayout stack = StackZ(st);
         const double zFirst = std::min(stack.blockZ.front(), stack.planeZ.empty() ? 1e9 : stack.planeZ.front()), zLast = std::max(stack.blockZ.back(), stack.planeZ.empty() ? -1e9 : stack.planeZ.back());

@@ -27,7 +27,7 @@ MyDetectorConstruction::MyDetectorConstruction()
     nRows = 11;
     nCols_detector= 11;
     nRows_detector = 11;
-    dz = 0.25;
+    dz = 0.025;
     CarbonThickness = 0.2;
 
 
@@ -66,7 +66,11 @@ G4VPhysicalVolume *MyDetectorConstruction::Construct() //defines volume and mate
     physWorld = new G4PVPlacement(0, G4ThreeVector(0. ,0. ,0. ), logicWorld, "physWorld", 0, false, 0, false); 
 
     //material
-    G4double zCenter = 4 * m;
+    //ZDC: 0.6 m deep, centred at z = 8 m, its front face at z = 7.7 m is the last of the evenly spaced slots (stackSpread = 1 in settings.csv)
+    G4ThreeVector detectorPos = G4ThreeVector(0,0, 8*m);
+    G4double detectorX = 0.4*m;
+    G4double detectorY = 0.4*m;
+    G4double detectorZ = 0.6*m;
 
     solidMat = new G4Box("solidMat", 0.5 * m,0.5 * m, (CarbonThickness * m)/2);
     logicMat = new G4LogicalVolume(solidMat, CMat, "logicMat");
@@ -86,36 +90,30 @@ G4VPhysicalVolume *MyDetectorConstruction::Construct() //defines volume and mate
     physTrack = new G4PVParameterised("physTrack", logicTrack, logicTrackSlab, kUndefined, nRows * nCols,
                     new GridParameterisation(nCols, cellX, cellY, totalX, totalY));
 
-    G4int nTrackerPlanes = nBlocks * nBlocksTracking;
-    G4int nElements = nTrackerPlanes + nBlocks;
-
-    G4double zStart = zCenter - ((nElements - 1) * (dz * m)) / 2.0;
-
-    G4int elementIndex = 0;
+    //the blocks sit in evenly spaced slots between z = 0 and the ZDC front face, the ZDC face being the last slot. Every block has a tracker dz behind it
+    //and, except the first, one dz in front of it; one more tracker sits dz in front of the ZDC. dz is the gap between the edge of the block and the edge of the
+    //tracker (the ZDC face and the tracker for the last one). nBlocksTracking is not used by this layout.
+    G4double zdcFront = detectorPos.z() - detectorZ / 2.0;
+    G4double pitch = zdcFront / (nBlocks + 1);
+    G4double trackerOffset = (CarbonThickness * m) / 2.0 + dz * m + detectorThickness / 2.0; //block centre to tracker centre
     G4int trackerIndex = 0;
+    auto placeTracker = [&](G4double zTracker) {
+        new G4PVPlacement(nullptr, G4ThreeVector(0, 0, zTracker), logicTrackSlab, "physTrackSlab",
+                    logicWorld, false, trackerIndex, false);
+        trackerIndex++;
+    };
 
-    //each block is followed by nBlocksTracking trackers, none before the first block (frontTrackers = 0 in settings.csv)
     for (G4int i = 0; i < nBlocks; i++) {
-        G4double zCarbon = zStart + elementIndex * (dz * m);
+        G4double zCarbon = (i + 1) * pitch;
         physMat = new G4PVPlacement(nullptr,
             G4ThreeVector(0, 0, zCarbon), logicMat, "physMat",
             logicWorld,false,i,false);
 
-        elementIndex++;
-
-        for (G4int j = 0; j < nBlocksTracking; j++) {
-            G4double zTracker = zStart + elementIndex * (dz * m);
-            new G4PVPlacement(nullptr, G4ThreeVector(0, 0, zTracker), logicTrackSlab, "physTrackSlab",
-                        logicWorld, false, trackerIndex, false);
-            trackerIndex++;
-            elementIndex++;
-        }
+        if (i > 0) placeTracker(zCarbon - trackerOffset);
+        placeTracker(zCarbon + trackerOffset);
     }
+    placeTracker(zdcFront - dz * m - detectorThickness / 2.0);
 
-    G4ThreeVector detectorPos = G4ThreeVector(0,0, 8*m);
-    G4double detectorX = 0.4*m;
-    G4double detectorY = 0.4*m;
-    G4double detectorZ = 0.6*m;
     G4double cellXd = detectorX / nCols_detector;
     G4double cellYd = detectorY / nRows_detector;
 

@@ -45,8 +45,8 @@ void CountCE(){
     }
     if (ceKeys.empty()) return;
 
-    // The block and tracker z come from the geometry in settings.csv (2construction.cc): nBlocksTracking tracker planes before each carbon block and after the last one,
-    // all elements dz apart around z = 4 m. A carbon block is CarbonThickness thick, a tracker plane detectorThickness (500 um).
+    // The block and tracker z come from the geometry in settings.csv (2construction.cc): carbon blocks evenly spread from z = 0 to the ZDC face, a tracker plane either side of each block (none in front of the first) and one in front of the ZDC, each a gap dz from the block or ZDC edge
+    // (an old run: nBlocksTracking planes per block, dz apart around z = 4 m). A carbon block is CarbonThickness thick, a tracker plane detectorThickness (500 um).
     const auto st = ReadSettings();
     const double carbonMm = st.at("CarbonThickness") * 1000.0, detectorMm = 0.5;
     const StackLayout stack = StackZ(st);

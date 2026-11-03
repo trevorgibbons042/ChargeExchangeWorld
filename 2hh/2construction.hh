@@ -62,7 +62,8 @@ public:
                 {"nCols_detector", nCols_detector}, {"nRows_detector", nRows_detector},
                 {"dz", dz}, {"CarbonThickness", CarbonThickness},
                 {"randPosDetector", randPosDetector}, {"randPosScaling", randPosScaling},
-                {"frontTrackers", 0}}; //0: no trackers before the first block (the macros assume 1 when settings.csv has none)
+                {"frontTrackers", 0},  //0: no trackers before the first block (the macros assume 1 when settings.csv has none)
+                {"stackSpread", 1}};   //1: blocks evenly spread from z = 0 to the ZDC face, trackers either side and one in front of the ZDC, dz being the edge to edge gap (a settings.csv without it is the old layout, centred at z = 4 m)
     }
 
     ////Needs to be accessed by 9stepping.cc

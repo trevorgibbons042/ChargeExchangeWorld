@@ -16,6 +16,12 @@ bash Run.sh <macro>
 
 Runs `./sim <macro>` in `build/` on one 128-cpu node. The macro is a file in `build/`, for example `bash Run.sh run_0.mac`. The job is named `Run_<macro name>`. Plain `qsub Run.pbs` still works and runs `run_0.mac`. The job sets `G4FORCENUMBEROFTHREADS=128`, so the sim uses 128 threads whatever the macro's `/run/numberOfThreads` says.
 
+```
+bash ScanBlocks.sh <template macro> <total thickness m> [dz m]
+```
+
+Block scan. Writes one macro per block count (1, 3, 5, 7, 9) from the template in `build/`, each with `/detector/CarbonThickness` set to the total divided by the count, and submits each with `Run.sh`. The run folder gets the suffix `_<n>block_<total>m`. dz (default 0.025 m) is the gap between the edge of a block and the edge of its tracker. It refuses if the trackers of neighbouring blocks would meet: the slot spacing 7.7 m / (n + 1) must exceed the block thickness plus 2 dz. Example: `bash ScanBlocks.sh run_0.mac 0.4`.
+
 ## Analysis chain, one job per step
 
 ```
