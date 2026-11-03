@@ -169,6 +169,10 @@ void Plot3D(){
             if (path.find("/6_cuts/") == std::string::npos) WritePlotNumbers(h, path, fitFilesStarted); // the 6_cuts plots keep only the pdf; stats.csv, plus fit_values.csv if h has a fit, next to the plot
             canvas->Update();
             canvas->SaveAs(path.c_str());
+            if (gSystem->AccessPathName(path.c_str())){ // the pdf is not there: TPDF::Open failed once on LCRC (2_block/2_xy_recon.pdf, 46 processes at the same time), so the folder is made again and the pdf saved a second time
+                gSystem->mkdir(gSystem->GetDirName(path.c_str()), true);
+                canvas->SaveAs(path.c_str());
+            }
             h->SetName(hName.c_str());
         };
         // x:y position maps: linear color scale from 0 up to the fullest bin (empty bins stay blank)
@@ -916,7 +920,7 @@ void Plot3D(){
         }
 
         // recon protons that hit the ZDC, all KE (no cut): CE protons and every recon proton of all events
-        if (RunPart(1)) for (const auto& e : cutEnergies) for (const auto& r : keRanges) for (const int var : {0, 1, 2}){ // 1_hitZDC, 0_cuts/1_noCuts (hit ZDC only), 0_cuts/2_theta0_1 (the same sample as 1_hitZDC)
+        if (RunPart(1) && RunSub(3)) for (const auto& e : cutEnergies) for (const auto& r : keRanges) for (const int var : {0, 1, 2}){ // 1_hitZDC, 0_cuts/1_noCuts (hit ZDC only), 0_cuts/2_theta0_1 (the same sample as 1_hitZDC)
             const bool noTheta = var == 1;
             const std::string hitDir = var == 0 ? "1_hitZDC/" : var == 1 ? "0_cuts/1_noCuts/" : "0_cuts/2_theta0_1/", hb = noTheta ? zdcRecoAll : zdcBase, hbp = noTheta ? zdcRecoPartAll : zdcBasePart, hnote = noTheta ? kNoCutNote : kThetaNote;
             std::string folder_hit = folder_KEcuts + hitDir;
