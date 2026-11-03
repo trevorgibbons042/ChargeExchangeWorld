@@ -133,7 +133,7 @@ static void ZdcColumns(){
 //   cut_nHits         2, 4, 6 or 8 tracker hits
 //   cut_megacut_1, 2  6_megaCut/1_1particlecut, 2_2particlecut: at most 1 / 2 reconstructed particles in the event, 2, 4, 6 or 8 tracker hits, recon theta and recon block theta 0 to 1 degree
 //   cut_megacut2_1, 2 7_megaCut2/1_1particlecut, 2_2particlecut: the same, and a reconstructed ZDC proton with ZDC KE > 80% of the beam KE
-//   cut_megacut3_1, 2 9_megaCut3/1_1particlecut, 2_2particlecut: the cut_megacut2 cuts, and 2, 4, 6 or 8 charged tracker hits in the event (nTrackerHitsEv, all particles added up)
+//   cut_megacut3_1, 2 9_megaCut3/1_1particlecut, 2_2particlecut: the cut_megacut2 cuts, 2, 4, 6 or 8 charged tracker hits in the event (nTrackerHitsEv, all particles added up) and exactly 1 charged particle at the ZDC (nZdcCharged)
 // ZDC cut (cut_ZdcAllEv.root, the ZDC protons with the Plot3D columns of ZdcColumns.cpp):
 //   cut_hitZDC_AllEv           the proton has a reconstructed track (isReco)
 // Run after ZdcColumns.cpp, with all the threads: every input is read once and all the cut files of it are written in the same pass.
@@ -173,17 +173,17 @@ static void CutSamples(){
     for (const int pct : {85, 90, 95}){
         scanKeys.push_back(keKeys(pct / 100.0));
         const KeyKeys& keys = scanKeys.back();
-        snap(base.Filter([&keys](int np, int n, int e, int t, int nTh){return np <= 1 && (n == 2 || n == 4 || n == 6 || n == 8) && keys.count({e, t}) > 0 && (nTh == 2 || nTh == 4 || nTh == 6 || nTh == 8);},
-                         {"nProtonsEv", "nHits", "fEvent", "TrackID", "nTrackerHitsEv"}), Form("cuts/cut_megacut3_1_ke%d.root", pct));
+        snap(base.Filter([&keys](int np, int n, int e, int t, int nTh, int nZ){return np <= 1 && (n == 2 || n == 4 || n == 6 || n == 8) && keys.count({e, t}) > 0 && (nTh == 2 || nTh == 4 || nTh == 6 || nTh == 8) && nZ == 1;},
+                         {"nProtonsEv", "nHits", "fEvent", "TrackID", "nTrackerHitsEv", "nZdcCharged"}), Form("cuts/cut_megacut3_1_ke%d.root", pct));
     }
     for (const int maxP : {1, 2}){ // 1_1particlecut and 2_2particlecut of 6_megaCut and 7_megaCut2: at most 1 / 2 reconstructed particles in the event
         snap(base.Filter([maxP](int np, int n){return np <= maxP && (n == 2 || n == 4 || n == 6 || n == 8);},
                          {"nProtonsEv", "nHits"}), Form("cuts/cut_megacut_%d.root", maxP));
         snap(base.Filter([&ke80Keys, maxP](int np, int n, int e, int t){return np <= maxP && (n == 2 || n == 4 || n == 6 || n == 8) && ke80Keys.count({e, t}) > 0;},
                          {"nProtonsEv", "nHits", "fEvent", "TrackID"}), Form("cuts/cut_megacut2_%d.root", maxP));
-        snap(base.Filter([&ke80Keys, maxP](int np, int n, int e, int t, int nTh){return np <= maxP && (n == 2 || n == 4 || n == 6 || n == 8) && ke80Keys.count({e, t}) > 0
-                                                                                                          && (nTh == 2 || nTh == 4 || nTh == 6 || nTh == 8);},
-                         {"nProtonsEv", "nHits", "fEvent", "TrackID", "nTrackerHitsEv"}), Form("cuts/cut_megacut3_%d.root", maxP)); // 9_megaCut3: megaCut2 and 2, 4, 6 or 8 charged tracker hits in the event
+        snap(base.Filter([&ke80Keys, maxP](int np, int n, int e, int t, int nTh, int nZ){return np <= maxP && (n == 2 || n == 4 || n == 6 || n == 8) && ke80Keys.count({e, t}) > 0
+                                                                                                          && (nTh == 2 || nTh == 4 || nTh == 6 || nTh == 8) && nZ == 1;},
+                         {"nProtonsEv", "nHits", "fEvent", "TrackID", "nTrackerHitsEv", "nZdcCharged"}), Form("cuts/cut_megacut3_%d.root", maxP)); // 9_megaCut3: megaCut2, 2, 4, 6 or 8 charged tracker hits in the event and exactly 1 charged particle at the ZDC
     }
 
     ROOT::RDataFrame zdcAllEv("ParticleInfo", "cuts/cut_ZdcAllEv.root"); // stays alive until RunGraphs
