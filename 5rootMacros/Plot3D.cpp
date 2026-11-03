@@ -109,9 +109,11 @@ void Plot3D(){
             const size_t axes = title.find(';');
             h->SetTitle(PlotTitle(path, title.substr(0, axes) + titleSuffix + (axes == std::string::npos ? "" : title.substr(axes))).c_str());
             const bool ceOnly1D = t == events2 && h->GetDimension() == 1;
+            const bool allPart1D = t == eventsAllPart && h->GetDimension() == 1;
             if (ceOnly1D) h->SetLineColor(kRed); // CE protons are red in every plot; the overlay tweaks below set their own colors
+            if (allPart1D) h->SetLineColor(kGreen + 2); // all recon particles are green, as in the x overlays
             if (tweak) tweak(h);
-            if (ceOnly1D) for (TObject* o : *h->GetListOfFunctions()) if (TF1* fit = dynamic_cast<TF1*>(o)) fit->SetLineColor(kBlack); // a red histogram would hide a red fit
+            if (ceOnly1D || allPart1D) for (TObject* o : *h->GetListOfFunctions()) if (TF1* fit = dynamic_cast<TF1*>(o)) fit->SetLineColor(kBlack); // a red histogram would hide a red fit
             const std::string hName = h->GetName(); // the stats box shows the name: a readable one until the pdf is saved
             h->SetName(StatsTitle(h, title.substr(0, std::min(title.find(','), axes)) + (t == events2 ? ", CE protons" : t == eventsAllEv ? ", all recon protons" : t == eventsAllPart ? ", all recon particles" : "")).c_str()); // quantity: the title up to its first comma
             if (t == eventsAllEv || t == eventsAllPart || t == events2) countZdcAll(); // the ZDC totals the percent boxes use, counted once
@@ -129,18 +131,14 @@ void Plot3D(){
             canvas->SaveAs(path.c_str());
             h->SetName(hName.c_str());
         };
-        // x:y position maps: log color scale from 1 count up to the fullest bin
+        // x:y position maps: linear color scale from 0 up to the fullest bin (empty bins stay blank)
         auto drawXY = [&](TTree* t, const std::string& expr, const std::string& cut, const std::string& title, const std::string& path){
-            canvas->SetLogz(1);
-            drawPlot(t, expr, cut, title, path, "colz", [](TH1* h){h->SetMinimum(1);});
-            canvas->SetLogz(0);
+            drawPlot(t, expr, cut, title, path, "colz", [](TH1* h){h->SetMinimum(0);});
         };
         // block position map, one bin per ZDC cell (the histogram keeps the stats box, colorbar and percent boxes): each occupied cell is a square of the cell size (the pitch of the bin, edge cells may be cut by the frame) at its exact position, colored by
         // its count on the same log scale. The squares touch, no gaps.
         auto drawXYDots = [&](TTree* t, const std::string& expr, const std::string& cut, const std::string& title, const std::string& path, double halfRange = 0){ // halfRange > 0: hard frame of +-halfRange mm, the cells at the edge are clipped by it
-            canvas->SetLogz(1);
-            drawPlot(t, expr, cut, title, path, "colz", [halfRange](TH1* h){DrawBlockSquares(h, halfRange, true);}); // BlockSquares.h
-            canvas->SetLogz(0);
+            drawPlot(t, expr, cut, title, path, "colz", [halfRange](TH1* h){DrawBlockSquares(h, halfRange, false);}); // BlockSquares.h, linear color scale
         };
 
         // 1D plot on a hard frame of +-half mm: the bars of the cells past it are clipped by the frame (like 4_xy_zoom_recon.pdf); call in drawPlot's tweak, after the fit
@@ -219,17 +217,31 @@ void Plot3D(){
             drawXYDots(events2, "fDy:fDx>>h2(" + binsCell + "," + binsCellY + ")", zdcRecoD, "Position at ZDC BLOCK, CE recon protons that hit ZDC" + cellNote + ";X Position (mm);Y Position (mm)", folder_posD + "1_xy_CE.pdf");
             drawXYDots(events2, "fDy:fDx>>h2(" + binsCellZoom + "," + binsCellZoomY + ")", zdcRecoD, "Position at ZDC BLOCK, CE recon protons that hit ZDC" + zoomNote + ";X Position (mm);Y Position (mm)", folder_posD + "3_xy_zoom_CE.pdf", 50);
 
-            drawPlot(events2, "fDx>>hSliceDX200(" + binsSlice200 + ")", xySliceD, "X Position at ZDC BLOCK, CE recon protons that hit ZDC, |Y| < 2 mm;X Position (mm);Count", folder_posD + "5_x_fit_200_CE.pdf", "", [](TH1* h){FitBlocks(h);}); //whole blocks per bin
-            drawPlot(events2, "fDx>>hSliceDX(" + binsSlice50 + ")", xySliceD, "X Position at ZDC BLOCK, CE recon protons that hit ZDC, |Y| < 2 mm, edge cells clipped at 50 mm;X Position (mm);Count", folder_posD + "7_x_fit_50_CE.pdf", "", [&](TH1* h){FitBlocks(h); clipX(h, 50);});
-            drawPlot(eventsAllEv, "fDx>>hSliceDXAllEv200(" + binsSlice200 + ")", xySliceD, "X Position at ZDC BLOCK, all recon protons that hit ZDC, |Y| < 2 mm;X Position (mm);Count", folder_posD + "6_x_fit_200_recon.pdf", "", [](TH1* h){FitBlocks(h);});
-            drawPlot(eventsAllEv, "fDx>>hSliceDXAllEv(" + binsSlice50 + ")", xySliceD, "X Position at ZDC BLOCK, all recon protons that hit ZDC, |Y| < 2 mm, edge cells clipped at 50 mm;X Position (mm);Count", folder_posD + "8_x_fit_50_recon.pdf", "", [&](TH1* h){FitBlocks(h); clipX(h, 50);});
-
-            // the same block plots for every recorded particle that hit the ZDC and has a recon track passing the block residual cut (any pdg)
-            const std::string zdcRecoDP = zdcRecoDPartAll + posKes[pk].second, xySliceDP = zdcRecoDP + " && fabs(fDy) < 2";
+            // the same block xy plots for every recorded particle that hit the ZDC and has a recon track passing the block residual cut (any pdg)
+            const std::string zdcRecoDP = zdcRecoDPartAll + posKes[pk].second;
             drawXYDots(eventsAllPart, "fDy:fDx>>h2(" + binsCell + "," + binsCellY + ")", zdcRecoDP, "Position at ZDC BLOCK, all recon particles that hit ZDC" + cellNote + ";X Position (mm);Y Position (mm)", folder_posD + "2_xy_recon_allParticles.pdf");
             drawXYDots(eventsAllPart, "fDy:fDx>>h2(" + binsCellZoom + "," + binsCellZoomY + ")", zdcRecoDP, "Position at ZDC BLOCK, all recon particles that hit ZDC" + zoomNote + ";X Position (mm);Y Position (mm)", folder_posD + "4_xy_zoom_recon_allParticles.pdf", 50);
-            drawPlot(eventsAllPart, "fDx>>hSliceDXAllPart200(" + binsSlice200 + ")", xySliceDP, "X Position at ZDC BLOCK, all recon particles that hit ZDC, |Y| < 2 mm;X Position (mm);Count", folder_posD + "6_x_fit_200_recon_allParticles.pdf", "", [](TH1* h){FitBlocks(h);});
-            drawPlot(eventsAllPart, "fDx>>hSliceDXAllPart(" + binsSlice50 + ")", xySliceDP, "X Position at ZDC BLOCK, all recon particles that hit ZDC, |Y| < 2 mm, edge cells clipped at 50 mm;X Position (mm);Count", folder_posD + "8_x_fit_50_recon_allParticles.pdf", "", [&](TH1* h){FitBlocks(h); clipX(h, 50);});
+
+            // the six x fits have no block residual cut: ZDC hit and a recon track only
+            titleSuffix = ", has recon track, no KE cut" + posKeLabels[pk];
+            const std::string xySliceB = zdcReco + " && fabs(fDy) < 2", xySliceBP = zdcRecoP + " && fabs(fDy) < 2";
+            drawPlot(events2, "fDx>>hSliceDX200(" + binsSlice200 + ")", xySliceB, "X Position at ZDC BLOCK, CE recon protons that hit ZDC, |Y| < 2 mm;X Position (mm);Count", folder_posD + "5_x_fit_200_CE.pdf", "", [](TH1* h){FitBlocks(h);}); //whole blocks per bin
+            drawPlot(events2, "fDx>>hSliceDX(" + binsSlice50 + ")", xySliceB, "X Position at ZDC BLOCK, CE recon protons that hit ZDC, |Y| < 2 mm, edge cells clipped at 50 mm;X Position (mm);Count", folder_posD + "7_x_fit_50_CE.pdf", "", [&](TH1* h){FitBlocks(h); clipX(h, 50);});
+            drawPlot(eventsAllEv, "fDx>>hSliceDXAllEv200(" + binsSlice200 + ")", xySliceB, "X Position at ZDC BLOCK, all recon protons that hit ZDC, |Y| < 2 mm;X Position (mm);Count", folder_posD + "6_x_fit_200_recon.pdf", "", [](TH1* h){FitBlocks(h);});
+            drawPlot(eventsAllEv, "fDx>>hSliceDXAllEv(" + binsSlice50 + ")", xySliceB, "X Position at ZDC BLOCK, all recon protons that hit ZDC, |Y| < 2 mm, edge cells clipped at 50 mm;X Position (mm);Count", folder_posD + "8_x_fit_50_recon.pdf", "", [&](TH1* h){FitBlocks(h); clipX(h, 50);});
+            drawPlot(eventsAllPart, "fDx>>hSliceDXAllPart200(" + binsSlice200 + ")", xySliceBP, "X Position at ZDC BLOCK, all recon particles that hit ZDC, |Y| < 2 mm;X Position (mm);Count", folder_posD + "6_x_fit_200_recon_allParticles.pdf", "", [](TH1* h){FitBlocks(h);});
+            drawPlot(eventsAllPart, "fDx>>hSliceDXAllPart(" + binsSlice50 + ")", xySliceBP, "X Position at ZDC BLOCK, all recon particles that hit ZDC, |Y| < 2 mm, edge cells clipped at 50 mm;X Position (mm);Count", folder_posD + "8_x_fit_50_recon_allParticles.pdf", "", [&](TH1* h){FitBlocks(h); clipX(h, 50);});
+
+            // recon block phi (rawVal 15, 0 to 360 deg) of the same |Y| < 2 mm events as the x fits above, no fit
+            const std::string phiOk = " && rawOk(fEvent, TrackID, 15)";
+            // one version per x window, like the x fits: |X| < 200 mm (files 9, 10) and |X| < 50 mm (files 11, 12)
+            struct PhiWin {int w; std::string nCE, nRecon;};
+            for (const auto& pw : std::vector<PhiWin>{{200, "9", "10"}, {50, "11", "12"}}){
+                const std::string tag = std::to_string(pw.w), xWin = Form(" && fabs(fDx) < %d", pw.w), winNote = Form(", |X| < %d mm", pw.w);
+                drawPlot(events2, "rawVal(fEvent, TrackID, 15)>>hPhiDY2CE" + tag + "(100,0,360)", xySliceB + phiOk + xWin, "Recon block phi, CE recon protons that hit ZDC, |Y| < 2 mm" + winNote + ";Recon block phi (degrees);Count", folder_posD + pw.nCE + "_phiBlock_" + tag + "_CE.pdf");
+                drawPlot(eventsAllEv, "rawVal(fEvent, TrackID, 15)>>hPhiDY2AllEv" + tag + "(100,0,360)", xySliceB + phiOk + xWin, "Recon block phi, all recon protons that hit ZDC, |Y| < 2 mm" + winNote + ";Recon block phi (degrees);Count", folder_posD + pw.nRecon + "_phiBlock_" + tag + "_recon.pdf");
+                drawPlot(eventsAllPart, "rawVal(fEvent, TrackID, 15)>>hPhiDY2AllPart" + tag + "(100,0,360)", xySliceBP + phiOk + xWin, "Recon block phi, all recon particles that hit ZDC, |Y| < 2 mm" + winNote + ";Recon block phi (degrees);Count", folder_posD + pw.nRecon + "_phiBlock_" + tag + "_recon_allParticles.pdf");
+            }
             titleSuffix.clear();
         }
 
@@ -874,7 +886,9 @@ void Plot3D(){
             {"nHits", "5_nHits", "tracker hits", 10, -0.5, 10.5, 11},
             {"nZdcCharged", "8_nZdcParticles", "charged particles at the ZDC in the event", 7, -0.5, 9.5, 10},
             {"nChargedTrackerHitsEv", "10_nChargedTrackerHits", "charged tracker plane hits in the event", 17, -0.5, 40.5, 41}, // all charged particles of the event added up
-            {"thetaBlock", "7_theta", "recon block theta (degrees)", 11, 0, 2.3, 100}};
+            {"thetaBlock", "7_theta", "recon block theta (degrees)", 11, 0, 2.3, 100},
+            {"impactD", "13_impactD", "impact to the beam axis, block position (mm)", 3, 0, 0, 100}, // plots only, no cut on these two yet
+            {"r2D", "14_r2D", "R^{2} of the block position line fit", 5, 0, 1.02, 102}};
         // 1st and 99th percentile of every fitted proton's value k (the raw_k column of the AnglesRaw cache where ok_k is 1), once per variable
         // kept in cuts/info_quantiles.tsv (k, 1%, 99%) while it is newer than cut_angles_all.root, so the passes over AnglesRaw run once per run folder, not in every Plot3D process
         std::map<int, std::pair<double, double>> quantileCache;
