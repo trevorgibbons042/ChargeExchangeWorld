@@ -2,6 +2,7 @@
 # Submits the plotting chain for one run folder as PBS jobs (Plot.pbs), the lanes of 5rootMacros/plot.sh in parallel, instead of running plot.sh in one go.
 # Quick redo of one cut: CUT_ONLY=megacut3 bash SubmitPlots.sh <run> "" CutPlots 6_cuts/9_megaCut3 rewrites only the cut_megacut3* files (CutPlots.cpp) and then replots only that folder.
 # Usage: bash SubmitPlots.sh <folder in build/root> [job ids CutPlots waits for, colon separated] [first job] [plots/ folder to redo], e.g. bash SubmitPlots.sh Physics_xs1e10
+# The Pdfs job is only submitted with PDFS=1 in the environment or with Pdfs as the first job (the examples below that mention it need one of them).
 # first job: CutPlots (default), Cuts, Fom, CEblock, SecCE or Pdfs. The jobs before it are not submitted (their files are already in cuts/), so e.g. "Cuts" runs Cuts, Fom, CEblock, SecCE and Pdfs: bash SubmitPlots.sh Physics_801 "" Cuts
 # plots/ folder to redo: one folder of plots/ (a leading plots/ is dropped), e.g. bash SubmitPlots.sh Physics_801 "" CutPlots 6_cuts/3_ResCuts. It is deleted, then only the jobs that write it run (none of CutPlots), then Pdfs.
 #   1_position, 2_energy          Plot3D part 1
@@ -10,6 +11,8 @@
 # Needs cut_*.root and settings.csv already in the run folder (CutEvents.cpp, ReconAngleAll.cpp, CalcAPandT.cpp, CountCE.cpp done), or the job ids of the jobs that write them (SubmitEvents.sh).
 RUN=$1
 ORDER="CutPlots Cuts Fom CEblock SecCE Pdfs"
+# the Pdfs job (tidy_plots.py, cut_side_box.py, crop_pdfs.py) is not submitted unless it is asked for: PDFS=1 in the environment, or Pdfs as the first job
+[ "${3:-}" = Pdfs ] && PDFS=1
 FROM=${3:-CutPlots}
 TARGET=$4
 [ -n "$RUN" ] || { echo "usage: bash SubmitPlots.sh <run folder> [job ids to wait for] [first job: $ORDER] [plots/ folder to redo]"; exit 1; }
@@ -76,7 +79,7 @@ if [ -n "$TARGET" ]; then # one folder: its jobs only (the cuts/ files are alrea
     [ -n "$PARTS" ] && { p3=$(PARTS=$PARTS submit Redo plot3d "$2" 128); ids=$p3; }
     [ -n "$QS" ] && ids="$ids $(PARTS= DEPKIND=afterany submit RedoQS quality "$p3" 16)" # PARTS only goes to the plot3d job
     [ -n "$LANE" ] && ids=$(PARTS= submit Redo $LANE "$2")
-    PARTS= DEPKIND=afterany submit Pdfs pdfs "$(echo $ids | tr ' ' ':')"
+    if [ -n "$PDFS" ]; then PARTS= DEPKIND=afterany submit Pdfs pdfs "$(echo $ids | tr ' ' ':')"; fi
     exit
 fi
 
@@ -93,4 +96,4 @@ on CEblock && ce=$(submit CEblock ceblock "$w")
 on SecCE && sec=$(submit SecCE secce "$w")
 # tidy, side box and crop once every lane has ended, so the pdfs of the lanes that worked are still finished when one failed
 ids=$(echo $cuts $fom $ce $sec | tr ' ' ':')
-DEPKIND=afterany submit Pdfs pdfs "${ids:-$w}"
+if [ -n "$PDFS" ]; then DEPKIND=afterany submit Pdfs pdfs "${ids:-$w}"; fi
