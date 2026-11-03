@@ -25,20 +25,22 @@ void CutEvents(){
     events->Add(filename);
     ChargeExchange->Add(filename);
     
-    // Estimate -1: Draw keeps every selected row in GetV1/GetV2. The default 1e6 would only hold the last chunk, while the loop below reads up to Sync (xs1000 gives ~3.7e7 CE at 1e8).
-    ChargeExchange->SetEstimate(-1);
-    Long64_t Sync = ChargeExchange->Draw("fEvent:TrackID", CarbonCeCut().c_str(), "goff");
+    // (fEvent, TrackID) of every carbon-block CE, read on all threads as one key so the pairs stay together.
+    // TChain::Draw + GetV1 kept only part of them (SetEstimate(-1) on a wildcard TChain): cut_ParentZdc came out with 1 row.
+    ROOT::RDataFrame dfCESel(*ChargeExchange);
+    auto keys = dfCESel.Filter(CarbonCeCut())
+        .Define("ceKey", [](int ev, int id){return ((long long)ev << 32) | (unsigned int)id;}, {"fEvent", "TrackID"})
+        .Take<long long>("ceKey");
 
     // Lookup tables instead of one huge "a || b || ..." string per cut: those strings were JIT-compiled by cling
     // (serial, slow) and tested term by term for every entry.
     std::unordered_map<int, std::vector<int>> ceTracksInEvent;
     std::unordered_set<long long> ceEventParent;
-    for (Long64_t i = 0; i < Sync; i++) {
-        int ev = (int)ChargeExchange->GetV1()[i];
-        int id = (int)ChargeExchange->GetV2()[i];
-        ceTracksInEvent[ev].push_back(id);
-        ceEventParent.insert(((long long)ev << 32) | (unsigned int)id);
+    for (long long k : *keys){
+        ceEventParent.insert(k);
+        ceTracksInEvent[int(k >> 32)].push_back(int(k & 0xffffffff));
     }
+    printf(">>> CutEvents: %zu carbon CE in %zu events\n", keys->size(), ceTracksInEvent.size());
 
     // event has a charge exchange
     auto inEvent = [&](int ev){return ceTracksInEvent.count(ev) > 0;};
