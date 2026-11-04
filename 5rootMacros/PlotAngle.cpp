@@ -39,7 +39,6 @@ struct PlotSpec {
     bool fit;
     std::string file;
     std::string opt = ""; // draw option, "colz" for the 2D plots
-    bool block = false; // block position quantity: the block residual cut too (the <tree>_block list of the KE cut, CutFiles.h)
 };
 
 struct ThetaCut {std::string dir, op, label; double min;}; // op: the theta cut as text (empty: no cut), min: its lower limit in degrees
@@ -72,8 +71,8 @@ static void DrawGroup(TCanvas* canvas, const std::string& groupDir, const std::v
         if (!c.empty()) filter += (filter.empty() ? "" : " && ") + std::string("(") + c + ")";
     }
 
-    // the columns to read per (tree, block cut): the draw expressions of its specs, and the theta when a theta cut is drawn of that tree
-    using Key = std::pair<TTree*, bool>;
+    // the columns to read per tree: the draw expressions of its specs, and the theta when a theta cut is drawn of that tree
+    using Key = TTree*;
     std::map<Key, std::vector<std::string>> exprsOf;
     auto slot = [&](const Key& k, const std::string& e){
         auto& v = exprsOf[k];
@@ -85,7 +84,7 @@ static void DrawGroup(TCanvas* canvas, const std::string& groupDir, const std::v
     std::vector<std::vector<int>> specCol(specs.size());
     std::vector<int> specTheta(specs.size(), -1);
     for (size_t i = 0; i < specs.size(); i++) {
-        const Key k(specs[i].tree, specs[i].block);
+        const Key k = specs[i].tree;
         draws.push_back(SplitDraw(specs[i].expr));
         for (const std::string& e : draws[i].exprs) specCol[i].push_back(slot(k, e));
         for (const auto& th : thetas)
@@ -94,18 +93,17 @@ static void DrawGroup(TCanvas* canvas, const std::string& groupDir, const std::v
 
     std::set<std::string> fitFilesStarted; // fit_values.txt files already truncated in this call
     for (const auto& ke : kes) {
-        std::map<Key, std::vector<std::vector<double>>> cols; // one vector per expression, one entry per row under the KE (and block residual) cut
+        std::map<Key, std::vector<std::vector<double>>> cols; // one vector per expression, one entry per row under the KE cut
         std::map<TTree*, double> nCEAll; // CE protons before any cut (the entry list is not set yet), for the share the cuts lose
         for (const auto& [key, exprs] : exprsOf) {
-            nCEAll[key.first] = key.first->GetEntries(); // GetEntries(): every entry, the list ignored
-            if (ke.dir.empty()) { // no KE cut: no entry list, only the block residual cut on the block plots, as a filter
-                const std::string keFilter = key.second ? (filter.empty() ? "" : filter + " && ") + "(" + BlockCut() + ")" : filter;
-                cols[key] = Columns(key.first, exprs, keFilter);
+            nCEAll[key] = key->GetEntries(); // GetEntries(): every entry, the list ignored
+            if (ke.dir.empty()) { // no KE cut: no entry list
+                cols[key] = Columns(key, exprs, filter);
                 continue;
             }
-            ApplyCut(key.first, ke.dir, key.second); // the KE (and block residual) cut, CutPlots.cpp (trees)
-            cols[key] = Columns(key.first, exprs, filter);
-            key.first->SetEntryList(nullptr);
+            ApplyCut(key, ke.dir); // the KE cut, CutPlots.cpp (trees)
+            cols[key] = Columns(key, exprs, filter);
+            key->SetEntryList(nullptr);
         }
         for (const auto& th : thetas) {
             for (size_t i = 0; i < specs.size(); i++) {
@@ -118,9 +116,8 @@ static void DrawGroup(TCanvas* canvas, const std::string& groupDir, const std::v
                 std::string title = s.title + ", " + label;
                 if (!ke.label.empty()) title += ", " + ke.label;
                 if (!th.label.empty()) title += ", " + th.label;
-                if (s.block) title += ", block residual < 2 mm";
 
-                const auto& c = cols.at(Key(s.tree, s.block));
+                const auto& c = cols.at(s.tree);
                 canvas->Clear();
                 TH1* h = MakeHist(draws[i].target); // after the Clear: a histogram of the same name from the last theta cut leaves the pad first
                 if (!h) continue;
@@ -142,7 +139,7 @@ static void DrawGroup(TCanvas* canvas, const std::string& groupDir, const std::v
                 if (is1D) for (TObject* o : *h->GetListOfFunctions()) if (TF1* f = dynamic_cast<TF1*>(o)) f->SetLineColor(kBlack); // a red histogram would hide a red fit
                 if (h->GetDimension() == 1 && s.expr.find("phi") != std::string::npos){h->SetMinimum(0); h->SetMaximum(1.1 * h->GetMaximum());} // every 1D phi plot, 0 to max
                 if (h->GetDimension() == 1 && h->GetXaxis()->GetXmin() == -180 && h->GetXaxis()->GetXmax() == 180) h->GetXaxis()->SetNdivisions(508, kFALSE); // phi differences, -180 to 180 every 45 deg
-                DrawCEPercent(nPass, -1, nCEAll.at(s.tree)); // the cuts of the plot (KE cut of ke, block residual, theta) are all counted as lost
+                DrawCEPercent(nPass, -1, nCEAll.at(s.tree)); // the cuts of the plot (KE cut of ke, theta) are all counted as lost
                 WritePlotNumbers(h, path, fitFilesStarted);
                 canvas->Update();
                 canvas->SaveAs(path.c_str());
@@ -167,12 +164,10 @@ static std::vector<double> ThetaEdges(double maxTheta, double binWidth)
 
 // N_particles: every fitted track of any pdg in the bin (N is the pdg 2212 ones).
 // FOM table, csv only, one file per KE cut: <groupDir>/1_csv/<ke.dir>.csv. t is the tree with the recon values (sfx: "Re" true position, "ReD" block position);
-// all is the tree of every proton from every event (AnglesRaw of cut_angles_all.root; the cut list "Angles" + allSfx keeps those that pass the quality cut), allThetaExpr its recon theta in degrees for the same position type.
+// all is the tree of every proton from every event (AnglesRaw of cut_angles_all.root; the cut list "Angles" + allSfx keeps those that pass the KE cut), allThetaExpr its recon theta in degrees for the same position type.
 // Per theta bin: N = reconstructed protons in the bin (the Angles tree only holds tracks with a fit), N_CE = CE protons in the bin (the ones with AP), eff = N / total neutrons, mean AP of the CE protons,
 // eff*|<AP>| (the FOM) and eff*<AP>^2 (the F^2 term). The last row is the sum over all bins.
-// block: the block residual cut on both trees too (block position)
-static void WriteFomCsv(const std::string& groupDir, const std::vector<KeCut>& kes, TTree* t, const std::string& sfx, TTree* all, const std::string& allSfx, const std::string& allThetaExpr, const std::vector<double>& thetaEdges,
-                        bool block = false)
+static void WriteFomCsv(const std::string& groupDir, const std::vector<KeCut>& kes, TTree* t, const std::string& sfx, TTree* all, const std::string& allSfx, const std::string& allThetaExpr, const std::vector<double>& thetaEdges)
 {
     const size_t nb = thetaEdges.size() - 1;
     auto binOf = [&](double theta){ // bin = [lo, hi), -1 outside
@@ -180,7 +175,7 @@ static void WriteFomCsv(const std::string& groupDir, const std::vector<KeCut>& k
         return (it == thetaEdges.begin() || it == thetaEdges.end()) ? -1 : int(it - thetaEdges.begin() - 1);
     };
     for (const auto& ke : kes) {
-        ApplyCut(t, ke.dir, block);
+        ApplyCut(t, ke.dir);
         const auto ce = ColumnsUnordered(t, {"theta" + sfx, "ap" + sfx}); // theta, AP of every CE proton under the cut; the bin counts do not depend on the row order
         t->SetEntryList(nullptr);
         std::vector<double> countCE(nb, 0.0), countAll(nb, 0.0), countPart(nb, 0.0), sumAP(nb, 0.0); // countAll: recon protons (PDG 2212), countPart: every fitted track (any pdg)
@@ -198,7 +193,7 @@ static void WriteFomCsv(const std::string& groupDir, const std::vector<KeCut>& k
             return p;
         });
         for (const auto& p : ceParts) for (size_t b = 0; b < nb; b++) {countCE[b] += p.a[b]; sumAP[b] += p.b[b];}
-        ApplyCut(all, ke.dir, block, "Angles" + allSfx);
+        ApplyCut(all, ke.dir, "Angles" + allSfx);
         const auto allCols = ColumnsUnordered(all, {allThetaExpr, "PDG"}); const auto& allTheta = allCols[0]; // AnglesRaw has many clusters: read on all threads
         all->SetEntryList(nullptr);
         const auto allParts = MapRows((Long64_t)allTheta.size(), [&](Long64_t lo, Long64_t hi){
@@ -328,7 +323,7 @@ void PlotAngle(std::string energy = "fKEnergy"){ // energy: "fKEnergy" (true KE)
     };
 
     //CE protons, cut_APandT.root. Theta cuts use the reconstructed (tracker) theta, in degrees.
-    // No cut, plus a gt (>) cut at 50-99% of the beam KE, each also with the 2 mm block residual cut (KeCuts, CutFiles.h).
+    // No cut, plus a gt (>) cut at 50-99% of the beam KE (KeCuts, CutFiles.h). No residual cut.
     const std::string keLabel = (energy == "fDEnergy") ? "ZDC KE" : "true KE"; // which energy the cuts are on, shown in the titles
     const std::vector<KeCut> keCE = KeCuts(keLabel);
     auto reDiff = [&](const std::string& re, const std::string& block){return "(CalcValsRe" + suffix + "." + re + "-" + block + ")";}; // recon minus recon block
@@ -354,7 +349,7 @@ void PlotAngle(std::string energy = "fKEnergy"){ // energy: "fKEnergy" (true KE)
         {events4, "apReD>>hAPDiff(100,-0.15,0.1)",    "Difference between CE and Recon AP", "AP Difference;Count", true, "4_ap/4_apDiff.pdf"},
         {events3, "apReD>>hAPBlock(100,-1,0)",    "Recon block AP Distribution", "AP;Count", false, "4_ap/3_apBlock.pdf"},
         {events5, "apReD>>hAPBlockDiff(100,-0.15,0.1)",    "Difference between CE and Recon Block AP", "AP Difference;Count", true, "4_ap/5_apBlockDiff.pdf"},
-        // recon minus recon block (events3 has the recon tree events2 as friend, same entries), block residual cut added below
+        // recon minus recon block (events3 has the recon tree events2 as friend, same entries)
         {events3, reDiff("thetaRe", "thetaReD") + ">>hThetaReBlockDiff(100,-1,1)", "Reconstructed CE protons, difference between Recon and Recon Block Theta", diff, true, "1_theta/7_thetaReBlockDiff.pdf"},
         {events3, wrap360(reDiff("phiRe", "phiReD")) + ">>hPhiReBlockDiff(72,-180,180)", "Reconstructed CE protons, difference between Recon and Recon Block Phi", diff, true, "2_phi/8_phiReBlockDiff.pdf"},
         {events3, reDiff("tRe", "tReD") + ">>hTReBlockDiff(100,-0.05,0.05)", "Difference between Recon and Recon Block t", "t Difference;Count", true, "3_t/8_tReBlockDiff.pdf"},
@@ -398,10 +393,6 @@ void PlotAngle(std::string energy = "fKEnergy"){ // energy: "fKEnergy" (true KE)
             }
         }
     }
-    // block residual cut on every block position plot (CalcValsReD, CalcValsReDDIFF), only there (QualityCut.h)
-    for (auto& s : specsCE)
-        if (s.tree == events3 || s.tree == events5) s.block = true;
-
     // FOM from the true position recon (events2, "Re") and from the block position recon (events3, "ReD")
     const std::string fomDir = "plots/5_fomCalc/";
 
@@ -421,7 +412,7 @@ void PlotAngle(std::string energy = "fKEnergy"){ // energy: "fKEnergy" (true KE)
     // FOM tables: reconstructed protons from all events (N) and the CE protons with AP (N_CE) per theta bin
     const std::vector<KeCut> keFom = {keCE.front()}; // the FOM tables have no KE and no residual cuts
     WriteFomCsv(fomDir + "1_reconTheta", keFom, events2, "Re", all, suffix, "outTheta*180/TMath::Pi()", thetaEdges);
-    WriteFomCsv(fomDir + "2_reconBlockTheta", keFom, events3, "ReD", all, suffix, "outDTheta*180/TMath::Pi()", thetaEdges, true);
+    WriteFomCsv(fomDir + "2_reconBlockTheta", keFom, events3, "ReD", all, suffix, "outDTheta*180/TMath::Pi()", thetaEdges);
 
     printf("[PlotAngle] FOM csv done %s\n", TDatime().AsSQLString()); fflush(stdout);
     // every recon proton, no theta acceptance cut, so the theta plots run up to the largest recon theta

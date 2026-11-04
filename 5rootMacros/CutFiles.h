@@ -24,15 +24,13 @@ static std::vector<KeCut> KeCuts(const std::string& keLabel = "KE"){
     return {{"ke_gt80", "finalKE > " + min, keLabel + " > " + min + " MeV (80%)", (double)minKE}};
 }
 
-// Trees CutPlots.cpp (trees) writes lists for, per energy suffix ("" or "_DE"). The block lists (name + "_block", block residual cut too) only exist
-// for the trees with block position quantities (kBlockTrees).
+// Trees CutPlots.cpp (trees) writes lists for, per energy suffix ("" or "_DE"). There is no residual cut: each list is the KE cut only.
 // cut_angles_all.root holds one tree, AnglesRaw (every fitted proton, ReconAngleAll.cpp). The "trees" Angles and AnglesCE are views of it: the rows with
 // AngleSelection(view) set. Their lists are named view + suffix, so the lists of both energies live side by side in one cuts/<ke dir>.root.
 // No namespace-scope globals with a runtime initializer (std::string, std::vector): ACLiC cannot load such a macro on LCRC (Failed to materialize symbols).
 static constexpr const char* kAngleTree = "AnglesRaw";
 inline const std::vector<std::string>& ApTrees(){static const std::vector<std::string> v = {"CE", "CalcValsRe", "CalcValsReD", "CalcValsReDIFF", "CalcValsReDDIFF"}; return v;} // cut_APandT.root
 inline const std::vector<std::string>& AngleTrees(){static const std::vector<std::string> v = {"Angles", "AnglesCE"}; return v;}                                               // views of kAngleTree
-inline const std::vector<std::string>& BlockTrees(){static const std::vector<std::string> v = {"CalcValsReD", "CalcValsReDDIFF", "Angles", "AnglesCE"}; return v;}
 
 // The rows of AnglesRaw a view stands for: every fitted proton for Angles, only those of a CE event (inCE) for AnglesCE.
 static std::string AngleSelection(const std::string& view){return view == "AnglesCE" ? "inCE == 1" : "1";}
@@ -44,12 +42,12 @@ static std::string KeCutFor(std::string cut, const std::string& sfx){
     return cut;
 }
 
-// The entries of t that pass KE cut dir (block: and the block residual cut), from cuts/<dir>.root. The list is the one named like t, or name (a view + suffix, AnglesRaw).
-static TEntryList* CutList(const std::string& dir, TTree* t, bool block = false, const std::string& listName = ""){
+// The entries of t that pass KE cut dir, from cuts/<dir>.root. The list is the one named like t, or listName (a view + suffix, AnglesRaw).
+static TEntryList* CutList(const std::string& dir, TTree* t, const std::string& listName = ""){
     static std::map<std::string, TFile*> files;
     TFile*& f = files[dir];
     if (!f) f = TFile::Open(("cuts/" + dir + ".root").c_str(), "READ");
-    const std::string name = (listName.empty() ? std::string(t->GetName()) : listName) + (block ? "_block" : "");
+    const std::string name = listName.empty() ? std::string(t->GetName()) : listName;
     TEntryList* l = f ? (TEntryList*)f->Get(name.c_str()) : nullptr;
     if (!l){Error("CutList", "%s missing in cuts/%s.root (run CutPlots.cpp)", name.c_str(), dir.c_str()); return nullptr;}
     // the list belongs to the tree as this macro opened it, so TTree::SetEntryList uses it as is
@@ -64,12 +62,11 @@ static TEntryList* CutList(const std::string& dir, TTree* t, bool block = false,
 
 // From here on Draw, GetEntries(selection) and Process on t (friends follow) only see the entries of the cut; t->SetEntryList(nullptr) clears it.
 // GetEntries() without a selection still counts every entry.
-static void ApplyCut(TTree* t, const std::string& dir, bool block = false, const std::string& listName = ""){t->SetEntryList(CutList(dir, t, block, listName));}
+static void ApplyCut(TTree* t, const std::string& dir, const std::string& listName = ""){t->SetEntryList(CutList(dir, t, listName));}
 
-// The selection string CutPlots.cpp (trees) built the list of (dir, block) from: DrawPlan's listCut for a tree that has that list set. dir is the KeCuts() dir ("ke_gt80").
-static std::string ListCut(const std::string& dir, bool block){
+// The selection string CutPlots.cpp (trees) built the list of dir from: DrawPlan's listCut for a tree that has that list set. dir is the KeCuts() dir ("ke_gt80").
+static std::string ListCut(const std::string& dir){
     std::string cut;
     for (const auto& ke : KeCuts()) if (ke.dir == dir) cut = ke.cut;
-    if (block) cut = cut.empty() ? BlockCut() : cut + " && " + BlockCut();
     return cut;
 }

@@ -42,15 +42,15 @@ static const size_t kMinN = 10; // protons needed in a slice for its fit
 
 struct Slice {double lo, hi, nPhi, ap, p, pErr, nCE = 0, nCEAll = -1, nReconAll = -1;}; // nCEAll, nReconAll: CE and recon protons of the theta set before any cut, for the CE lost and the recon share // nCE: CE protons in the slice (= nPhi for the CE fits)
 
-// Reads expr (nCols columns separated by ':') once, multithreaded (Columns, TreeColumns.h), under the KE cut keDir (block: and the block residual cut, CutFiles.h) and copies the columns
+// Reads expr (nCols columns separated by ':') once, multithreaded (Columns, TreeColumns.h), under the KE cut keDir (CutFiles.h) and copies the columns
 // out. The same (tree, expr, cut) comes back from a cache: the slice width and AP-source loops ask for the same columns many times.
 // listName: the cut list of a view of t (Angles + suffix of AnglesRaw, CutFiles.h); empty for a tree whose list is named like it.
-static void Gather(TTree* t, const std::string& expr, const std::string& keDir, bool block, int nCols, std::vector<std::vector<double>>& cols, const std::string& listName = ""){
+static void Gather(TTree* t, const std::string& expr, const std::string& keDir, int nCols, std::vector<std::vector<double>>& cols, const std::string& listName = ""){
     static std::map<std::string, std::vector<std::vector<double>>> cache;
-    const std::string key = (listName.empty() ? std::string(t->GetName()) : listName) + "|" + expr + "|" + keDir + (block ? "|block" : "");
+    const std::string key = (listName.empty() ? std::string(t->GetName()) : listName) + "|" + expr + "|" + keDir;
     auto it = cache.find(key);
     if (it == cache.end()){
-        ApplyCut(t, keDir, block, listName);
+        ApplyCut(t, keDir, listName);
         // The callers only fill per-slice lists and sums from the rows, so the order does not matter: a multi-cluster tree (AnglesRaw) is read on all threads in any order (ColumnsUnordered), the others in entry order.
         const std::vector<std::string> exprs = SplitDraw(expr).exprs;
         std::vector<std::vector<double>> drawn = MultiCluster(t) ? ColumnsUnordered(t, exprs) : Columns(t, exprs);
@@ -155,7 +155,7 @@ void PlotPolarization(std::string energy = "fKEnergy"){ // energy: "fKEnergy" (t
 
     const std::vector<KeCut> kes = {KeCuts(keLabel).front()}; // CutFiles.h, the one cut ke_gt80: no KE and no residual cut folders
 
-    // block: the block position set, which only takes the block AP and the block residual cut (BlockCut(), QualityCut.h); the recon set takes AP from CE and from recon
+    // block: the block position set, which only takes the block AP; the recon set takes AP from CE and from recon
     struct PosSet {std::string dir, name, ceTree, theta, phi, ap, allTheta, allPhi; bool block;};
     const std::vector<PosSet> sets = {
         {"1_reconTheta", "recon theta", "CalcValsRe", "thetaRe", "phiRe", "apRe", "outTheta", "outPhi", false},
@@ -199,8 +199,8 @@ void PlotPolarization(std::string energy = "fKEnergy"){ // energy: "fKEnergy" (t
             for (size_t k = 0; k < kes.size(); k++){
                 gSystem->mkdir((base + kes[k].dir + "/" + apSrc.sub).c_str(), true);
                 std::vector<std::vector<double>> ceCols, allCols;
-                Gather(ce, set.theta + ":" + set.phi + ":" + (apInOwnTree ? "" : apSrc.tree + ".") + apSrc.branch, kes[k].dir, set.block, 3, ceCols);
-                Gather(all, set.allTheta + deg + ":" + set.allPhi + deg, kes[k].dir, set.block, 2, allCols, "Angles" + suffix);
+                Gather(ce, set.theta + ":" + set.phi + ":" + (apInOwnTree ? "" : apSrc.tree + ".") + apSrc.branch, kes[k].dir, 3, ceCols);
+                Gather(all, set.allTheta + deg + ":" + set.allPhi + deg, kes[k].dir, 2, allCols, "Angles" + suffix);
 
                 std::vector<double> apSum(nSlices, 0.0), apN(nSlices, 0.0);
                 std::vector<std::vector<double>> cePhi(nSlices), allPhi(nSlices);
@@ -253,7 +253,7 @@ void PlotPolarization(std::string energy = "fKEnergy"){ // energy: "fKEnergy" (t
                         Slice t{range.first, range.second, 0, apSum2 / apN2, 0, 0, apN2, (double)ce->GetEntries(), nReconAll};
                         pageC.cd(); pageC.Clear();
                         const std::string totPdf = totDir + (range.first > 0 ? fileNum(3) + "phi_fit_0p5to2deg_" : fileNum(4) + "phi_fit_0to5deg_") + tag + ".pdf";
-                        if (!FitSlice(phis, t, true, gSystem->BaseName(totPdf.c_str()), kes[k].label + (set.block ? ", block residual < 2 mm" : ""))) continue;
+                        if (!FitSlice(phis, t, true, gSystem->BaseName(totPdf.c_str()), kes[k].label)) continue;
                         pageC.SaveAs(totPdf.c_str());
                         WriteStatsRow(totPdf, totHeader, Form("%s,%g,%g,%.0f,%.8g,%.8g,%.8g,%.8g", gSystem->BaseName(totPdf.c_str()), t.lo, t.hi, t.nPhi, t.ap, t.p, t.pErr, 100.0 * (t.p - pRef) / pRef), statsStarted, "total_fits.csv");
                     }
@@ -290,7 +290,7 @@ void PlotPolarization(std::string energy = "fKEnergy"){ // energy: "fKEnergy" (t
                     }
                     pageC.cd(); pageC.Clear();
                     const std::string title = std::string(pctPlot ? "Absolute percent error of fitted polarization vs PPValue, log scale" : "Fitted polarization P") + " vs #theta, " +
-                                typeNames[type] + ", " + apSrc.name + ", " + set.name + ", " + kes[k].label + (set.block ? ", block residual < 2 mm" : "") + ", theta < 5 deg" +
+                                typeNames[type] + ", " + apSrc.name + ", " + set.name + ", " + kes[k].label + ", theta < 5 deg" +
                                 ";" + std::string(set.block ? "recon block #theta" : "recon #theta") + " (deg);" + (pctPlot ? "|100 #times (P_{fit} - P_{true}) / P_{true}| (%)" : "P_{fit}");
                     TH1F frame("framePol", PlotTitle(file, title).c_str(), 1, xLo, xHi); // axes and title only, the data is drawn on top
                     frame.SetStats(0);

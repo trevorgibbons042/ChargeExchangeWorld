@@ -14,7 +14,6 @@
 #include <vector>
 
 #include "FitCore.h"
-#include "QualityCut.h"
 
 // Turns a cuts/cut_angles_all.root of the old 5-tree format (AnglesRaw, Angles, AnglesCE, Angles_DE, AnglesCE_DE) into the one-tree format of ReconAngleAll.cpp (AnglesRaw with
 // inCE and finalKED) without refitting a single track. Run after CutEvents.cpp (needs cuts/cut_CE.root).
