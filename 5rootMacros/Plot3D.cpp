@@ -45,7 +45,7 @@ struct SampleCut {std::string dir, expr, label, onFolder, file; bool zdcKE80 = f
 
 // Plot3D has four independent parts that each write their own plots/ folders: 1 position, energy, 2_KECUT80 and 1_hitZDC; 2 the cut ratios and rank csv files of the 6_cuts folders;
 // 3 their 1_additionalinfo plots; 4 their phi fits. P3_PART=n runs part n only, so the four can run as four processes side by side (Plot.pbs, plot.sh). Without it all four run.
-// Part 2 is one process per cut with P3_CUT=i (0: the 1_hitZDC baseline, 1 to 11: sampleCuts in order), each writing its rank rows to cuts/rank_rows_<i>.tsv; part 5 reads those
+// Part 2 is one process per cut with P3_CUT=i (0: the 1_hitZDC baseline, 1 to 8: sampleCuts in order), each writing its rank rows to cuts/rank_rows_<i>.tsv; part 5 reads those
 // files and writes the rank_*.csv files. Parts 3 and 4 also take P3_CUT=i to do one cut folder only (0: 1_hitZDC and 2_KECUT80). Without P3_PART all of it runs in one process.
 static bool RunPart(int n){const char* e = std::getenv("P3_PART"); return !e || !*e || std::atoi(e) == n;}
 static bool RunCut(int i){const char* e = std::getenv("P3_CUT"); return !e || !*e || std::atoi(e) == i;}
@@ -196,8 +196,8 @@ void Plot3D(){
         const std::string zdcProtons = "boundaryType == 2 && pdg == 2212";
         // position plots: only protons with a reconstructed track
         const std::string zdcReco = zdcProtons + " && isReco(fEvent, TrackID)", zdcRecoAll = zdcReco;
-        // the same for every recorded particle (any pdg, eventsAllPart): ZDC hit and a recon track, and for the block plots the block residual cut too
-        const std::string zdcRecoPartAll = "boundaryType == 2 && isReco(fEvent, TrackID)", zdcRecoDPartAll = "boundaryType == 2 && isRecoD(fEvent, TrackID)";
+        // the same for every recorded particle (any pdg, eventsAllPart): ZDC hit and a recon track
+        const std::string zdcRecoPartAll = "boundaryType == 2 && isReco(fEvent, TrackID)";
         // baseline of every plot and count in 6_cuts: recon theta and recon block theta from 0 to 1 degree (NaN fails), on top of the ZDC hit and the cut
         const std::string thetaBase = "rawVal(fEvent, TrackID, 9) >= 0 && rawVal(fEvent, TrackID, 9) <= 1 && rawVal(fEvent, TrackID, 11) >= 0 && rawVal(fEvent, TrackID, 11) <= 1", zdcBase = zdcRecoAll + " && " + thetaBase, zdcBasePart = zdcRecoPartAll + " && " + thetaBase; // zdcBasePart: every recorded particle (eventsAllPart), not only the protons
         countZdcAll = [&]{
@@ -206,14 +206,13 @@ void Plot3D(){
         };
         const std::string kNoCutNote = "no theta cut"; // 0_cuts: only the ZDC hit and a recon track
         const std::string kThetaNote = "recon theta and recon block theta 0-1 deg"; // the thetaBase cut, named in the titles of the 6_cuts plots
-        const std::string zdcRecoDAll = zdcProtons + " && isRecoD(fEvent, TrackID)"; // block position plots: also the block residual cut
 
         // Position plots have no KE cut: 1_position/1_true/ and 1_position/2_block/
         std::vector<std::pair<std::string, std::string>> posKes = {{"", ""}}; // unused folder, extra cut
         std::vector<std::string> posKeLabels = {""};
         if (RunPart(1)) for (size_t pk = 0; pk < posKes.size(); pk++){
             const std::string folder_pos = folder + "/1_position/1_true/", folder_posD = folder + "/1_position/2_block/";
-            const std::string zdcReco = zdcRecoAll + posKes[pk].second, zdcRecoD = zdcRecoDAll + posKes[pk].second;
+            const std::string zdcReco = zdcRecoAll + posKes[pk].second, zdcRecoD = zdcReco; // the block position plots have the same cut as the true position ones
             const std::string xySlice = zdcReco + " && fabs(fY) < 2", xySliceD = zdcRecoD + " && fabs(fDy) < 2";
             titleSuffix = ", has recon track, no KE cut" + posKeLabels[pk]; // the cut of the 1_true plots: hit ZDC and a recon track
             const std::string zdcRecoP = zdcRecoPartAll + posKes[pk].second, xySliceP = zdcRecoP + " && fabs(fY) < 2";
@@ -251,7 +250,7 @@ void Plot3D(){
 
             }
             if (RunSub(1)){ // P3_SUB 1: 2_block
-            titleSuffix = ", has recon track, block residual < 2 mm, no KE cut" + posKeLabels[pk]; // the cut of the 2_block plots: isRecoD
+            titleSuffix = ", has recon track, no KE cut" + posKeLabels[pk]; // the cut of the 2_block plots: hit ZDC and a recon track
             // ZDC position, block (fDx, fDy): the ZDC is nCols_detector x nRows_detector blocks over 400 mm. Every bin holds the same whole number of blocks (BlockBins, FitCore.h):
             // 100 bins over 100 mm on a pitch of 400 / 801 mm put an extra block in the bin that starts at x = 0 (a cross at x = 0 and y = 0), and in one bin of ten along the x slices (spikes).
             const int nColsD = (int)ReadSettings().at("nCols_detector"), nRowsD = (int)ReadSettings().at("nRows_detector");
@@ -264,13 +263,12 @@ void Plot3D(){
             drawXYDots(events2, "fDy:fDx>>h2(" + binsCell + "," + binsCellY + ")", zdcRecoD, "Position at ZDC BLOCK, CE recon protons that hit ZDC" + cellNote + ";X Position (mm);Y Position (mm)", folder_posD + "1_xy_CE.pdf");
             drawXYDots(events2, "fDy:fDx>>h2(" + binsCellZoom + "," + binsCellZoomY + ")", zdcRecoD, "Position at ZDC BLOCK, CE recon protons that hit ZDC" + zoomNote + ";X Position (mm);Y Position (mm)", folder_posD + "3_xy_zoom_CE.pdf", 50);
 
-            // the same block xy plots for every recorded particle that hit the ZDC and has a recon track passing the block residual cut (any pdg)
-            const std::string zdcRecoDP = zdcRecoDPartAll + posKes[pk].second;
+            // the same block xy plots for every recorded particle that hit the ZDC and has a recon track (any pdg)
+            const std::string zdcRecoDP = zdcRecoP;
             drawXYDots(eventsAllPart, "fDy:fDx>>h2(" + binsCell + "," + binsCellY + ")", zdcRecoDP, "Position at ZDC BLOCK, all recon particles that hit ZDC" + cellNote + ";X Position (mm);Y Position (mm)", folder_posD + "2_xy_recon_allParticles.pdf");
             drawXYDots(eventsAllPart, "fDy:fDx>>h2(" + binsCellZoom + "," + binsCellZoomY + ")", zdcRecoDP, "Position at ZDC BLOCK, all recon particles that hit ZDC" + zoomNote + ";X Position (mm);Y Position (mm)", folder_posD + "4_xy_zoom_recon_allParticles.pdf", 50);
 
-            // the six x fits have no block residual cut: ZDC hit and a recon track only
-            titleSuffix = ", has recon track, no KE cut" + posKeLabels[pk];
+            // the six x fits: ZDC hit and a recon track only
             const std::string xySliceB = zdcReco + " && fabs(fDy) < 2", xySliceBP = zdcRecoP + " && fabs(fDy) < 2";
             drawPlot(events2, "fDx>>hSliceDX200(" + binsSlice200 + ")", xySliceB, "X Position at ZDC BLOCK, CE recon protons that hit ZDC, |Y| < 2 mm;X Position (mm);Count", folder_posD + "5_x_fit_200_CE.pdf", "", [](TH1* h){FitBlocks(h);}); //whole blocks per bin
             drawPlot(events2, "fDx>>hSliceDX(" + binsSlice50 + ")", xySliceB, "X Position at ZDC BLOCK, CE recon protons that hit ZDC, |Y| < 2 mm, edge cells clipped at 50 mm;X Position (mm);Count", folder_posD + "7_x_fit_50_CE.pdf", "", [&](TH1* h){FitBlocks(h); clipX(h, 50);});
@@ -421,10 +419,10 @@ void Plot3D(){
             {"5_nHits", "(rawVal(fEvent, TrackID, 10) == 2 || rawVal(fEvent, TrackID, 10) == 4 || rawVal(fEvent, TrackID, 10) == 6 || rawVal(fEvent, TrackID, 10) == 8)", "cut 2, 4, 6 or 8 tracker hits", "5_nHits", "cut_nHits"},
           };
           // 6_megaCut (no ZDC requirement), 7_megaCut2 (ZDC KE > 80%) and 9_megaCut3 (megaCut2 and 2, 4, 6 or 8 charged tracker hits in the event, all particles added up), each with
-          // 1_1particlecut: at most 1 particle, 2_2particlecut: at most 2
-          static const char* const megaNames[2] = {"1_1particlecut", "2_2particlecut"}; // folder names of 6_megaCut, 7_megaCut2 and 9_megaCut3
+          // 1_1particlecut: at most 1 particle
+          static const char* const megaNames[1] = {"1_1particlecut"}; // folder name of 6_megaCut, 7_megaCut2 and 9_megaCut3
           auto addMega = [&](int level){ // 0: megaCut, 1: megaCut2, 2: megaCut3
-              for (int i = 1; i <= 2; i++){
+              for (int i = 1; i <= 1; i++){
                   const int maxP = i;
                   const bool zdc = level >= 1;
                   const std::string top = level == 0 ? "6_megaCut" : level == 1 ? "7_megaCut2" : "9_megaCut3";
@@ -437,12 +435,12 @@ void Plot3D(){
               }
           };
           addMega(0); addMega(1);
-          v.push_back({"8_nZdcParticles/1_1zdcparticlecut", "rawVal(fEvent, TrackID, 7) <= 1", "cut at most 1 charged particle at the ZDC in the event", "8_nZdcParticles", "cut_nZdc1", false}); // P3_CUT 9
-          addMega(2); // P3_CUT 10 and 11
+          v.push_back({"8_nZdcParticles/1_1zdcparticlecut", "rawVal(fEvent, TrackID, 7) <= 1", "cut at most 1 charged particle at the ZDC in the event", "8_nZdcParticles", "cut_nZdc1", false}); // P3_CUT 7
+          addMega(2); // P3_CUT 8
           return v;
         }();
         struct RankRow {std::string cut, sample; double nCEin, nAllIn, nCEtotal, nCEreconBefore, fom[2], pol[2], polErr[2], nPartIn, nNonProtBefore, nNonPartBefore;}; // nAllIn: recon protons (pdg 2212) in the cut, nPartIn: every recon particle in the cut, nNon*Before: the non-CE protons / particles of the sample the cut is made on (the base of the row), so out of cut = before - in;  fom, pol (fitted P), polErr: [0] recon theta / phi, [1] recon block theta / phi
-        double nCEreconTotal = 0; // every CE proton with a fitted track (AnglesRaw, isFromCE), no ZDC requirement: CE_before of the QualityStudy csv files, the CE_recon_before_cut of the csv files
+        double nCEreconTotal = 0, nCEreconAll = 0; // nCEreconAll: the same with no cut at all, the theta baseline included (RawTotals tot[3]); every CE proton with a fitted track (AnglesRaw, isFromCE), no ZDC requirement: CE_before of the QualityStudy csv files, the CE_recon_before_cut of the csv files
         // AnglesRaw: every proton with a fitted track, ZDC hit or not. The cut folders count, fit and plot these (no ZDC requirement), except with the 80% ZDC KE cut.
         TTree* rawT = OpenCut("cuts/cut_angles_all.root", "AnglesRaw"); // every fitted proton, the Plot3D columns are aliases of its branches (Plot3DRawAliases)
         if (rawT) Plot3DRawAliases(rawT);
@@ -458,7 +456,7 @@ void Plot3D(){
         double nNonProtTh = 0, nNonPartTh = 0, nNonProtAll = 0, nNonPartAll = 0; // non-CE fitted protons (pdg 2212) and particles before any cut: with the theta baseline (every folder but 0_cuts/1_noCuts) and without it
         if (rawT && (RunPart(0) || RunPart(2) || RunPart(4) || RunPart(5))){ // P3_PART=0 only makes cuts/plot3d_totals.csv (one pass of all the threads, Plot.pbs / plot.sh run it before the other parts)
             const std::array<double, 6> tot = RawTotals(rawT, thetaBase);
-            nCEreconTotal = tot[0];
+            nCEreconTotal = tot[0]; nCEreconAll = tot[3];
             nNonProtTh = tot[1] - tot[0]; nNonPartTh = tot[2] - tot[0];
             nNonProtAll = tot[4] - tot[3]; nNonPartAll = tot[5] - tot[3];
         }
@@ -531,12 +529,15 @@ void Plot3D(){
         if (RunPart(2) || RunPart(5)){
         if (RunPart(2) && RunCut(0)) for (const auto& e : cutEnergies) for (const bool ke80 : {false, true}) for (const bool noTheta : {false, true}){ // the uncut samples (1_hitZDC with the theta window, 0_cuts without) are in every ranking as the baseline
             if (noTheta && ke80) continue; // 0_cuts has no KE cut
-            const std::string q = (noTheta ? zdcRecoAll : zdcBase) + (ke80 ? " && " + e.branch + " > " + std::to_string(initialKE * 0.80) : "");
-            double fom[2], pol[2], polErr[2]; fomStats(events2, q, fom);
-            for (int j = 0; j < 2; j++) phiFit(events2, q, j, "", "", &pol[j], &polErr[j]);
-            const std::string qPart = (noTheta ? zdcRecoPartAll : zdcBasePart) + (ke80 ? " && " + e.branch + " > " + std::to_string(initialKE * 0.80) : "");
-            rankRows.push_back({noTheta ? "0_cuts (no cut)" : "1_hitZDC (no cut)", ke80 ? "cut and ZDC KE > 80%" : "cut", double(CountMT(events2, P3(q))), double(CountMT(eventsAllEv, P3(q))), double(nCEallZdcAll),
-                                nCEreconTotal, {fom[0], fom[1]}, {pol[0], pol[1]}, {polErr[0], polErr[1]}, double(CountMT(eventsAllPart, P3(qPart))), noTheta ? nNonProtAll : nNonProtTh, noTheta ? nNonPartAll : nNonPartTh});
+            // 0_cuts is no cut at all, not even the ZDC hit: every fitted proton of AnglesRaw, like its plots; 1_hitZDC is the ZDC protons with the theta window
+            TTree* tB = noTheta ? rawT : events2;
+            const std::string q = noTheta ? rawCE : zdcBase + (ke80 ? " && " + e.branch + " > " + std::to_string(initialKE * 0.80) : "");
+            const std::string qAll = noTheta ? "PDG == 2212" : q;
+            double fom[2], pol[2], polErr[2]; fomStats(tB, q, fom);
+            for (int j = 0; j < 2; j++) phiFit(tB, q, j, "", "", &pol[j], &polErr[j]);
+            const std::string qPart = noTheta ? "1" : zdcBasePart + (ke80 ? " && " + e.branch + " > " + std::to_string(initialKE * 0.80) : "");
+            rankRows.push_back({noTheta ? "0_cuts (no cut)" : "1_hitZDC (no cut)", ke80 ? "cut and ZDC KE > 80%" : "cut", double(CountMT(tB, P3(q))), double(CountMT(noTheta ? rawT : eventsAllEv, P3(qAll))), double(nCEallZdcAll),
+                                nCEreconTotal, {fom[0], fom[1]}, {pol[0], pol[1]}, {polErr[0], polErr[1]}, double(CountMT(noTheta ? rawT : eventsAllPart, P3(qPart))), noTheta ? nNonProtAll : nNonProtTh, noTheta ? nNonPartAll : nNonPartTh});
         }
         for (const auto& sc : sampleCuts) for (const auto& e : cutEnergies) for (const bool ke80 : {false, true}){ // 0_KE_hitZDC (the cut and hitting the ZDC) and 0_KE_KECUT80 (also the 80% KE cut)
             if (!RunPart(2) || !RunCut(int(&sc - &sampleCuts[0]) + 1)) continue;
@@ -641,23 +642,21 @@ void Plot3D(){
             using Get = double (*)(const RankRow&);
             struct Col {const char* name; Get v; bool lowBest;};
             const Col cols[] = {
-                {"CE_recon_proton_in_cut/recon_proton_in_cut", [](const RankRow& r){return r.nCEin / std::max(1.0, r.nAllIn);}, false},
-                {"CE_recon_proton_in_cut/CE_recon_before_cut", [](const RankRow& r){return r.nCEin / std::max(1.0, r.nCEreconBefore);}, false},
-                {"nonCE_recon_proton_in_cut/recon_proton_in_cut", [](const RankRow& r){return (r.nAllIn - r.nCEin) / std::max(1.0, r.nAllIn);}, true},
+                {"purity_proton", [](const RankRow& r){return r.nCEin / std::max(1.0, r.nAllIn);}, false},
+                {"signal_efficiency", [](const RankRow& r){return r.nCEin / std::max(1.0, r.nCEreconBefore);}, false},
+                {"contamination_proton", [](const RankRow& r){return (r.nAllIn - r.nCEin) / std::max(1.0, r.nAllIn);}, true},
                 {"FOM_theta", [](const RankRow& r){return r.fom[0];}, false}, {"FOM_thetaBlock", [](const RankRow& r){return r.fom[1];}, false},
                 {"P_phiRe", [](const RankRow& r){return r.pol[0];}, false}, {"P_phiReD", [](const RankRow& r){return r.pol[1];}, false},
-                {"CE_recon_proton_in_cut/recon_particle_in_cut", [](const RankRow& r){return r.nCEin / std::max(1.0, r.nPartIn);}, false},
-                {"nonCE_recon_particle_in_cut/recon_particle_in_cut", [](const RankRow& r){return (r.nPartIn - r.nCEin) / std::max(1.0, r.nPartIn);}, true},
-                {"nonCE_recon_proton_in_cut/nonCE_recon_proton_out_of_cut", [](const RankRow& r){return (r.nAllIn - r.nCEin) / std::max(1.0, r.nNonProtBefore - (r.nAllIn - r.nCEin));}, true},
-                {"nonCE_recon_particle_in_cut/nonCE_recon_particle_out_of_cut", [](const RankRow& r){return (r.nPartIn - r.nCEin) / std::max(1.0, r.nNonPartBefore - (r.nPartIn - r.nCEin));}, true},
-                {"nonCE_recon_proton_in_cut/nonCE_recon_proton_before_cut", [](const RankRow& r){return (r.nAllIn - r.nCEin) / std::max(1.0, r.nNonProtBefore);}, true},
-                {"nonCE_recon_particle_in_cut/nonCE_recon_particle_before_cut", [](const RankRow& r){return (r.nPartIn - r.nCEin) / std::max(1.0, r.nNonPartBefore);}, true},
-                {"CE_recon_proton_in_cut/sqrt(nonCE_recon_proton_in_cut)", [](const RankRow& r){return r.nCEin / std::sqrt(std::max(1.0, r.nAllIn - r.nCEin));}, false},
-                {"CE_recon_proton_in_cut/sqrt(nonCE_recon_particle_in_cut)", [](const RankRow& r){return r.nCEin / std::sqrt(std::max(1.0, r.nPartIn - r.nCEin));}, false}};
-            const char* files[] = {"rank_CE_recon_over_recon_proton_in_cut.csv", "rank_CE_recon_over_CE_recon_before_cut.csv", "rank_nonCE_recon_over_recon_proton_in_cut.csv",
+                {"purity", [](const RankRow& r){return r.nCEin / std::max(1.0, r.nPartIn);}, false},
+                {"contamination", [](const RankRow& r){return (r.nPartIn - r.nCEin) / std::max(1.0, r.nPartIn);}, true},
+                {"background_efficiency_proton", [](const RankRow& r){return (r.nAllIn - r.nCEin) / std::max(1.0, r.nNonProtBefore);}, true},
+                {"background_efficiency", [](const RankRow& r){return (r.nPartIn - r.nCEin) / std::max(1.0, r.nNonPartBefore);}, true},
+                {"signal_significance_proton", [](const RankRow& r){return r.nCEin / std::sqrt(std::max(1.0, r.nAllIn - r.nCEin));}, false},
+                {"signal_significance", [](const RankRow& r){return r.nCEin / std::sqrt(std::max(1.0, r.nPartIn - r.nCEin));}, false}};
+            const char* files[] = {"rank_purity_proton.csv", "rank_signal_efficiency.csv", "rank_contamination_proton.csv",
                                    "rank_FOM_theta.csv", "rank_FOM_thetaBlock.csv", "rank_P_phiRe.csv", "rank_P_phiReD.csv",
-                                   "rank_CE_recon_over_recon_particle_in_cut.csv", "rank_nonCE_recon_over_recon_particle_in_cut.csv", "rank_nonCE_recon_proton_in_over_out_of_cut.csv", "rank_nonCE_recon_particle_in_over_out_of_cut.csv",
-                                   "rank_nonCE_recon_proton_kept.csv", "rank_nonCE_recon_particle_kept.csv", "rank_CE_over_sqrt_nonCE_recon_proton.csv", "rank_CE_over_sqrt_nonCE_recon_particle.csv"};
+                                   "rank_purity.csv", "rank_contamination.csv",
+                                   "rank_background_efficiency_proton.csv", "rank_background_efficiency.csv", "rank_signal_significance_proton.csv", "rank_signal_significance.csv"};
             for (size_t c = 0; c < sizeof(cols) / sizeof(cols[0]); c++){
                 std::vector<RankRow> sorted = rankRows;
                 std::stable_sort(sorted.begin(), sorted.end(), [&](const RankRow& a, const RankRow& b){return cols[c].lowBest ? cols[c].v(a) < cols[c].v(b) : cols[c].v(a) > cols[c].v(b);});
@@ -681,13 +680,13 @@ void Plot3D(){
         // N(phi) = N0 (1 + P <A> cos(phi)), N0 = entries / 50 bins fixed, <A> = mean model A_y at the recon (block) theta of those protons fixed, only P fitted
         if (RunPart(4)) {
             struct PhiSet {std::string dir, expr; TTree* t; std::string base, basePart, note;}; // base: the sample the cut applies to (hit ZDC and reconstructed, or any fitted track for the cuts)
-            std::vector<PhiSet> phiSets = {{"1_hitZDC", "", events2, zdcBase, zdcBasePart, kThetaNote}, {"2_KECUT80", " && fDEnergy > " + std::to_string(initialKE * 0.80), events2, zdcBase, zdcBasePart, kThetaNote}, {"0_cuts/1_noCuts", "", events2, zdcRecoAll, zdcRecoPartAll, kNoCutNote}, {"0_cuts/2_theta0_1", "", events2, zdcBase, zdcBasePart, kThetaNote}};
+            std::vector<PhiSet> phiSets = {{"1_hitZDC", "", events2, zdcBase, zdcBasePart, kThetaNote}, {"2_KECUT80", " && fDEnergy > " + std::to_string(initialKE * 0.80), events2, zdcBase, zdcBasePart, kThetaNote}, {"0_cuts/1_noCuts", "", rawT, rawCE, "", ""}, {"0_cuts/2_theta0_1", "", events2, zdcBase, zdcBasePart, kThetaNote}};
             for (const auto& sc : sampleCuts) phiSets.push_back({sc.dir, "", cutTree(sc), rawCE, "", ""});
-            for (const int pct : {85, 90, 95}){ // KE scan of 9_megaCut3/1_1particlecut (CutPlots.cpp (samples)): P3_CUT 12 to 14
-                TTree* t = OpenCut(Form("cuts/cut_megacut3_1_ke%d.root", pct), "AnglesRaw");
+            for (const int family : {2, 3}) for (const int maxP : {1}) for (const int pct : {85, 90, 95}){ // KE scan of 7_megaCut2 and 9_megaCut3, the 1 particle cut (CutPlots.cpp (samples)): P3_CUT 9 to 14, PlotKEOverlay.cpp overlays them on the 80% folder
+                TTree* t = OpenCut(Form("cuts/cut_megacut%d_%d_ke%d.root", family, maxP, pct), "AnglesRaw");
                 if (t && !t->GetAlias("raw_0")) Plot3DRawAliases(t);
                 gROOT->cd();
-                if (t) phiSets.push_back({Form("9_megaCut3/1_1particlecut_KE%d", pct), "", t, rawCE, "", ""});
+                if (t) phiSets.push_back({std::string(family == 2 ? "7_megaCut2/" : "9_megaCut3/") + (maxP == 1 ? "1_1particlecut" : "2_2particlecut") + Form("_KE%d", pct), "", t, rawCE, "", ""});
             }
             for (const auto& ps : phiSets){
                 if (const int pi = int(&ps - &phiSets[0]); !RunCut(pi < 4 ? 0 : pi - 3) || (pi < 4 && !RunSub(pi))) continue; // P3_CUT: 0 the first four sets (P3_SUB picks one), i the sampleCuts[i - 1] set
@@ -698,11 +697,15 @@ void Plot3D(){
                                        {isZdc ? eventsAllEv : ps.t, (isZdc ? ps.base : std::string("PDG == 2212")) + ps.expr, "all recon protons", kBlue},
                                        {isZdc ? eventsAllPart : ps.t, (isZdc ? ps.basePart : std::string("1")) + ps.expr, "all recon particles", kGreen + 2}};
                 const std::string cutTxt = [&]() -> std::string { // every cut the folder applies, for the title
+                    if (ps.dir == "0_cuts/1_noCuts") return "no cuts, every fitted proton";
                     if (isZdc) return "hit ZDC, " + ps.note + (ps.expr.empty() ? ", no KE cut" : ", ZDC KE > 80%");
                     for (const auto& c : sampleCuts) if (c.dir == ps.dir) return c.label + (c.zdcKE80 ? ", hit ZDC" : ", no ZDC requirement");
                     if (const size_t k = ps.dir.rfind("_KE"); k != std::string::npos) return "9_megaCut3 1 particle cut, hit ZDC, ZDC KE > " + ps.dir.substr(k + 3) + "%";
                     return ps.dir;
                 }();
+                const bool noCeil = ps.dir == "0_cuts/1_noCuts"; // no cuts: the start-theta scans count every proton from the start value on, with no upper theta
+                const double thHi = noCeil ? INFINITY : 1.0;
+                const std::string upTxt = noCeil ? " and up (no upper limit)" : " to 1 deg";
                 const std::string where = isZdc ? " that hit ZDC" : " in the cut", dirP = folder_KEcuts + ps.dir + "/2_phi_cosfit/";
                 const double apScalePhi = ReadSettings().at("APScale"), pTrue = ReadSettings().at("PPValue");
                 for (int j = 0; j < 2; j++){ // j 0: phiRe at thetaRe, 1: phiReD at thetaReD
@@ -719,7 +722,7 @@ void Plot3D(){
                         // the rows only feed histograms and sums, so a multi-cluster tree (a cut file of AnglesRaw) is read on all threads in any order
                         auto c = MultiCluster(samps[s].t) ? ColumnsUnordered(samps[s].t, {P3(colT), P3(colPh)}, P3(qs)) : Columns(samps[s].t, {P3(colT), P3(colPh)}, P3(qs));
                         th[s] = std::move(c[0]); ph[s] = std::move(c[1]);
-                        scanned[s] = ScanStartTheta(th[s], ph[s], apScalePhi, j ? kBlockPhiLo : 0, j ? kBlockPhiHi : 360);
+                        scanned[s] = ScanStartTheta(th[s], ph[s], apScalePhi, j ? kBlockPhiLo : 0, j ? kBlockPhiHi : 360, thHi);
                     }
                     // 1: phi distribution and cos fit of the three samples on one plot, N(phi) = N0 (1 + P <A> cos(phi)), N0 = entries / 50 bins fixed, <A> = mean model A of the sample fixed, only P fitted
                     const std::string allNames = "CE recon protons, all recon protons and all recon particles";
@@ -787,7 +790,7 @@ void Plot3D(){
                             const PFit uf = scanned[s].fit[b]; // unbinned P of the protons of this start (ScanStartTheta, Plot3DCols.h)
                             if (b % 10 == 0){TH1D* hc = (TH1D*)hS.Clone(Form("hPage%d_%d", s, b)); hc->SetDirectory(nullptr); pages[s].push_back({hc, start, uf.p, uf.err, aSum / hS.GetEntries()});}
                             scan[s].x.push_back(start); scan[s].y.push_back(uf.p); scan[s].ey.push_back(uf.err);
-                            scan[s].kept.push_back(100.0 * hS.GetEntries() / std::max(1.0, s ? double(n) : nCEreconTotal));
+                            scan[s].kept.push_back(100.0 * hS.GetEntries() / std::max(1.0, s ? double(n) : (noCeil ? nCEreconAll : nCEreconTotal)));
                         }
                     }
                     { // 4: one pdf of many pages, a page per start theta every 0.1 deg, the three samples on each page
@@ -804,7 +807,7 @@ void Plot3D(){
                             for (int s = 0; s < 3; s++) if (pgOf[s]){
                                 TH1D* h = pgOf[s]->h;
                                 h->SetLineColor(samps[s].color); h->SetLineWidth(2); h->SetStats(0); h->SetMinimum(0); h->SetMaximum(1.1 * hMax);
-                                h->SetTitle(Form("%s%s, %s, %s phi distribution, %s theta %.2f to 1 deg;Angle (degrees);Count", allNames.c_str(), where.c_str(), cutTxt.c_str(), rb.c_str(), rb.c_str(), key / 100.0));
+                                h->SetTitle(Form("%s%s, %s, %s phi distribution, %s theta %.2f%s;Angle (degrees);Count", allNames.c_str(), where.c_str(), cutTxt.c_str(), rb.c_str(), rb.c_str(), key / 100.0, upTxt.c_str()));
                                 h->Draw(first ? "hist" : "hist same"); first = false;
                             }
                             std::vector<TF1*> fds;
@@ -829,36 +832,35 @@ void Plot3D(){
                         for (int s = 0; s < 3; s++) for (auto& pg : pages[s]) delete pg.h;
                         canvas->Clear();
                     }
-                    for (const int mode : {0, 1, 2, 3}){ // 2, 3: the P scans of the three samples on one axis, then the CE recon protons alone (_CE)
-                        const bool pct = mode & 1, ceOnly = mode & 2;
-                        bool any = false;
-                        for (int s = ceOnly ? 0 : 1; s < (ceOnly ? 1 : 3); s++) if (scan[s].x.size() > 1) any = true;
-                        if (!any) continue;
+                    for (const int mode : {0, 1, 2, 3, 4, 5}){ // 2, 3: the P scan of one sample per plot, mode / 2 the sample: the CE recon protons (_CE), all recon protons (_proton), all recon particles (_particle)
+                        const bool pct = mode & 1;
+                        const int s = mode / 2;
+                        if (scan[s].x.size() <= 1) continue;
                         canvas->Clear(); canvas->SetRightMargin(0.30); canvas->SetTopMargin(0.1);
                         const double yRef = pct ? 0.0 : pTrue;
                         auto conv = [&](double P){return pct ? 100 * (P - pTrue) / pTrue : P;}; // P to the plotted value
                         double ymin = yRef, ymax = yRef; const double xMax = 1.0; // the scan always ends at 1 deg, the upper theta of the fits
-                        for (int s = ceOnly ? 0 : 1; s < (ceOnly ? 1 : 3); s++) if (scan[s].x.size() > 1) for (size_t i = 0; i < scan[s].x.size(); i++){ // the error bars are cut at P = -1 and 1
+                        for (size_t i = 0; i < scan[s].x.size(); i++){ // the error bars are cut at P = -1 and 1
                             ymin = std::min(ymin, conv(std::max(scan[s].y[i] - scan[s].ey[i], -1.0))); ymax = std::max(ymax, conv(std::min(scan[s].y[i] + scan[s].ey[i], 1.0)));
                         }
                         const double pad = 0.05 * (ymax - ymin);
-                        TH2D axis("hPstartAxis", Form("Polarization fit P of %s%s, %s, %s phi, %s theta from the start value to 1 deg%s;Start theta (deg);%s", (ceOnly ? "CE recon protons" : "all recon protons and all recon particles"), where.c_str(), ps.dir.c_str(), rb.c_str(), rb.c_str(), j ? ", phi 0.5 to 359.5 deg" : "",
+                        TH2D axis("hPstartAxis", Form("Polarization fit P of %s%s, %s, %s phi, %s theta from the start value%s%s;Start theta (deg);%s", samps[s].name.c_str(), where.c_str(), ps.dir.c_str(), rb.c_str(), rb.c_str(), upTxt.c_str(), j ? ", phi 0.5 to 359.5 deg" : "",
                                   pct ? "100 (P_{fit} - P_{true}) / P_{true} (%)" : "P"), 100, 0, xMax, 100, ymin - pad, ymax + pad);
                         axis.SetStats(0);
                         axis.Draw("axis");
                         TLine ref(0, yRef, xMax, yRef); ref.SetLineStyle(3); ref.SetLineWidth(2); ref.SetLineColor(kGray + 2); ref.Draw(); // true P, from the run's PPValue
                         TLegend leg(0.705, 0.76, 0.99, 0.90); leg.SetTextSize(0.014);
                         TGraphAsymmErrors* gs[3] = {nullptr, nullptr, nullptr};
-                        const std::string path = dirJ + std::to_string(2 + pct) + "_" + stem + (pct ? "_P_vs_start_theta_pct_error" : "_P_vs_start_theta") + (ceOnly ? "_CE" : "") + ".pdf";
-                        for (int s = ceOnly ? 0 : 1; s < (ceOnly ? 1 : 3); s++) if (scan[s].x.size() > 1){
+                        const std::string path = dirJ + std::to_string(2 + pct) + "_" + stem + (pct ? "_P_vs_start_theta_pct_error" : "_P_vs_start_theta") + (s == 0 ? "_CE" : s == 1 ? "_proton" : "_particle") + ".pdf";
+                        { // the one sample s
                             gs[s] = new TGraphAsymmErrors();
                             for (size_t i = 0; i < scan[s].x.size(); i++){ // the error bar of P stops at -1 and 1, the physical range
                                 const double y = scan[s].y[i], lo = std::max(y - scan[s].ey[i], -1.0), hi = std::min(y + scan[s].ey[i], 1.0);
                                 gs[s]->SetPoint(i, scan[s].x[i], conv(y));
                                 gs[s]->SetPointError(i, 0, 0, conv(y) - conv(lo), conv(hi) - conv(y));
                             }
-                            gs[s]->SetLineColor(samps[s].color); gs[s]->SetMarkerColor(samps[s].color); gs[s]->SetMarkerStyle(20); gs[s]->SetMarkerSize(0.6);
-                            if (gs[s]->GetN()) gs[s]->Draw("PZ same");
+                            gs[s]->SetLineColorAlpha(samps[s].color, 0.3); gs[s]->SetMarkerColor(samps[s].color); gs[s]->SetMarkerStyle(20); gs[s]->SetMarkerSize(1.0); // see-through error bars, as in PlotKEOverlay.cpp
+                            if (gs[s]->GetN()) gs[s]->Draw("P same"); // with the end caps of the error bars
                             leg.AddEntry(gs[s], samps[s].name.c_str(), "lp");
                             for (size_t i = 0; i < scan[s].x.size(); i++) // the points drawn: start theta, value, error, % kept
                                 WriteStatsRow(path, "plot,sample,start_theta_deg,value,error,pct_kept", Form("%s,%s,%.4g,%.6g,%.4g,%.4g", gSystem->BaseName(path.c_str()), samps[s].name.c_str(), scan[s].x[i], gs[s]->GetY()[i], pct ? 100 * scan[s].ey[i] / pTrue : scan[s].ey[i], scan[s].kept[i]), fitFilesStarted, "P_vs_start_theta.csv");
@@ -868,20 +870,20 @@ void Plot3D(){
                         for (auto* g : gs) delete g; // null for the sample not drawn
                     }
                     if (j == 1){ // 5 to 12: ratios of the counts with block theta from the start value to 1 deg ("in cut") against the start value, CE = the CE recon protons, prot = all recon protons, part = all recon particles of the folder
-                        const double nonProtBefore = double(th[1].size()) - th[0].size(), nonPartBefore = double(th[2].size()) - th[0].size(); // before the start cut: the whole sample
+                        const double nonProtBefore = nNonProtAll, nonPartBefore = nNonPartAll, ceTotal = nCEreconAll; // "before cut" here is the run total with no cut at all: every fitted CE proton, non-CE proton and non-CE particle of AnglesRaw (RawTotals), no ZDC requirement and no theta baseline, not the folder's sample // before the start cut: the whole sample
                         struct Ratio {const char* file, *label; int color; std::function<double(double, double, double)> f;}; // f(CE, prot, part) in cut
                         const Ratio ratios[8] = {
-                            {"CE_over_particle", "N_{CE,recon,in cut} / N_{recon,particle,in cut}", kGreen + 2, [&](double ce, double, double pa){return pa > 0 ? ce / pa : NAN;}},
-                            {"nonCE_particle_over_particle", "N_{nonCE,recon,particle,in cut} / N_{recon,particle,in cut}", kGreen + 2, [&](double ce, double, double pa){return pa > 0 ? (pa - ce) / pa : NAN;}},
-                            {"nonCE_proton_in_over_out", "N_{nonCE,recon,proton,in cut} / N_{nonCE,recon,proton,out of cut}", kBlue, [&](double ce, double pr, double){const double out = nonProtBefore - (pr - ce); return out > 0 ? (pr - ce) / out : NAN;}},
-                            {"nonCE_particle_in_over_out", "N_{nonCE,recon,particle,in cut} / N_{nonCE,recon,particle,out of cut}", kGreen + 2, [&](double ce, double, double pa){const double out = nonPartBefore - (pa - ce); return out > 0 ? (pa - ce) / out : NAN;}},
-                            {"nonCE_proton_kept", "N_{nonCE,recon,proton,in cut} / N_{nonCE,recon,proton,before cut}", kBlue, [&](double ce, double pr, double){return nonProtBefore > 0 ? (pr - ce) / nonProtBefore : NAN;}},
-                            {"nonCE_particle_kept", "N_{nonCE,recon,particle,in cut} / N_{nonCE,recon,particle,before cut}", kGreen + 2, [&](double ce, double, double pa){return nonPartBefore > 0 ? (pa - ce) / nonPartBefore : NAN;}},
-                            {"CE_over_sqrt_nonCE_proton", "N_{CE,recon,in cut} / sqrt(N_{nonCE,recon,proton,in cut})", kBlue, [&](double ce, double pr, double){return pr - ce > 0 ? ce / std::sqrt(pr - ce) : NAN;}},
-                            {"CE_over_sqrt_nonCE_particle", "N_{CE,recon,in cut} / sqrt(N_{nonCE,recon,particle,in cut})", kGreen + 2, [&](double ce, double, double pa){return pa - ce > 0 ? ce / std::sqrt(pa - ce) : NAN;}}};
+                            {"purity", "N_{CE,recon,in cut} / N_{recon,particle,in cut}", kGreen + 2, [&](double ce, double, double pa){return pa > 0 ? ce / pa : NAN;}},
+                            {"contamination", "N_{nonCE,recon,particle,in cut} / N_{recon,particle,in cut}", kGreen + 2, [&](double ce, double, double pa){return pa > 0 ? (pa - ce) / pa : NAN;}},
+                            {"background_efficiency_proton","N_{nonCE,recon,proton,in cut} / N_{nonCE,recon,proton,before cut}", kBlue, [&](double ce, double pr, double){return nonProtBefore > 0 ? (pr - ce) / nonProtBefore : NAN;}},
+                            {"background_efficiency", "N_{nonCE,recon,particle,in cut} / N_{nonCE,recon,particle,before cut}", kGreen + 2, [&](double ce, double, double pa){return nonPartBefore > 0 ? (pa - ce) / nonPartBefore : NAN;}},
+                            {"signal_significance_proton","N_{CE,recon,in cut} / sqrt(N_{nonCE,recon,proton,in cut})", kBlue, [&](double ce, double pr, double){return pr - ce > 0 ? ce / std::sqrt(pr - ce) : NAN;}},
+                            {"signal_significance", "N_{CE,recon,in cut} / sqrt(N_{nonCE,recon,particle,in cut})", kGreen + 2, [&](double ce, double, double pa){return pa - ce > 0 ? ce / std::sqrt(pa - ce) : NAN;}},
+                            {"background_rejection_efficiency", "1 - N_{nonCE,recon,particle,in cut} / N_{nonCE,recon,particle,before cut}", kGreen + 2, [&](double ce, double, double pa){return nonPartBefore > 0 ? 1 - (pa - ce) / nonPartBefore : NAN;}},
+                            {"signal_efficiency", "N_{CE,recon,in cut} / N_{CE,recon,total}", kRed, [&](double ce, double, double){return ceTotal > 0 ? ce / ceTotal : NAN;}}};
                         std::vector<double> nIn[3]; // counts with theta from the start value to 1 deg, per start value (0.01 deg steps)
                         for (int b = 0; b < 100; b++) for (int s = 0; s < 3; s++){
-                            double n = 0; for (double t : th[s]) if (t >= b * 0.01 && t <= 1.0) n++;
+                            double n = 0; for (double t : th[s]) if (t >= b * 0.01 && t <= thHi) n++;
                             nIn[s].push_back(n);
                         }
                         for (int k = 0; k < 8; k++){
@@ -890,7 +892,7 @@ void Plot3D(){
                             if (g.GetN() < 2) continue;
                             const std::string path = dirJ + std::to_string(5 + k) + "_" + stem + "_" + ratios[k].file + "_vs_start_theta.pdf";
                             canvas->Clear(); canvas->SetRightMargin(0.30); canvas->SetTopMargin(0.1);
-                            g.SetTitle((std::string(ratios[k].label) + " vs start theta, " + cutTxt + ", " + rb + " theta from the start value to 1 deg" + where + ";Start theta (deg);" + ratios[k].label).c_str());
+                            g.SetTitle((std::string(ratios[k].label) + " vs start theta, " + cutTxt + ", " + rb + " theta from the start value" + upTxt + where + ";Start theta (deg);" + ratios[k].label).c_str());
                             g.SetMarkerStyle(20); g.SetMarkerSize(0.6); g.SetLineWidth(1); g.SetLineColor(ratios[k].color); g.SetMarkerColor(ratios[k].color);
                             g.Draw("APL"); g.GetXaxis()->SetLimits(0, 1.0);
                             TLegend leg(0.705, 0.82, 0.99, 0.90); leg.SetTextSize(0.014); leg.AddEntry(&g, ratios[k].file, "lp"); leg.Draw();
@@ -901,13 +903,13 @@ void Plot3D(){
                             TGraph g;
                             for (int b = 0; b < 100; b++){
                                 double sum = 0;
-                                for (double t : th[0]) if (t >= b * 0.01 && t <= 1.0)
+                                for (double t : th[0]) if (t >= b * 0.01 && t <= thHi)
                                     sum += std::pow(APFromT(kBeamMomentum, TFromAngle(kBeamMomentum, (std::floor(t / 0.05) + 0.5) * 0.05 * TMath::Pi() / 180), apScaleFom), 2) * 0.05 / nNeutrons;
                                 g.SetPoint(g.GetN(), b * 0.01, sum);
                             }
                             const std::string path = dirJ + "13_" + stem + "_FOM_vs_start_theta.pdf";
                             canvas->Clear(); canvas->SetRightMargin(0.30); canvas->SetTopMargin(0.1);
-                            g.SetTitle(("FOM of CE recon protons vs start theta, " + cutTxt + ", " + rb + " theta from the start value to 1 deg" + where + ";Start theta (deg);FOM = #Sigma A_{y}^{2} #Delta#theta / N_{neutrons}").c_str());
+                            g.SetTitle(("FOM of CE recon protons vs start theta, " + cutTxt + ", " + rb + " theta from the start value" + upTxt + where + ";Start theta (deg);FOM = #Sigma A_{y}^{2} #Delta#theta / N_{neutrons}").c_str());
                             g.SetMarkerStyle(20); g.SetMarkerSize(0.6); g.SetLineWidth(1); g.SetLineColor(kRed); g.SetMarkerColor(kRed);
                             g.Draw("APL"); g.GetXaxis()->SetLimits(0, 1.0);
                             canvas->SaveAs(path.c_str());
@@ -1003,10 +1005,10 @@ void Plot3D(){
                 lapStart = std::chrono::steady_clock::now();
                 const SampleCut* sc = nullptr;
                 for (const auto& c : sampleCuts) if (c.dir == ic.first) sc = &c;
-                const bool nz = sc != nullptr; // the cuts' plots use every fitted proton (AnglesRaw), the others the protons that hit the ZDC
-                TTree *tCE = nz ? cutTree(*sc) : events2, *tAll = nz ? tCE : eventsAllEv, *tPart = nz ? tCE : eventsAllPart; // tPart: every recon particle (any pdg)
+                const bool noTheta = ic.first == "0_cuts/1_noCuts"; // no cut at all, not even the ZDC hit: every fitted proton (AnglesRaw). Only 1_real_vs_recon_KEDetector (part 1) there needs the ZDC hit
+                const bool nz = sc != nullptr || noTheta; // the cuts' plots and 0_cuts/1_noCuts use every fitted proton (AnglesRaw), the others the protons that hit the ZDC
+                TTree *tCE = nz ? (sc ? cutTree(*sc) : rawT) : events2, *tAll = nz ? tCE : eventsAllEv, *tPart = nz ? tCE : eventsAllPart; // tPart: every recon particle (any pdg)
                 const std::string ke = ic.second < 0 ? "" : " && fDEnergy > " + std::to_string(ic.second);
-                const bool noTheta = ic.first == "0_cuts/1_noCuts"; // only the ZDC hit and a recon track
                 const bool inCuts0 = ic.first.rfind("0_cuts/", 0) == 0; // its plots sit in the folder itself, not in a 1_additionalinfo
                 const std::string zb = noTheta ? zdcRecoAll : zdcBase, zbp = noTheta ? zdcRecoPartAll : zdcBasePart, zNote = noTheta ? kNoCutNote : kThetaNote;
                 const std::string bCE = nz ? rawCE : zb, bAll = nz ? "PDG == 2212" : zb, bPart = nz ? "1" : zbp, hitTxt = nz ? "" : " that hit ZDC"; // all recon protons are the pdg 2212 ones
