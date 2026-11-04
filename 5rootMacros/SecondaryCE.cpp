@@ -19,7 +19,6 @@
 #include "TStyle.h"
 #include "TSystem.h"
 
-#include "BlockLimits.h"
 #include "CutOpen.h"
 #include "FitCore.h"
 #include "QualityCut.h"
@@ -58,6 +57,9 @@ void SecondaryCE(){
     TH1D hYprim("hYprim", "", 42, -1.05, 1.05), hYsec("hYsec", "", 42, -1.05, 1.05); // CEPolY of the beam neutron and of the secondary neutrons
     std::map<std::string, long long> byCreator;
     long long nPrim = 0, nSec = 0;
+    std::vector<double> xs[4]; // x of the neutron at the CE by creator group, for the x plots below
+    double xLo = 1e30, xHi = -1e30;
+    std::map<std::pair<int, int>, double> xOf; // (fEvent, CE neutron TrackID) -> x at the CE
     for (Long64_t k = 0; k < nCE; k++){
         const int fEvent = (int)ceEvent[k], trackID = (int)ceTrack[k];
         const int g = trackID == 1 ? 0 : 1;
@@ -65,7 +67,10 @@ void SecondaryCE(){
         sA[g] += ceAP[k]; sCos[g] += std::cos(cePhiLab[k]);
         if (g == 0) nPrim++; else nSec++;
         byCreator[ceCreator[k]]++;
-        groupOf[{fEvent, trackID}] = creatorGroup(ceCreator[k]);
+        const int creator = creatorGroup(ceCreator[k]);
+        groupOf[{fEvent, trackID}] = creator;
+        xs[creator].push_back(ceX[k]); xLo = std::min(xLo, ceX[k]); xHi = std::max(xHi, ceX[k]);
+        xOf[{fEvent, trackID}] = ceX[k];
     }
     const double fracSec = 100.0 * nSec / std::max<long long>(1, nPrim + nSec);
 
@@ -161,11 +166,15 @@ void SecondaryCE(){
     const Long64_t nPi = piCol[0].size();
     const double cutKE = 0.80 * kBeamKE; // MeV, the 80% KE cut of the other plots (initialKE * 0.80, Plot3D.cpp), on the smeared energy fDEnergy
     long long nAbove[4] = {0, 0, 0, 0}; // CE protons of each creator above the cut
-    for (Long64_t k = 0; k < nPi; k++){
-        const int piEvent = (int)piCol[0][k], piParent = (int)piCol[1][k]; const double piKE = piCol[3][k], piDE = piCol[4][k];
-        const auto it = groupOf.find({piEvent, piParent});
-        if (it != groupOf.end()){hKE[0][it->second].Fill(piKE); hKE[1][it->second].Fill(piDE); if (piDE > cutKE) nAbove[it->second]++;}
-    }
+    // f(group, event, parent, KE, smeared KE) for every ZDC proton whose CE neutron has a creator group
+    const auto forPi = [&](auto&& f){
+        for (Long64_t k = 0; k < nPi; k++){
+            const int piEvent = (int)piCol[0][k], piParent = (int)piCol[1][k];
+            const auto it = groupOf.find({piEvent, piParent});
+            if (it != groupOf.end()) f(it->second, piEvent, piParent, piCol[3][k], piCol[4][k]);
+        }
+    };
+    forPi([&](int g, int, int, double piKE, double piDE){hKE[0][g].Fill(piKE); hKE[1][g].Fill(piDE); if (piDE > cutKE) nAbove[g]++;});
     const std::string keFile[2] = {"3_energy/6_CE_proton_KE_by_creator.pdf", "3_energy/7_CE_proton_smeared_KE_by_creator.pdf"};
     const std::string kZdcNote = "hit ZDC"; // the cut of every plot built from cut_ParentZdc.root, named in its title
     const std::string keTitle[2] = {"True Kinetic Energy at ZDC of the CE protons, by the process that made the CE neutron, " + kZdcNote + ", no KE cut;Kinetic Energy (MeV);Count",
@@ -199,15 +208,6 @@ void SecondaryCE(){
     canvas.SetLogy(0);
     // 9_CE_x_position_by_creator.pdf: x of the neutron at the CE (fX, mm), one curve per process that made the CE neutron, same groups as the KE plots
     const std::string xFile = "4_position/9_CE_x_position_by_creator.pdf";
-    std::vector<double> xs[4];
-    double xLo = 1e30, xHi = -1e30;
-    std::map<std::pair<int, int>, double> xOf; // (fEvent, CE neutron TrackID) -> x at the CE
-    for (Long64_t k = 0; k < nCE; k++){
-        const int g = creatorGroup(ceCreator[k]);
-        const double fX = ceX[k];
-        xs[g].push_back(fX); xLo = std::min(xLo, fX); xHi = std::max(xHi, fX);
-        xOf[{(int)ceEvent[k], (int)ceTrack[k]}] = fX;
-    }
     const double xPad = 0.02 * (xHi - xLo) + 1e-6;
     TH1D hX[4];
     double xMax = 0;
@@ -229,11 +229,7 @@ void SecondaryCE(){
     TH1D hXc[4];
     double xcMax = 0;
     for (int g = 0; g < 4; g++) hXc[g] = TH1D(Form("hXc%d", g), "", 100, xLo - xPad, xHi + xPad);
-    for (Long64_t k = 0; k < nPi; k++){
-        const int piEvent = (int)piCol[0][k], piParent = (int)piCol[1][k]; const double piDE = piCol[4][k];
-        const auto it = groupOf.find({piEvent, piParent});
-        if (it != groupOf.end() && piDE > cutKE) hXc[it->second].Fill(xOf.at({piEvent, piParent}));
-    }
+    forPi([&](int g, int piEvent, int piParent, double, double piDE){if (piDE > cutKE) hXc[g].Fill(xOf.at({piEvent, piParent}));});
     for (int g = 0; g < 4; g++){hXc[g].SetLineColor(gColor[g]); hXc[g].SetLineWidth(2); hXc[g].SetStats(0); xcMax = std::max(xcMax, hXc[g].GetMaximum());}
     hXc[0].SetMinimum(0.5); hXc[0].SetMaximum(2.0 * xcMax);
     hXc[0].SetTitle(PlotTitle(xCutFile, Form("x position of the neutron at the CE, by the process that made the CE neutron, %s, 80%% KE cut = %.0f MeV;x (mm);Count", kZdcNote.c_str(), cutKE)).c_str());
@@ -304,11 +300,7 @@ void SecondaryCE(){
         TH1D hV[2][4];
         for (int q = 0; q < 2; q++) for (int g = 0; g < 4; g++) hV[q][g] = TH1D(Form("hV%d_%d", q, g), "", 100, vLo - vPad, vHi + vPad);
         for (const auto& [key, g] : groupOf) hV[0][g].Fill(vzOf.at(key));
-        for (Long64_t k = 0; k < nPi; k++){
-            const int piEvent = (int)piCol[0][k], piParent = (int)piCol[1][k]; const double piDE = piCol[4][k];
-            const auto it = groupOf.find({piEvent, piParent});
-            if (it != groupOf.end() && piDE > cutKE) hV[1][it->second].Fill(vzOf.at({piEvent, piParent}));
-        }
+        forPi([&](int g, int piEvent, int piParent, double, double piDE){if (piDE > cutKE) hV[1][g].Fill(vzOf.at({piEvent, piParent}));});
         for (int q = 0; q < 2; q++){
             double vMax = 0;
             for (int g = 0; g < 4; g++){hV[q][g].SetLineColor(gColor[g]); hV[q][g].SetLineWidth(2); hV[q][g].SetStats(0); vMax = std::max(vMax, hV[q][g].GetMaximum());}
@@ -372,13 +364,7 @@ void SecondaryCE(){
     canvas.SetLogy(0);
     // 12_CE_protons_per_event_by_creator.pdf and 13_..._cut80_by_creator.pdf: the same count split by the process that made the CE neutron, each curve over the events with at least one CE of that creator
     std::map<int, int> nEvG[2][4]; // [0] every CE, [1] above the cut
-    for (Long64_t k = 0; k < nPi; k++){
-        const int piEvent = (int)piCol[0][k], piParent = (int)piCol[1][k]; const double piDE = piCol[4][k];
-        const auto it = groupOf.find({piEvent, piParent});
-        if (it == groupOf.end()) continue;
-        nEvG[0][it->second][piEvent]++;
-        if (piDE > cutKE) nEvG[1][it->second][piEvent]++;
-    }
+    forPi([&](int g, int piEvent, int, double, double piDE){nEvG[0][g][piEvent]++; if (piDE > cutKE) nEvG[1][g][piEvent]++;});
     const std::string nGFile[2] = {"1_counts/12_CE_protons_per_event_by_creator.pdf", "1_counts/13_CE_protons_per_event_cut80_by_creator.pdf"};
     for (int q = 0; q < 2; q++){
         TH1D hNG[4];

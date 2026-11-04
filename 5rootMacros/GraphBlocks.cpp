@@ -45,7 +45,8 @@ void GraphBlocks(){
     // 2x2 style grid (more blocks make it grow)
     int nCols = std::ceil(std::sqrt((double)blocks.size()));
     int nRows = std::ceil(blocks.size() / (double)nCols);
-    TCanvas* gridCanvas = new TCanvas("gridCanvas", "CE per block", 1500, 1200);
+    const int gridW = std::max(1500, nCols * 750), gridH = std::max(1200, nRows * 600); // 750 x 600 px per pad: the 2 x 2 grid of 4 blocks stays 1500 x 1200, more blocks get a larger page
+    TCanvas* gridCanvas = new TCanvas("gridCanvas", "CE per block", gridW, gridH);
     gridCanvas->Divide(nCols, nRows);
 
     // every branch the plots and counts below use, read once per block tree by one multithreaded Columns call (TreeColumns.h, rows in entry order)
@@ -173,7 +174,7 @@ void GraphBlocks(){
     }
     struct ReconGrid {const char *file, *label; bool zdcOnly;};
     for (const ReconGrid &g : {ReconGrid{"CE_per_block_recon.pdf", "reconstructed CE (inCE, no other cuts)", false}, ReconGrid{"CE_per_block_recon_zdc.pdf", "reconstructed CE (inCE) that hit ZDC, no other cuts", true}}){
-        TCanvas* reconCanvas = new TCanvas(Form("canvas_%s", g.file), g.label, 1500, 1200);
+        TCanvas* reconCanvas = new TCanvas(Form("canvas_%s", g.file), g.label, gridW, gridH);
         reconCanvas->Divide(nCols, nRows);
         const TString path = Form("%s/%s", outDir.Data(), g.file);
         for (size_t b = 0; b < blocks.size(); b++){

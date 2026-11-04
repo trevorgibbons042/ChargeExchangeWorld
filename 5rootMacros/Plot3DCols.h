@@ -36,7 +36,8 @@ using ColumnAdder = std::function<ROOT::RDF::RNode(ROOT::RDF::RNode)>; // adds t
 // Slots 17 and 18 are nTrackerHitsEv (tracker entries of every charged particle in the event) and nTrackerTracksEv (charged tracks hitting 2+ planes), NaN without them.
 // Slot 7 is nZdcCharged, the charged particles at the ZDC in the event (EventSummary of the sim, via ReconAngleAll.cpp), NaN without it.
 // Empty when AnglesRaw has no nProtonsEv column. rawOk is the Draw cut that keeps the protons that have a finite value.
-inline constexpr int kP3Slots = 19; // values per fitted proton
+// Slot 19 is nMaxChargedPerPlaneEv, the most charged tracks that entered one tracker plane in the event (ParticleInfo, ReconAngleAll.cpp), NaN without it.
+inline constexpr int kP3Slots = 20; // values per fitted proton
 inline std::vector<std::pair<int, int>> gP3Keys;
 inline std::vector<unsigned char> gP3Flags;
 inline std::vector<std::array<double, kP3Slots>> gP3Vals;
@@ -83,7 +84,7 @@ inline bool LoadPlot3DMaps(){
     const unsigned char kReco = kP3Reco;
     ROOT::RDataFrame df0(*raw);
     ROOT::RDF::RNode df = df0;
-    for (const char* col : {"nZdcCharged", "nTrackerHitsEv", "nTrackerTracksEv"}){
+    for (const char* col : {"nZdcCharged", "nTrackerHitsEv", "nTrackerTracksEv", "nMaxChargedPerPlaneEv"}){
         if (!raw->GetBranch(col)) df = df.Define(col, []{return (int)-1;}); // an AnglesRaw file made before this column
     }
     df = df.Filter([&want](int ev, int tid){return std::binary_search(want.begin(), want.end(), std::make_pair(ev, tid));}, {"fEvent", "TrackID"}); // before the ForeachSlot: its other branches are read for the kept rows only
@@ -91,16 +92,16 @@ inline bool LoadPlot3DMaps(){
     if (withRaw){
         const double rad = TMath::RadToDeg(), twoPi = 2 * TMath::Pi();
         df.ForeachSlot([&](unsigned slot, int ev, int tid, double resRms, double resDRms, double impact, double impactD, double r2, double r2D, int nP, int nZdc, int nH,
-                           double phiRad, double phiBlockRad, double firstXD, double firstYD, double zRecon, double resHalfRatioD, double thetaRad, double thetaBlockRad, int nTH, int nTT){
+                           double phiRad, double phiBlockRad, double firstXD, double firstYD, double zRecon, double resHalfRatioD, double thetaRad, double thetaBlockRad, int nTH, int nTT, int nMP){
             P3Item it; it.key = {ev, tid}; it.flags = kReco;
             double* v = it.a.data();
             v[0] = resRms; v[1] = resDRms; v[2] = impact; v[3] = impactD; v[4] = r2; v[5] = r2D;
             v[6] = nP; v[7] = nZdc >= 0 ? nZdc : NAN;
             v[8] = resHalfRatioD; v[9] = thetaRad * rad; v[10] = nH; v[11] = thetaBlockRad * rad; v[12] = firstXD; v[13] = firstYD;
-            v[14] = (phiRad < 0 ? phiRad + twoPi : phiRad) * rad; v[15] = (phiBlockRad < 0 ? phiBlockRad + twoPi : phiBlockRad) * rad; v[16] = zRecon; v[17] = nTH >= 0 ? nTH : NAN; v[18] = nTT >= 0 ? nTT : NAN;
+            v[14] = (phiRad < 0 ? phiRad + twoPi : phiRad) * rad; v[15] = (phiBlockRad < 0 ? phiBlockRad + twoPi : phiBlockRad) * rad; v[16] = zRecon; v[17] = nTH >= 0 ? nTH : NAN; v[18] = nTT >= 0 ? nTT : NAN; v[19] = nMP >= 0 ? nMP : NAN;
             parts[slot].push_back(it);
         }, {"fEvent", "TrackID", "resRms", "resDRms", "impact", "impactD", "r2", "r2D", "nProtonsEv", "nZdcCharged", "nHits",
-            "outPhi", "outDPhi", "firstXD", "firstYD", "z_bx_reconVertexOut", "resHalfRatioD", "outTheta", "outDTheta", "nTrackerHitsEv", "nTrackerTracksEv"});
+            "outPhi", "outDPhi", "firstXD", "firstYD", "z_bx_reconVertexOut", "resHalfRatioD", "outTheta", "outDTheta", "nTrackerHitsEv", "nTrackerTracksEv", "nMaxChargedPerPlaneEv"});
     } else {
         df.ForeachSlot([&](unsigned slot, int ev, int tid, double resDRms){
             P3Item it; it.key = {ev, tid}; it.flags = kReco; it.a.fill(0); it.a[1] = resDRms;
@@ -182,7 +183,7 @@ inline std::string P3(const std::string& s){
 // raw_k its k-th value of gP3Vals (LoadPlot3DMaps) and ok_k whether that value is finite. P3() rewrites the Draw strings to these names for every tree.
 inline void Plot3DRawAliases(TTree* raw){
     const char* val[kP3Slots] = {"resRms", "resDRms", "impact", "impactD", "r2", "r2D", "nProtonsEv", "nZdcCharged", "resHalfRatioD", "outTheta*TMath::RadToDeg()", "nHits",
-                           "outDTheta*TMath::RadToDeg()", "firstXD", "firstYD", "outPhi*TMath::RadToDeg()", "outDPhi*TMath::RadToDeg()", "z_bx_reconVertexOut", "nTrackerHitsEv", "nTrackerTracksEv"}; // phi in 0 to 360 (ReconAngleAll.cpp)
+                           "outDTheta*TMath::RadToDeg()", "firstXD", "firstYD", "outPhi*TMath::RadToDeg()", "outDPhi*TMath::RadToDeg()", "z_bx_reconVertexOut", "nTrackerHitsEv", "nTrackerTracksEv", "nMaxChargedPerPlaneEv"}; // phi in 0 to 360 (ReconAngleAll.cpp)
     for (int k = 0; k < kP3Slots; k++){
         raw->SetAlias(Form("raw_%d", k), val[k]);
         raw->SetAlias(Form("ok_%d", k), Form("TMath::Finite(raw_%d)", k));
@@ -196,7 +197,7 @@ inline void Plot3DRawAliases(TTree* raw){
 // Row ranges run on all threads (MapRows, FitCore.h) and are added in range order; the bin counts are exact, the A sums can differ from a serial sum in the last digits.
 inline constexpr int kScanStarts = 100, kScanBins = 52;
 // fit[b]: the unbinned P (UnbinnedPFromCos, FitCore.h) of the protons of start b, A fixed to their mean model A (aSum[b] / count), phi normalised over loDeg to hiDeg; ok is false below 10 protons.
-struct StartScan {std::vector<std::array<double, kScanBins>> phi = std::vector<std::array<double, kScanBins>>(kScanStarts); std::vector<double> aSum = std::vector<double>(kScanStarts, 0.0); double aAll = 0; std::vector<PFit> fit = std::vector<PFit>(kScanStarts);};
+struct StartScan {std::vector<std::array<double, kScanBins>> phi = std::vector<std::array<double, kScanBins>>(kScanStarts); std::vector<double> aSum = std::vector<double>(kScanStarts, 0.0), aSum2 = std::vector<double>(kScanStarts, 0.0); AMean aAll; std::vector<PFit> fit = std::vector<PFit>(kScanStarts);};
 inline StartScan ScanStartTheta(const std::vector<double>& th, const std::vector<double>& ph, double apScale, double loDeg = 0, double hiDeg = 360, double thHi = 1.0){ // thHi: the upper theta of the protons that count (deg), 1 unless the folder has no upper limit
     constexpr int kTable = 400; // 0.05 deg bins up to 20 deg; further out the model is evaluated per proton
     auto aOfBin = [&](long k){return APFromT(kBeamMomentum, TFromAngle(kBeamMomentum, (k + 0.5) * 0.05 * TMath::Pi() / 180), apScale);};
@@ -208,14 +209,14 @@ inline StartScan ScanStartTheta(const std::vector<double>& th, const std::vector
         for (Long64_t i = lo; i < hi; i++){
             const long k = (long)std::floor(th[i] / 0.05);
             const double a = (k >= 0 && k < kTable) ? table[k] : aOfBin(k);
-            p.aAll += a;
+            p.aAll.Add(a);
             if (th[i] < 0 || th[i] > thHi) continue;
             int b = std::min(kScanStarts - 1, (int)std::floor(th[i] / 0.01)); // the last start value with b * 0.01 <= theta, as the comparison of the plain loop
             while (b < kScanStarts - 1 && (b + 1) * 0.01 <= th[i]) b++;
             while (b > 0 && b * 0.01 > th[i]) b--;
             const double x = ph[i];
             const int bin = x < 0 ? 0 : !(x < 360.0) ? kScanBins - 1 : 1 + (int)(50.0 * x / 360.0); // TH1::FindBin of a fixed-width axis
-            p.phi[b][bin]++; p.aSum[b] += a;
+            p.phi[b][bin]++; p.aSum[b] += a; p.aSum2[b] += a * a;
         }
         return p;
     });
@@ -224,15 +225,14 @@ inline StartScan ScanStartTheta(const std::vector<double>& th, const std::vector
     for (const StartScan& p : parts){
         for (int b = 0; b < kScanStarts; b++){
             for (int j = 0; j < kScanBins; j++) s.phi[b][j] += p.phi[b][j];
-            s.aSum[b] += p.aSum[b];
+            s.aSum[b] += p.aSum[b]; s.aSum2[b] += p.aSum2[b];
         }
         s.aAll += p.aAll;
     }
     for (int b = kScanStarts - 2; b >= 0; b--){ // start b takes every proton of the buckets b and above
         for (int j = 0; j < kScanBins; j++) s.phi[b][j] += s.phi[b + 1][j];
-        s.aSum[b] += s.aSum[b + 1];
+        s.aSum[b] += s.aSum[b + 1]; s.aSum2[b] += s.aSum2[b + 1];
     }
-    s.aAll /= std::max<size_t>(1, th.size());
     { // the unbinned P of every start: the protons of the buckets b and above (th 0 to 1 deg), sorted by bucket so that start b is one stretch of the cos(phi) array
         const auto bucketOf = [](double t){
             int b = std::min(kScanStarts - 1, (int)std::floor(t / 0.01)); // the same bucket as the loop above
@@ -252,7 +252,7 @@ inline StartScan ScanStartTheta(const std::vector<double>& th, const std::vector
         ROOT::TThreadExecutor ex(NThreads());
         s.fit = ex.Map([&](int b){
             const Long64_t n = off[kScanStarts] - off[b];
-            return n >= 10 ? UnbinnedPFromCos(cosSorted.data() + off[b], n, nullptr, s.aSum[b] / n, loDeg, hiDeg, false) : PFit();
+            return n >= 10 ? UnbinnedPFromCos(cosSorted.data() + off[b], n, nullptr, AMean{(double)n, s.aSum[b], s.aSum2[b]}, loDeg, hiDeg, false) : PFit();
         }, starts);
     }
     return s;

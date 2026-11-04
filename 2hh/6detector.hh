@@ -81,6 +81,7 @@ inline void FlushParticleInfo(const G4Track *track)
             man->FillNtupleDColumn(0, 10, row.detectorCenter.y());
             man->FillNtupleDColumn(0, 11, row.detectorCenter.z());
             man->FillNtupleDColumn(0, 12, row.measuredKE);
+            man->FillNtupleSColumn(0, 13, creator ? creator->GetProcessName() : "primary");
             man->AddNtupleRow(0);
         }
     }

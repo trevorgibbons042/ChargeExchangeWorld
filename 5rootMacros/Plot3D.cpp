@@ -201,7 +201,22 @@ void Plot3D(){
             h->Draw("sames");
         };
 
-        const std::string zdcProtons = "boundaryType == 2 && pdg == 2212";
+        // call in drawPlot's tweak: h (all recon protons, blue) with the CE protons (events2, red) and all recon particles (eventsAllPart, green) of the same quantity drawn over it, and a legend below the stats box.
+        // logY: log y from 0.5, else a linear y 20% above the highest bin.
+        auto overlayCEPart = [&](TH1* h, const std::string& exprCE, const std::string& cutCE, const std::string& exprPart, const std::string& cutPart, const char* ceLabel, bool logY){
+            TH1* hCE = HistMT(events2, P3(exprCE), P3(cutCE)); hCE->Draw("same");
+            TH1* hPart = HistMT(eventsAllPart, P3(exprPart), P3(cutPart)); hPart->Draw("same");
+            h->SetLineColor(kBlue); hCE->SetLineColor(kRed); hPart->SetLineColor(kGreen + 2); hCE->SetStats(0); hPart->SetStats(0);
+            const double top = std::max({h->GetMaximum(), hCE->GetMaximum(), hPart->GetMaximum()});
+            if (logY){h->SetMinimum(0.5); h->SetMaximum(2.0 * top); canvas->SetLogy(1);} else h->SetMaximum(1.2 * top);
+            TLegend* leg = new TLegend(0.745, 0.30, 0.99, 0.42); leg->SetTextSize(0.012); // below the stats box
+            leg->AddEntry(hPart, "all recon particles that hit ZDC", "l");
+            leg->AddEntry(h, "all recon protons that hit ZDC", "l");
+            leg->AddEntry(hCE, ceLabel, "l");
+            leg->Draw();
+        };
+
+        const std::string zdcProtons ="boundaryType == 2 && pdg == 2212";
         // position plots: only protons with a reconstructed track
         const std::string zdcReco = zdcProtons + " && isReco(fEvent, TrackID)", zdcRecoAll = zdcReco;
         // the same for every recorded particle (any pdg, eventsAllPart): ZDC hit and a recon track
@@ -243,15 +258,7 @@ void Plot3D(){
             struct XOv {std::string bins, file, tag;};
             for (const auto& o : std::vector<XOv>{{"(100,-200,200)", "9_x_overlay_200.pdf", "200"}, {"(100,-50,50)", "10_x_overlay_50.pdf", "50"}}){
                 drawPlot(eventsAllEv, "fX>>hXOv" + o.tag + o.bins, xySlice, "X Position at ZDC, all recon particles, all recon protons and CE recon protons that hit ZDC, |Y| < 2 mm;X Position (mm);Count", folder_pos + o.file, "", [&](TH1* h){
-                    TH1* hCE = HistMT(events2, P3("fX>>hXOvCE" + o.tag + o.bins), P3(xySlice)); hCE->Draw("same");
-                    TH1* hPart = HistMT(eventsAllPart, P3("fX>>hXOvPart" + o.tag + o.bins), P3(xySliceP)); hPart->Draw("same");
-                    h->SetLineColor(kBlue); hCE->SetLineColor(kRed); hPart->SetLineColor(kGreen + 2); hCE->SetStats(0); hPart->SetStats(0);
-                    h->SetMaximum(1.2 * std::max({h->GetMaximum(), hCE->GetMaximum(), hPart->GetMaximum()}));
-                    TLegend* leg = new TLegend(0.745, 0.30, 0.99, 0.42); leg->SetTextSize(0.012); // below the stats box
-                    leg->AddEntry(hPart, "all recon particles that hit ZDC", "l");
-                    leg->AddEntry(h, "all recon protons that hit ZDC", "l");
-                    leg->AddEntry(hCE, "CE recon protons that hit ZDC", "l");
-                    leg->Draw();
+                    overlayCEPart(h, "fX>>hXOvCE" + o.tag + o.bins, xySlice, "fX>>hXOvPart" + o.tag + o.bins, xySliceP, "CE recon protons that hit ZDC", false);
                 });
             }
 
@@ -262,7 +269,7 @@ void Plot3D(){
             // ZDC position, block (fDx, fDy): the ZDC is nCols_detector x nRows_detector blocks over 400 mm. Every bin holds the same whole number of blocks (BlockBins, FitCore.h):
             // 100 bins over 100 mm on a pitch of 400 / 801 mm put an extra block in the bin that starts at x = 0 (a cross at x = 0 and y = 0), and in one bin of ten along the x slices (spikes).
             const int nColsD = (int)ReadSettings().at("nCols_detector"), nRowsD = (int)ReadSettings().at("nRows_detector");
-            const std::string binsFull = BlockBins(nColsD, 4.0, 200), binsFullY = BlockBins(nRowsD, 4.0, 200), binsZoom = BlockBins(nColsD, 1.0, 50), binsZoomY = BlockBins(nRowsD, 1.0, 50), binsSlice200 = BlockBins(nColsD, 400.0 / nColsD, 200), binsSlice50 = BlockBins(nColsD, 400.0 / nColsD, 53.5); // x slices: one bin per ZDC cell, the +-50 mm ones with whole cells past 50 (clipped by the frame, clipX)
+            const std::string binsSlice200 = BlockBins(nColsD, 400.0 / nColsD, 200), binsSlice50 = BlockBins(nColsD, 400.0 / nColsD, 53.5); // x slices: one bin per ZDC cell, the +-50 mm ones with whole cells past 50 (clipped by the frame, clipX)
             // the 4 xy plots: one marker per occupied ZDC cell (nCols_detector x nRows_detector over 400 mm), at the exact cell position (drawXYDots)
             const std::string binsCell = BlockBins(nColsD, 400.0 / nColsD, 200), binsCellY = BlockBins(nRowsD, 400.0 / nRowsD, 200), binsCellZoom = BlockBins(nColsD, 400.0 / nColsD, 53.5), binsCellZoomY = BlockBins(nRowsD, 400.0 / nRowsD, 53.5); // whole cells past +-50: the frame is +-50, the edge cells are clipped
             const std::string cellNote = Form(", 1 square per ZDC cell (%d x %d over 400 mm)", nColsD, nRowsD), zoomNote = cellNote + ", edge cells clipped at 50 mm";
@@ -325,15 +332,7 @@ void Plot3D(){
                 for (const auto& r : energyRanges){
                     drawPlot(eventsAllEv, q.branch + ">>hKE" + r.tag.substr(1) + binSpec(r), zdcRecoE, q.title + ", all recon particles, all recon protons and CE protons that hit ZDC (reconstructed or not);" + q.axis + ";Count",
                              folder_smear + std::to_string(&q - &keQtys[0] + 1) + "_" + q.file + r.tag + ".pdf", "", [&](TH1* h){
-                        TH1* hCE = HistMT(events2, P3(q.branch + ">>hKECE" + r.tag.substr(1) + binSpec(r)), P3(zdcProtonsE)); hCE->Draw("same");
-                        TH1* hPart = HistMT(eventsAllPart, P3(q.branch + ">>hKEPart" + r.tag.substr(1) + binSpec(r)), P3(zdcRecoPartAll)); hPart->Draw("same"); // every charged particle: contains the protons
-                        h->SetLineColor(kBlue); hCE->SetLineColor(kRed); hPart->SetLineColor(kGreen + 2); hCE->SetStats(0); hPart->SetStats(0);
-                        h->SetMinimum(0.5); h->SetMaximum(2.0 * std::max({h->GetMaximum(), hCE->GetMaximum(), hPart->GetMaximum()})); canvas->SetLogy(1);
-                        TLegend* leg = new TLegend(0.745, 0.30, 0.99, 0.42); leg->SetTextSize(0.012); // below the stats box
-                        leg->AddEntry(hPart, "all recon particles that hit ZDC", "l");
-                        leg->AddEntry(h, "all recon protons that hit ZDC", "l");
-                        leg->AddEntry(hCE, "CE protons that hit ZDC (reco or not)", "l");
-                        leg->Draw();
+                        overlayCEPart(h, q.branch + ">>hKECE" + r.tag.substr(1) + binSpec(r), zdcProtonsE, q.branch + ">>hKEPart" + r.tag.substr(1) + binSpec(r), zdcRecoPartAll, "CE protons that hit ZDC (reco or not)", true); // every charged particle: contains the protons
                     });
                     canvas->SetLogy(0);
                 }
@@ -344,8 +343,10 @@ void Plot3D(){
                 gSystem->mkdir(folder_smear.c_str(), true);
 
                 // fKEnergy = true KE, fDEnergy = smeared KE, dE = fDEnergy - fKEnergy
+                // the smear sigma is resStochastic * sqrt(KE in GeV) GeV, so the dE axis is +-10000 MeV at the 25 GeV/c beam (24078 MeV KE) and scales with sqrt(KE)
+                const double smearLim = 10000.0 * std::sqrt(kBeamKE / 24078.0);
 
-                drawPlot(events2, "fDEnergy-fKEnergy>>hSmearDiffCE(100,-10000,10000)", zdcProtonsE, "Energy Difference at ZDC, CE protons that hit ZDC (reconstructed or not);fDEnergy - fKEnergy (MeV);Count", folder_smear + "5_diff_CE.pdf", "", nullptr, kFitCore);
+                drawPlot(events2, Form("fDEnergy-fKEnergy>>hSmearDiffCE(100,-%g,%g)", smearLim, smearLim), zdcProtonsE, "Energy Difference at ZDC, CE protons that hit ZDC (reconstructed or not);fDEnergy - fKEnergy (MeV);Count", folder_smear + "5_diff_CE.pdf", "", nullptr, kFitCore);
 
                 // percent error = 100 * (fDEnergy - fKEnergy) / fKEnergy
                 const std::string pct = "100*((fDEnergy-fKEnergy)/fKEnergy)"; // bracketed: the C++ of HistMT would divide 100*(a-b) by c, TTree::Draw 100*(a-b/c)
@@ -354,20 +355,12 @@ void Plot3D(){
 
                 // the smearing quantities as one log y overlay each: CE protons (red), all recon protons (blue), all recon particles (green)
                 struct SmearOv {std::string expr, bins, file, axis, title, tag;};
-                const std::vector<SmearOv> smearOvs = {{"fDEnergy-fKEnergy", "(100,-10000,10000)", "9_diff_overlay.pdf", "fDEnergy - fKEnergy (MeV)", "Energy Difference at ZDC", "Diff"},
+                const std::vector<SmearOv> smearOvs = {{"fDEnergy-fKEnergy", Form("(100,-%g,%g)", smearLim, smearLim), "9_diff_overlay.pdf", "fDEnergy - fKEnergy (MeV)", "Energy Difference at ZDC", "Diff"},
                                                        {pct, "(100,-100,100)", "10_pct_overlay.pdf", "Percent Error (%)", "Percent Error at ZDC", "Pct"}};
                 for (const auto& o : smearOvs){
                     drawPlot(eventsAllEv, o.expr + ">>hOv" + o.tag + o.bins, zdcRecoE, o.title + ", all recon particles, all recon protons and CE protons that hit ZDC (reconstructed or not);" + o.axis + ";Count",
                              folder_smear + o.file, "", [&](TH1* h){
-                        TH1* hCE = HistMT(events2, P3(o.expr + ">>hOvCE" + o.tag + o.bins), P3(zdcProtonsE)); hCE->Draw("same");
-                        TH1* hPart = HistMT(eventsAllPart, P3(o.expr + ">>hOvPart" + o.tag + o.bins), P3(zdcRecoPartAll)); hPart->Draw("same");
-                        h->SetLineColor(kBlue); hCE->SetLineColor(kRed); hPart->SetLineColor(kGreen + 2); hCE->SetStats(0); hPart->SetStats(0);
-                        h->SetMinimum(0.5); h->SetMaximum(2.0 * std::max({h->GetMaximum(), hCE->GetMaximum(), hPart->GetMaximum()})); canvas->SetLogy(1);
-                        TLegend* leg = new TLegend(0.745, 0.30, 0.99, 0.42); leg->SetTextSize(0.012); // below the stats box
-                        leg->AddEntry(hPart, "all recon particles that hit ZDC", "l");
-                        leg->AddEntry(h, "all recon protons that hit ZDC", "l");
-                        leg->AddEntry(hCE, "CE protons that hit ZDC (reco or not)", "l");
-                        leg->Draw();
+                        overlayCEPart(h, o.expr + ">>hOvCE" + o.tag + o.bins, zdcProtonsE, o.expr + ">>hOvPart" + o.tag + o.bins, zdcRecoPartAll, "CE protons that hit ZDC (reco or not)", true);
                     });
                     canvas->SetLogy(0);
                 }
@@ -432,19 +425,15 @@ void Plot3D(){
           const std::string hitsList = EvenHitsText();
           // 6_megaCut (no ZDC requirement), 7_megaCut2 (ZDC KE > 80%) and 9_megaCut3 (megaCut2 and the even charged tracker hits in the event, all particles added up), each with at most 1 charged particle per tracker plane and
           // 1_1particlecut: at most 1 particle
-          static const char* const megaNames[1] = {"1_1particlecut"}; // folder name of 6_megaCut, 7_megaCut2 and 9_megaCut3
           auto addMega = [&](int level){ // 0: megaCut, 1: megaCut2, 2: megaCut3
-              for (int i = 1; i <= 1; i++){
-                  const int maxP = i;
-                  const bool zdc = level >= 1;
-                  const std::string top = level == 0 ? "6_megaCut" : level == 1 ? "7_megaCut2" : "9_megaCut3";
-                  std::string expr = "rawVal(fEvent, TrackID, 6) <= " + std::to_string(maxP) + " && " + EvenHitsDraw("rawVal(fEvent, TrackID, 10)") + perPlaneCut + " && rawVal(fEvent, TrackID, 9) >= 0 && rawVal(fEvent, TrackID, 9) <= 1 && rawVal(fEvent, TrackID, 11) >= 0 && rawVal(fEvent, TrackID, 11) <= 1";
-                  if (zdc) expr += " && fDEnergy > " + std::to_string(initialKE * 0.80);
-                  if (level == 2) expr += " && " + EvenHitsDraw("rawVal(fEvent, TrackID, 17)") + " && rawVal(fEvent, TrackID, 7) == 1";
-                  const std::string label = std::string(level == 0 ? "MEGA CUT: at most " : level == 1 ? "MEGA CUT 2: ZDC KE > 80%, at most " : "MEGA CUT 3: ZDC KE > 80%, at most ") + std::to_string(maxP) + (maxP == 1 ? " reconstructed particle" : " reconstructed particles") + " in event AND number of times the reconstructed particle hits tracker [" + hitsList + "] AND at most 1 charged particle per tracker plane, recon theta and recon block theta from 0 degrees to 1 degree" + (level == 2 ? " AND charged tracker plane hits in the event (all particles added up) [" + hitsList + "] AND exactly 1 charged particle at the ZDC in the event" : "");
-                  const char* file = level == 0 ? "cut_megacut_" : level == 1 ? "cut_megacut2_" : "cut_megacut3_";
-                  v.push_back({top + "/" + megaNames[i - 1], expr, label, top, std::string(file) + std::to_string(i), zdc});
-              }
+              const bool zdc = level >= 1;
+              const std::string top = level == 0 ? "6_megaCut" : level == 1 ? "7_megaCut2" : "9_megaCut3";
+              std::string expr = "rawVal(fEvent, TrackID, 6) <= 1 && " + EvenHitsDraw("rawVal(fEvent, TrackID, 10)") + perPlaneCut + " && rawVal(fEvent, TrackID, 9) >= 0 && rawVal(fEvent, TrackID, 9) <= 1 && rawVal(fEvent, TrackID, 11) >= 0 && rawVal(fEvent, TrackID, 11) <= 1";
+              if (zdc) expr += " && fDEnergy > " + std::to_string(initialKE * 0.80);
+              if (level == 2) expr += " && " + EvenHitsDraw("rawVal(fEvent, TrackID, 17)") + " && rawVal(fEvent, TrackID, 7) == 1";
+              const std::string label = std::string(level == 0 ? "MEGA CUT: at most " : level == 1 ? "MEGA CUT 2: ZDC KE > 80%, at most " : "MEGA CUT 3: ZDC KE > 80%, at most ") + "1 reconstructed particle in event AND number of times the reconstructed particle hits tracker [" + hitsList + "] AND at most 1 charged particle per tracker plane, recon theta and recon block theta from 0 degrees to 1 degree" + (level == 2 ? " AND charged tracker plane hits in the event (all particles added up) [" + hitsList + "] AND exactly 1 charged particle at the ZDC in the event" : "");
+              const char* file = level == 0 ? "cut_megacut_1" : level == 1 ? "cut_megacut2_1" : "cut_megacut3_1";
+              v.push_back({top + "/1_1particlecut", expr, label, top, file, zdc});
           };
           addMega(0); addMega(1);
           v.push_back({"8_nZdcParticles/1_1zdcparticlecut", "rawVal(fEvent, TrackID, 7) <= 1", "cut at most 1 charged particle at the ZDC in the event", "8_nZdcParticles", "cut_nZdc1", false}); // P3_CUT 7
@@ -895,10 +884,13 @@ void Plot3D(){
                             {"signal_significance", "N_{CE,recon,in cut} / sqrt(N_{nonCE,recon,particle,in cut})", kGreen + 2, [&](double ce, double, double pa){return pa - ce > 0 ? ce / std::sqrt(pa - ce) : NAN;}},
                             {"background_rejection_efficiency", "1 - N_{nonCE,recon,particle,in cut} / N_{nonCE,recon,particle,before cut}", kGreen + 2, [&](double ce, double, double pa){return nonPartBefore > 0 ? 1 - (pa - ce) / nonPartBefore : NAN;}},
                             {"signal_efficiency", "N_{CE,recon,in cut} / N_{CE,recon,total}", kRed, [&](double ce, double, double){return ceTotal > 0 ? ce / ceTotal : NAN;}}};
-                        std::vector<double> nIn[3]; // counts with theta from the start value to 1 deg, per start value (0.01 deg steps)
-                        for (int b = 0; b < 100; b++) for (int s = 0; s < 3; s++){
-                            double n = 0; for (double t : th[s]) if (t >= b * 0.01 && t <= thHi) n++;
-                            nIn[s].push_back(n);
+                        std::vector<double> nIn[3]; // counts with theta from the start value to 1 deg, per start value (0.01 deg steps): theta sorted once, two binary searches per start
+                        std::vector<double> sortedTh[3];
+                        for (int s = 0; s < 3; s++){
+                            sortedTh[s] = th[s];
+                            std::sort(sortedTh[s].begin(), sortedTh[s].end());
+                            const auto last = std::upper_bound(sortedTh[s].begin(), sortedTh[s].end(), thHi);
+                            for (int b = 0; b < 100; b++) nIn[s].push_back(double(last - std::lower_bound(sortedTh[s].begin(), last, b * 0.01)));
                         }
                         for (int k = 0; k < 8; k++){
                             TGraph g;
@@ -907,25 +899,26 @@ void Plot3D(){
                             const std::string path = dirJ + std::to_string(5 + k) + "_" + stem + "_" + ratios[k].file + "_vs_start_theta.pdf";
                             canvas->Clear(); canvas->SetRightMargin(0.30); canvas->SetTopMargin(0.1);
                             g.SetTitle((std::string(ratios[k].label) + " vs start theta, " + cutTxt + ", " + rb + " theta from the start value" + upTxt + where + ";Start theta (deg);" + ratios[k].label).c_str());
-                            g.SetMarkerStyle(20); g.SetMarkerSize(0.6); g.SetLineWidth(1); g.SetLineColor(ratios[k].color); g.SetMarkerColor(ratios[k].color);
-                            g.Draw("APL"); g.GetXaxis()->SetLimits(0, 1.0);
+                            DrawPointsLine(g, ratios[k].color, 1.0);
                             TLegend leg(0.705, 0.82, 0.99, 0.90); leg.SetTextSize(0.014); leg.AddEntry(&g, ratios[k].file, "lp"); leg.Draw();
                             canvas->SaveAs(path.c_str());
                             for (int i = 0; i < g.GetN(); i++) WriteStatsRow(path, "plot,start_theta_deg,value", Form("%s,%.4g,%.6g", gSystem->BaseName(path.c_str()), g.GetX()[i], g.GetY()[i]), fitFilesStarted, "ratios_vs_start_theta.csv");
                         }
                         { // 13: the FOM of the CE recon protons with block theta from the start value to 1 deg, same sum as fomStats (A_y^2 at the 0.05 deg bin center * 0.05 deg / N_neutrons)
                             TGraph g;
+                            const std::vector<double>& sorted = sortedTh[0]; // the terms summed in theta order, so a start value is a difference of two running sums
+                            std::vector<double> running(sorted.size() + 1, 0.0);
+                            for (size_t i = 0; i < sorted.size(); i++)
+                                running[i + 1] = running[i] + std::pow(APFromT(kBeamMomentum, TFromAngle(kBeamMomentum, (std::floor(sorted[i] / 0.05) + 0.5) * 0.05 * TMath::Pi() / 180), apScaleFom), 2) * 0.05 / nNeutrons;
+                            const auto last = std::upper_bound(sorted.begin(), sorted.end(), thHi) - sorted.begin();
                             for (int b = 0; b < 100; b++){
-                                double sum = 0;
-                                for (double t : th[0]) if (t >= b * 0.01 && t <= thHi)
-                                    sum += std::pow(APFromT(kBeamMomentum, TFromAngle(kBeamMomentum, (std::floor(t / 0.05) + 0.5) * 0.05 * TMath::Pi() / 180), apScaleFom), 2) * 0.05 / nNeutrons;
-                                g.SetPoint(g.GetN(), b * 0.01, sum);
+                                const auto first = std::lower_bound(sorted.begin(), sorted.begin() + last, b * 0.01) - sorted.begin();
+                                g.SetPoint(g.GetN(), b * 0.01, running[last] - running[first]);
                             }
                             const std::string path = dirJ + "13_" + stem + "_FOM_vs_start_theta.pdf";
                             canvas->Clear(); canvas->SetRightMargin(0.30); canvas->SetTopMargin(0.1);
                             g.SetTitle(("FOM of CE recon protons vs start theta, " + cutTxt + ", " + rb + " theta from the start value" + upTxt + where + ";Start theta (deg);FOM = #Sigma A_{y}^{2} #Delta#theta / N_{neutrons}").c_str());
-                            g.SetMarkerStyle(20); g.SetMarkerSize(0.6); g.SetLineWidth(1); g.SetLineColor(kRed); g.SetMarkerColor(kRed);
-                            g.Draw("APL"); g.GetXaxis()->SetLimits(0, 1.0);
+                            DrawPointsLine(g, kRed, 1.0);
                             canvas->SaveAs(path.c_str());
                             for (int i = 0; i < g.GetN(); i++) WriteStatsRow(path, "plot,start_theta_deg,value", Form("%s,%.4g,%.6g", gSystem->BaseName(path.c_str()), g.GetX()[i], g.GetY()[i]), fitFilesStarted, "ratios_vs_start_theta.csv");
                         }
@@ -995,6 +988,7 @@ void Plot3D(){
                 std::nth_element(vals.begin() + i1, vals.begin() + i99, vals.end());
                 q.second = vals[i99];
             }
+            if (!(q.second > q.first)) q.second = q.first + 1.0; // no values, or all equal (resDRms is 0 for every 2-hit track of a 1-block run): a zero-width axis would not draw
             quantileCache[k] = q;
             const std::string tmp = std::string(qFile) + "." + std::to_string(getpid());
             if (FILE* qf = fopen(tmp.c_str(), "w")){ // written to a temporary name and renamed, two processes never read a half file
@@ -1046,7 +1040,8 @@ void Plot3D(){
                     }
                     range[iv] = {lo, hi};
                     // 0_cuts/1_noCuts nChargedTrackerHitsEv: only the events with at most 1 charged particle in every tracker plane
-                    const std::string sel = ke + (noTheta && v.name == "nChargedTrackerHitsEv" ? perPlaneCut : std::string()) + " && rawOk(fEvent, TrackID, " + k + ")",
+                    const bool perPlane = noTheta && v.name == "nChargedTrackerHitsEv";
+                    const std::string sel = ke + (perPlane ? perPlaneCut : std::string()) + " && rawOk(fEvent, TrackID, " + k + ")",
                         exprPre = "rawVal(fEvent, TrackID, " + k + ")>>hInfo", spec = Form("(%d,%g,%g)", v.nBins, lo, hi);
                     reqCE.push_back({P3(exprPre + "CE" + k + spec), P3(bCE + sel)});
                     reqAll.push_back({P3(exprPre + "Recon" + k + spec), P3(bAll + sel)});
@@ -1071,7 +1066,7 @@ void Plot3D(){
                     canvas->Clear(); canvas->SetLogy(1);
                     hCE->SetLineColor(kRed); hRec->SetLineColor(kBlue); hPart->SetLineColor(kGreen + 2); hCE->SetLineWidth(2); hRec->SetLineWidth(2); hPart->SetLineWidth(2); hCE->SetStats(0); hRec->SetStats(0); hPart->SetStats(0);
                     hRec->SetTitle((v.label + ", CE recon protons vs all recon protons vs all recon particles" + (nz ? std::string(", ") : std::string(", hit ZDC, " + zNote + ", ")) + (ic.second < 0 ? std::string(sc ? "no KE cut, " + sc->label + ", no ZDC requirement" : "no KE cut") : "ZDC KE > " + std::to_string(int(ic.second)) + " MeV") + (noTheta && v.name == "nChargedTrackerHitsEv" ? ", at most 1 charged particle per tracker plane" : "") + ";" + v.label + ";Count").c_str());
-                    if (v.name == "nHits") for (int bin = 1; bin <= hRec->GetNbinsX(); bin++) hRec->GetXaxis()->SetBinLabel(bin, bin % 2 == 1 && bin > 1 ? Form("%d", bin - 1) : ""); // labels at 2, 4, 6, 8 hits only
+                    if (v.name == "nHits") for (int bin = 1; bin <= hRec->GetNbinsX(); bin++) hRec->GetXaxis()->SetBinLabel(bin, bin % 2 == 1 && bin > 1 ? Form("%d", bin - 1) : ""); // labels at the even counts only
                     hRec->SetMinimum(0.5); hRec->SetMaximum(2.0 * std::max(std::max(hRec->GetMaximum(), hCE->GetMaximum()), hPart->GetMaximum()));
                     hRec->Draw("hist"); hPart->Draw("hist same"); hCE->Draw("hist same");
                     TLegend* leg = new TLegend(0.745, 0.78, 0.99, 0.90); leg->SetTextSize(0.014);
@@ -1087,6 +1082,8 @@ void Plot3D(){
                     canvas->SetLogy(0);
                     delete hCE; delete hRec; delete hPart;
                 }
+                const std::string cutNote = (sc ? sc->label + (sc->zdcKE80 ? ", hit ZDC" : ", no ZDC requirement") + ", " + kThetaNote : noTheta ? std::string("no cut, no ZDC requirement, ") + zNote
+                                                : std::string("hit ZDC, ") + zNote + (ic.second < 0 ? ", no KE cut" : ", ZDC KE > 80%")); // every cut of the folder, for the titles of 9 to 12
                 if (RunSec(4)){ // 9, 10: block theta and phi resolution of the CE recon protons of the folder: recon block angle minus the true CE angle (CalcValsReDDIFF of cut_APandT.root), only CE protons have a truth
                     static std::map<std::pair<int, int>, std::pair<double, double>> blockDiff; // (fEvent, CE track id) -> (theta, phi) difference in degrees
                     static bool blockDiffLoaded = false;
@@ -1098,16 +1095,15 @@ void Plot3D(){
                         for (size_t i = 0; i < evD->size(); i++) blockDiff[{(*evD)[i], (*tidD)[i]}] = {(*thD)[i], (*phD)[i]};
                     }
                     const auto keys = Columns(tCE, {P3("fEvent"), P3("ParentID")}, P3(bCE + ke)); // the CE track is the parent of the CE proton
-                    const std::string cutNote = (sc ? sc->label + (sc->zdcKE80 ? ", hit ZDC" : ", no ZDC requirement") + ", " + kThetaNote : noTheta ? std::string("no cut, no ZDC requirement, ") + zNote
-                                                    : std::string("hit ZDC, ") + zNote + (ic.second < 0 ? ", no KE cut" : ", ZDC KE > 80%"));
                     struct DiffPlot {std::string name, label; double lim; int nBins;};
                     const DiffPlot dps[2] = {{"thetaBlockDiff", "recon block theta - true CE theta (degrees)", 1.0, 80}, {"phiBlockDiff", "recon block phi - true CE phi (degrees)", 180.0, 72}};
                     for (int w = 0; w < 2; w++){
                         TH1D hd(Form("hBlockDiff%d", w), "", dps[w].nBins, -dps[w].lim, dps[w].lim);
                         hd.SetDirectory(nullptr);
+                        std::vector<double> diffVals; // the values the unbinned fit takes, the histogram only shows them
                         for (size_t i = 0; i < keys[0].size(); i++){
                             const auto it = blockDiff.find({(int)keys[0][i], (int)keys[1][i]});
-                            if (it != blockDiff.end()) hd.Fill(w ? it->second.second : it->second.first);
+                            if (it != blockDiff.end()){const double dv = w ? it->second.second : it->second.first; hd.Fill(dv); diffVals.push_back(dv);}
                         }
                         canvas->Clear(); canvas->SetLogy(0);
                         hd.SetLineColor(kRed); hd.SetLineWidth(2);
@@ -1119,11 +1115,21 @@ void Plot3D(){
                         TLegend* leg = new TLegend(0.745, 0.80, 0.99, 0.90); leg->SetTextSize(0.014);
                         leg->AddEntry(&hd, Form("CE recon protons (%.0f)", hd.GetEntries()), "l");
                         if (hd.GetEntries() >= 10){
-                            hd.Fit("gaus", "Q0");
-                            TF1* fg = hd.GetFunction("gaus");
-                            TF1* fd = new TF1(Form("fBlockDiffDraw%d", w), "gaus", -dps[w].lim, dps[w].lim);
-                            fd->SetParameters(fg->GetParameter(0), fg->GetParameter(1), fg->GetParameter(2)); fd->SetLineColor(kBlack); fd->SetLineWidth(2); fd->Draw("same");
-                            leg->AddEntry(fd, Form("Gaussian fit, mean %.3g, sigma %.3g", fg->GetParameter(1), fg->GetParameter(2)), "l");
+                            // unbinned likelihood fit of a gaussian to the values in -lim to lim (FitCore.h), height in counts per bin so it overlays the histogram
+                            std::vector<double> inRange;
+                            for (double dv : diffVals) if (dv >= -dps[w].lim && dv <= dps[w].lim) inRange.push_back(dv);
+                            double dMean = 0, dVar = 0;
+                            for (double dv : inRange) dMean += dv / inRange.size();
+                            for (double dv : inRange) dVar += (dv - dMean) * (dv - dMean) / inRange.size();
+                            const double dSig = std::max(std::sqrt(dVar), 0.01 * dps[w].lim);
+                            UGaussModel gm; gm.lo = -dps[w].lim; gm.hi = dps[w].lim; gm.pLo = {-dps[w].lim, 0.002 * dps[w].lim}; gm.pHi = {dps[w].lim, 2 * dps[w].lim};
+                            const UGaussFit gr = FitUGaus(inRange, gm, {dMean, dSig}, {0.1 * dSig, 0.1 * dSig});
+                            if (gr.ok){
+                                TF1* fd = AddGausCurve(&hd, Form("fBlockDiffDraw%d", w), gr, gm);
+                                hd.GetListOfFunctions()->Remove(fd); // drawn by hand below ("hist" does not draw the function list)
+                                fd->SetLineColor(kBlack); fd->SetLineWidth(2); fd->Draw("same");
+                                leg->AddEntry(fd, Form("Unbinned gaussian fit, mean %.3g, sigma %.3g", fd->GetParameter(1), fd->GetParameter(2)), "l");
+                            }
                         }
                         leg->Draw();
                         canvas->Modified(); canvas->Update();
@@ -1133,8 +1139,6 @@ void Plot3D(){
                     }
                 }
                 if (RunSec(5)){ // 11, 12: recon minus recon block, theta and phi, CE recon protons (red) and all recon protons (blue) of the folder
-                    const std::string cutNote = (sc ? sc->label + (sc->zdcKE80 ? ", hit ZDC" : ", no ZDC requirement") + ", " + kThetaNote : noTheta ? std::string("no cut, no ZDC requirement, ") + zNote
-                                                    : std::string("hit ZDC, ") + zNote + (ic.second < 0 ? ", no KE cut" : ", ZDC KE > 80%"));
                     struct ReDiffPlot {std::string name, label, expr, ok; double lim; int nBins;};
                     const ReDiffPlot rps[2] = {
                         {"thetaReconBlockDiff", "recon theta - recon block theta (degrees)", "rawVal(fEvent, TrackID, 9)-rawVal(fEvent, TrackID, 11)", " && rawOk(fEvent, TrackID, 9) && rawOk(fEvent, TrackID, 11)", 1.0, 80},

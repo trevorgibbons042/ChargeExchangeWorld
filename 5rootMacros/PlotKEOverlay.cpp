@@ -95,9 +95,9 @@ void KeOverlayFolder(const std::string& family, const std::string& name, const s
     // description of the cuts every curve applies, for the plot (every cut a plot applies is written on it)
     std::vector<std::string> cutLines = {Form("%s/%s:", family.c_str(), name.c_str()),
         name[2] == '1' ? "at most 1 recon particle in the event" : "at most 2 recon particles in the event",
-        "2, 4, 6 or 8 tracker hits", "recon theta, block theta 0 to 1 deg"};
+        "even tracker hits, 2 to 2 x nBlocks", "at most 1 charged particle per tracker plane", "recon theta, block theta 0 to 1 deg"};
     if (family != "6_megaCut") cutLines.push_back("a recon ZDC proton, ZDC KE cut of the legend");
-    if (family == "9_megaCut3"){cutLines.push_back("2, 4, 6 or 8 charged tracker hits"); cutLines.push_back("exactly 1 charged ZDC particle");}
+    if (family == "9_megaCut3"){cutLines.push_back("even charged tracker hits in the event, 2 to 2 x nBlocks"); cutLines.push_back("exactly 1 charged ZDC particle");}
     if (ke6) cutLines.push_back("the other curves also have the ZDC KE cut");
 
     for (const bool isP : {true, false}){

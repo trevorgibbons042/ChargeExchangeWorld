@@ -164,15 +164,20 @@ inline DrawPlan::Hist DrawPlan::H(TTree* t, const std::string& varexp, const std
     return {r};
 }
 
+namespace DrawPlanImpl {
+// the unweighted group of a tree and effective selection, made when missing
+inline std::shared_ptr<DrawPlan::Group> PlainGroup(std::vector<std::shared_ptr<DrawPlan::Group>>& groups, TTree* t, const std::string& eff){
+    for (auto& o : groups) if (o->tree == t && o->sel == eff && !o->weighted) return o;
+    auto g = std::make_shared<DrawPlan::Group>(); g->tree = t; g->sel = eff; groups.push_back(g);
+    return g;
+}
+} // namespace DrawPlanImpl
+
 inline DrawPlan::Count DrawPlan::N(TTree* t, const std::string& selection, const std::string& listCut){
     using namespace DrawPlanImpl;
     auto r = std::make_shared<CountReq>();
     r->t = t; r->sel = selection; r->listCut = listCut;
-    const std::string eff = Effective(selection, listCut);
-    std::shared_ptr<Group> g;
-    for (auto& o : groups) if (o->tree == t && o->sel == eff && !o->weighted){g = o; break;}
-    if (!g){g = std::make_shared<Group>(); g->tree = t; g->sel = eff; groups.push_back(g);}
-    r->g = g; counts.push_back(r);
+    r->g = PlainGroup(groups, t, Effective(selection, listCut)); counts.push_back(r);
     return {r};
 }
 
@@ -180,10 +185,7 @@ inline DrawPlan::Cols DrawPlan::C(TTree* t, const std::vector<std::string>& expr
     using namespace DrawPlanImpl;
     auto r = std::make_shared<ColsReq>();
     r->t = t; r->exprs = exprs; r->sel = selection; r->listCut = listCut;
-    const std::string eff = Effective(selection, listCut);
-    std::shared_ptr<Group> g;
-    for (auto& o : groups) if (o->tree == t && o->sel == eff && !o->weighted){g = o; break;}
-    if (!g){g = std::make_shared<Group>(); g->tree = t; g->sel = eff; groups.push_back(g);}
+    auto g = PlainGroup(groups, t, Effective(selection, listCut));
     g->needRows = true;
     r->g = g;
     for (const auto& e : exprs) r->ix.push_back(g->Index(e));

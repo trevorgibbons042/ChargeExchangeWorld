@@ -20,7 +20,6 @@
 
 void CountCE(){
     const TString outname = "cuts/cut_blocks.root";
-    const TString cut = CarbonCeCut();
     const bool Verbose = false; // print the blocks and tracker planes and the per-block counts
 
 
@@ -121,20 +120,20 @@ void CountCE(){
         df = df.Define("ceRow", perCE, {"fEvent", "TrackID"})
                .Define("nextTrackerZ", [nextTrackerZ]{return nextTrackerZ;})
                .Define("reachedNextTracker", [](const std::array<double,10> &r){return (Int_t)r[0];}, {"ceRow"})
-               .Define("trackerX", [](const std::array<double,10> &r){return r[1];}, {"ceRow"})
-               .Define("trackerY", [](const std::array<double,10> &r){return r[2];}, {"ceRow"})
-               .Define("trackerDX", [](const std::array<double,10> &r){return r[3];}, {"ceRow"})
-               .Define("trackerDY", [](const std::array<double,10> &r){return r[4];}, {"ceRow"})
-               .Define("detectorDX", [](const std::array<double,10> &r){return r[8];}, {"ceRow"})
-               .Define("detectorDY", [](const std::array<double,10> &r){return r[9];}, {"ceRow"})
-               .Define("detectorX", [](const std::array<double,10> &r){return r[6];}, {"ceRow"})
-               .Define("detectorY", [](const std::array<double,10> &r){return r[7];}, {"ceRow"})
                .Define("reachedDetector", [](const std::array<double,10> &r){return (Int_t)r[5];}, {"ceRow"});
+        std::vector<std::string> cols = ceBranches;
+        for (const char *c : {"nextTrackerZ", "reachedNextTracker"}) cols.push_back(c);
+        // the double columns of ceRow, one Define each
+        const auto addCol = [&](const char *name, int idx){
+            df = df.Define(name, [idx](const std::array<double,10> &r){return r[idx];}, {"ceRow"});
+            cols.push_back(name);
+        };
+        addCol("trackerX", 1); addCol("trackerY", 2); addCol("trackerDX", 3); addCol("trackerDY", 4);
+        addCol("detectorDX", 8); addCol("detectorDY", 9); addCol("detectorX", 6); addCol("detectorY", 7);
+        cols.push_back("reachedDetector");
         auto nCEr = df.Count();
         auto nReachedNextr = df.Sum<Int_t>("reachedNextTracker");
         auto nReachedDetr = df.Sum<Int_t>("reachedDetector");
-        std::vector<std::string> cols = ceBranches;
-        for (const char *c : {"nextTrackerZ", "reachedNextTracker", "trackerX", "trackerY", "trackerDX", "trackerDY", "detectorDX", "detectorDY", "detectorX", "detectorY", "reachedDetector"}) cols.push_back(c);
         ROOT::RDF::RSnapshotOptions opts;
         opts.fMode = b == 0 ? "RECREATE" : "UPDATE";
         df.Snapshot(Form("Block%zu", b + 1), outname.Data(), cols, opts);

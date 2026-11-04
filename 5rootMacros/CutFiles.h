@@ -64,9 +64,3 @@ static TEntryList* CutList(const std::string& dir, TTree* t, const std::string& 
 // GetEntries() without a selection still counts every entry.
 static void ApplyCut(TTree* t, const std::string& dir, const std::string& listName = ""){t->SetEntryList(CutList(dir, t, listName));}
 
-// The selection string CutPlots.cpp (trees) built the list of dir from: DrawPlan's listCut for a tree that has that list set. dir is the KeCuts() dir ("ke_gt80").
-static std::string ListCut(const std::string& dir){
-    std::string cut;
-    for (const auto& ke : KeCuts()) if (ke.dir == dir) cut = ke.cut;
-    return cut;
-}

@@ -138,6 +138,7 @@ void PlotDiffPhiCuts(double absLo = 50, double absHi = 180, std::string energy =
     gPad->SetLeftMargin(0.14); gPad->SetBottomMargin(0.13);
 
     const std::string cutLabel = Form("CE recon protons, block phi diff -%g to -%g and %g to %g deg, no other cut, N = %lld", absHi, absLo, absLo, absHi, nSel);
+    const std::string overlayWhat = Form("all recon particles, all recon protons and CE recon protons, block phi diff -%g to -%g and %g to %g deg", absHi, absLo, absLo, absHi); // the title of the log y overlays
     std::set<std::string> numbersStarted;
     auto save = [&](TH1* h, const std::string& title, const std::string& file, const char* opt, bool squares = false){
         h->SetTitle(PlotTitle(file, title).c_str());
@@ -215,7 +216,7 @@ void PlotDiffPhiCuts(double absLo = 50, double absHi = 180, std::string energy =
         const double keMax = KeAxisMax(); // 30000 MeV at 25 GeV/c, FitCore.h
         TH1D hKERecon("hKERecon", "", 100, 0, keMax), hKEProt("hKEProt", "", 100, 0, keMax), hKECE("hKECE", "", 100, 0, keMax);
         fill3(angCols[2], hKERecon, hKEProt, hKECE); // no ZDC hit: no KE, not filled
-        drawOverlay(hKERecon, hKEProt, hKECE, nullptr, "Kinetic Energy at ZDC (MeV)", Form("all recon particles, all recon protons and CE recon protons, block phi diff -%g to -%g and %g to %g deg", absHi, absLo, absLo, absHi), "5_ke.pdf", {});
+        drawOverlay(hKERecon, hKEProt, hKECE, nullptr, "Kinetic Energy at ZDC (MeV)", overlayWhat, "5_ke.pdf", {});
     }
 
     // Block line fit quality of every recon proton and the CE ones in the phi diff window: 6_resDRms.pdf
@@ -227,7 +228,7 @@ void PlotDiffPhiCuts(double absLo = 50, double absHi = 180, std::string energy =
     for (size_t v = 0; v < vars.size(); v++){
         TH1D hRecon(Form("hRecon%zu", v), "", 100, vars[v].lo, vars[v].hi), hProt(Form("hProt%zu", v), "", 100, vars[v].lo, vars[v].hi), hCE(Form("hCE%zu", v), "", 100, vars[v].lo, vars[v].hi);
         fill3(angCols[4 + v], hRecon, hProt, hCE);
-        drawOverlay(hRecon, hProt, hCE, nullptr, vars[v].label, Form("all recon particles, all recon protons and CE recon protons, block phi diff -%g to -%g and %g to %g deg", absHi, absLo, absLo, absHi), vars[v].file, vars[v].eq);
+        drawOverlay(hRecon, hProt, hCE, nullptr, vars[v].label, overlayWhat, vars[v].file, vars[v].eq);
     }
 
     // The other cut candidates (6_cuts/3_ResCuts to 5_nHits), shown only, nothing is cut on them: the true position residual, protons per event,
@@ -243,13 +244,13 @@ void PlotDiffPhiCuts(double absLo = 50, double absHi = 180, std::string energy =
             {"block residual, hits after first 2 / first 2 hits (>2 hits)", "14_resHalf.pdf", 0, 10, 100, {}},
             {"recon theta (degrees)", "15_theta.pdf", 0, ThetaAxisMax(), 100, {}}, // 2.3 deg at 25 GeV/c, scaled with 1 / p (FitCore.h)
             {"recon block theta (degrees)", "16_thetaBlock.pdf", 0, ThetaAxisMax(), 100, {}},
-            {"tracker hits", "17_nHits.pdf", -0.5, 10.5, 11, {}}};
+            {"tracker hits", "17_nHits.pdf", -0.5, MaxTrackerHits() + 2.5, MaxTrackerHits() + 3, {}}}; // one bin per count from 0 to 2 * nBlocks + 2
         std::vector<const double*> exCols(exVars.size());
         for (size_t c = 0; c < exVars.size(); c++) exCols[c] = cEx.V(c);
         for (size_t v = 0; v < exVars.size(); v++){
             TH1D hRecon(Form("hExRecon%zu", v), "", exVars[v].nBins, exVars[v].lo, exVars[v].hi), hProt(Form("hExProt%zu", v), "", exVars[v].nBins, exVars[v].lo, exVars[v].hi), hCE(Form("hExCE%zu", v), "", exVars[v].nBins, exVars[v].lo, exVars[v].hi);
             fill3(exCols[v], hRecon, hProt, hCE);
-            drawOverlay(hRecon, hProt, hCE, nullptr, exVars[v].label, Form("all recon particles, all recon protons and CE recon protons, block phi diff -%g to -%g and %g to %g deg", absHi, absLo, absLo, absHi), exVars[v].file, exVars[v].eq);
+            drawOverlay(hRecon, hProt, hCE, nullptr, exVars[v].label, overlayWhat, exVars[v].file, exVars[v].eq);
         }
     }
     BoxAndCropPlots();
