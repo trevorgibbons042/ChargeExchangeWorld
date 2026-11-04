@@ -23,6 +23,12 @@ bash ScanBlocks.sh <template macro> <total thickness m> [dz m]
 Block scan. Writes one macro per block count (1, 3, 5, 7, 9) and beam energy from the template in `build/`, each with `/detector/CarbonThickness` set to the total divided by the count, and submits each with `Run.sh`. The energies are 25 GeV with a 0.92 GeV sigma, 50 GeV with 1.8 GeV and 137.5 GeV with 5 GeV, set through `/randGun/Energy` and `/randGun/EnergySD` and replacing any energy lines in the template, so one call submits 15 jobs. The run folder becomes `<folder>_<total>m/<E>GeV/<n>block` in `build/root/`, and `ScanBlockAnalysis.sh` analyses them all. dz (default 0.025 m) is the gap between the edge of a block and the edge of its tracker. It refuses if the trackers of neighbouring blocks would meet: the slot spacing 7.7 m / (n + 1) must exceed the block thickness plus 2 dz. Example: `bash ScanBlocks.sh run_0.mac 0.4`.
 
 ```
+bash ScanBlocksEach.sh <template macro> <thickness of each block m> [dz m]
+```
+
+Same scan as `ScanBlocks.sh`, but every block gets the given thickness, so the total grows with the count (n x thickness). The run folder becomes `<folder>_<thickness>mEach/<E>GeV/<n>block`, and `ScanBlockAnalysis.sh <folder>_<thickness>mEach` analyses them. Example: `bash ScanBlocksEach.sh run_0.mac 0.4`.
+
+```
 bash ScanBlockAnalysis.sh <scan folder in build/root> [cutdone | plot job]
 ```
 
@@ -34,7 +40,7 @@ Runs `SubmitEvents.sh` on every run folder two levels below the scan folder (`<s
 bash SubmitEvents.sh <run>
 ```
 
-Submits CutEvents, ReconAngleAll, CalcAPandT and CountCE as dependent jobs, then the plot jobs from `SubmitPlots.sh`. It copies `5rootMacros/` into the run folder first. The run folder needs `output0_t*.root` and `settings.csv`.
+Submits one Analysis job that runs CutEvents, ReconAngleAll, CalcAPandT, CountCE and CutPlots one after the other, then the plot jobs from `SubmitPlots.sh` (starting at Cuts). It copies `5rootMacros/` into the run folder first. The run folder needs `output0_t*.root` and `settings.csv`.
 
 If `cuts/cut_angles_all.root` already exists from an earlier ReconAngleAll run, skip the refit:
 

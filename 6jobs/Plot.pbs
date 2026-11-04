@@ -28,6 +28,8 @@ echo Run folder: $RUN, step: $STEP
 # The same lanes as plot.sh: a lane holds the macros that write into the same plots/ folders or read another's csv files
 case $STEP in
     cutevents) macros=('CutEvents.cpp') ;; # SubmitEvents.sh: the analysis chain of run.sh
+    analysis) macros=('CutEvents.cpp' 'ReconAngleAll.cpp' 'CalcAPandT.cpp' 'CountCE.cpp' 'CutPlots.cpp') ;; # SubmitEvents.sh: the five analysis steps in one job, one after the other, all the cores each
+    analysisconvert) macros=('CutEvents.cpp' 'ConvertAngles.cpp' 'CalcAPandT.cpp' 'CountCE.cpp' 'CutPlots.cpp') ;; # the same with ConvertAngles.cpp instead of the refit (cutdone)
     recon)    macros=('ReconAngleAll.cpp') ;;
     convert)  macros=('ConvertAngles.cpp') ;; # the cut_angles_all.root of an old ReconAngleAll.cpp into the one-tree format, no refit
     calc)     macros=('CalcAPandT.cpp') ;; # true KE, then detector KE
