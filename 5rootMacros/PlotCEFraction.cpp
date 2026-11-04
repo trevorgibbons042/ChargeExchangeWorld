@@ -29,7 +29,7 @@ void PlotCEFraction(){
     const auto &sets = Sets(), &kes = Kes();
     const auto &colors = kColors;
     const auto &setName = SetNames();
-    auto cutNote = [](const std::string& set){return std::string("no KE cut") + (set == "2_reconBlockTheta" ? ", block residual < 2 mm" : "");};
+    auto cutNote = [](const std::string&){return std::string("no KE cut");};
     const auto keName = KeName;
 
     const double thetaMax = 15.0; // deg, fixed axis range for every plot (ReadThetaMax() ran to the largest recon theta)
@@ -103,7 +103,7 @@ void PlotCEFraction(){
             gA2.SetMarkerStyle(20); gA2.SetMarkerSize(0.6); gA2.SetLineWidth(1); gA2.SetLineColor(kGreen + 2); gA2.SetMarkerColor(kGreen + 2); // 4_: green
             gA2.Draw("APL");
             gA2.GetXaxis()->SetLimits(0, thetaMax);
-            c.SaveAs((dir + "ke_gt80/4_ce_percent_x_A2_per_bin.pdf").c_str());
+            c.SaveAs((dir + "ke_gt80/4_FOM_per_bin.pdf").c_str());
 
             // Running integral up to each bin: sum of N_CE / N_neutrons * A_y^2(theta) * delta theta (0.05 deg)
             TGraph gInt;
@@ -125,7 +125,7 @@ void PlotCEFraction(){
             finalValue.AddText("final value");
             finalValue.AddText(Form("%.4g", integral));
             finalValue.Draw();
-            c.SaveAs((dir + "ke_gt80/5_integral_ce_x_A2_dtheta.pdf").c_str());
+            c.SaveAs((dir + "ke_gt80/5_FOM_cumulative.pdf").c_str());
 
             // Per theta bin, the share of the reconstructed protons (1_, 2_) and of every reconstructed particle (6_, 7_) that are CE (100 * N_CE / N) and not CE (100 * (N - N_CE) / N)
             for (const bool part : {false, true}) for (const bool nonCE : {false, true}){
@@ -138,13 +138,13 @@ void PlotCEFraction(){
                 }
                 if (gShare.GetN() == 0) continue;
                 c.Clear();
-                gShare.SetTitle(("100 #times " + num + " / " + den + " per #theta bin (0.05 deg), N_{CE,recon} = CE recon protons, " + den + " = all recon " + (part ? "particles (any pdg)" : "protons (pdg 2212)") + ", " + cutNote(set) + ", " + setName.at(set) + ";" +
+                gShare.SetTitle((std::string(nonCE ? "Contamination, " : "Purity, ") + (part ? "all recon particles: " : "all recon protons: ") + "100 #times " + num + " / " + den + " per #theta bin (0.05 deg), N_{CE,recon} = CE recon protons, " + den + " = all recon " + (part ? "particles (any pdg)" : "protons (pdg 2212)") + ", " + cutNote(set) + ", " + setName.at(set) + ";" +
                                  std::string(set == "2_reconBlockTheta" ? "recon block #theta" : "recon #theta") + " (deg);100 #times " + num + " / " + den + " (%)").c_str());
                 gShare.SetMarkerStyle(20); gShare.SetMarkerSize(0.6); gShare.SetLineWidth(1); const int shareColor = part ? kRed : kBlue; // 1_, 2_ (all recon protons as the denominator) blue, 6_, 7_ (all recon particles) red
                 gShare.SetLineColor(shareColor); gShare.SetMarkerColor(shareColor);
                 gShare.Draw("APL");
                 gShare.GetXaxis()->SetLimits(0, thetaMax);
-                c.SaveAs((dir + "ke_gt80/" + (part ? (nonCE ? "7_nonce_percent_of_particles_per_bin.pdf" : "6_ce_percent_of_particles_per_bin.pdf") : (nonCE ? "2_nonce_percent_of_recon_per_bin.pdf" : "1_ce_percent_of_recon_per_bin.pdf"))).c_str());
+                c.SaveAs((dir + "ke_gt80/" + (part ? (nonCE ? "7_contamination_particle_percent_per_bin.pdf" : "6_purity_particle_percent_per_bin.pdf") : (nonCE ? "2_contamination_proton_percent_per_bin.pdf" : "1_purity_proton_percent_per_bin.pdf"))).c_str());
             }
 
             // 8 to 15: the ratios of the cut folders per theta bin (the bin is the cut), CE = CE recon protons, prot = recon protons (pdg 2212), part = every recon particle; out / before are against the whole theta range
@@ -154,20 +154,22 @@ void PlotCEFraction(){
                 const double nonProtBefore = totProt - totCE, nonPartBefore = totPart - totCE;
                 struct Ratio {const char* file, *label; int color; std::function<double(double, double, double)> f;}; // f(CE, prot, part) in the bin
                 const Ratio ratios[8] = {
-                    {"ce_over_particle", "N_{CE,recon,in bin} / N_{recon,particle,in bin}", kGreen + 2, [&](double ce, double, double pa){return pa > 0 ? ce / pa : NAN;}},
-                    {"nonce_particle_over_particle", "N_{nonCE,recon,particle,in bin} / N_{recon,particle,in bin}", kGreen + 2, [&](double ce, double, double pa){return pa > 0 ? (pa - ce) / pa : NAN;}},
-                    {"nonce_proton_in_over_out", "N_{nonCE,recon,proton,in bin} / N_{nonCE,recon,proton,out of bin}", kBlue, [&](double ce, double pr, double){const double out = nonProtBefore - (pr - ce); return out > 0 ? (pr - ce) / out : NAN;}},
-                    {"nonce_particle_in_over_out", "N_{nonCE,recon,particle,in bin} / N_{nonCE,recon,particle,out of bin}", kGreen + 2, [&](double ce, double, double pa){const double out = nonPartBefore - (pa - ce); return out > 0 ? (pa - ce) / out : NAN;}},
-                    {"nonce_proton_kept", "N_{nonCE,recon,proton,in bin} / N_{nonCE,recon,proton,all bins}", kBlue, [&](double ce, double pr, double){return nonProtBefore > 0 ? (pr - ce) / nonProtBefore : NAN;}},
-                    {"nonce_particle_kept", "N_{nonCE,recon,particle,in bin} / N_{nonCE,recon,particle,all bins}", kGreen + 2, [&](double ce, double, double pa){return nonPartBefore > 0 ? (pa - ce) / nonPartBefore : NAN;}},
-                    {"ce_over_sqrt_nonce_proton", "N_{CE,recon,in bin} / sqrt(N_{nonCE,recon,proton,in bin})", kBlue, [&](double ce, double pr, double){return pr - ce > 0 ? ce / std::sqrt(pr - ce) : NAN;}},
-                    {"ce_over_sqrt_nonce_particle", "N_{CE,recon,in bin} / sqrt(N_{nonCE,recon,particle,in bin})", kGreen + 2, [&](double ce, double, double pa){return pa - ce > 0 ? ce / std::sqrt(pa - ce) : NAN;}}};
+                    {"purity_particle", "N_{CE,recon,in bin} / N_{recon,particle,in bin}", kGreen + 2, [&](double ce, double, double pa){return pa > 0 ? ce / pa : NAN;}},
+                    {"contamination_particle", "N_{nonCE,recon,particle,in bin} / N_{recon,particle,in bin}", kGreen + 2, [&](double ce, double, double pa){return pa > 0 ? (pa - ce) / pa : NAN;}},
+                    {"background_in_over_out_proton", "N_{nonCE,recon,proton,in bin} / N_{nonCE,recon,proton,out of bin}", kBlue, [&](double ce, double pr, double){const double out = nonProtBefore - (pr - ce); return out > 0 ? (pr - ce) / out : NAN;}},
+                    {"background_in_over_out_particle", "N_{nonCE,recon,particle,in bin} / N_{nonCE,recon,particle,out of bin}", kGreen + 2, [&](double ce, double, double pa){const double out = nonPartBefore - (pa - ce); return out > 0 ? (pa - ce) / out : NAN;}},
+                    {"background_efficiency_proton", "N_{nonCE,recon,proton,in bin} / N_{nonCE,recon,proton,all bins}", kBlue, [&](double ce, double pr, double){return nonProtBefore > 0 ? (pr - ce) / nonProtBefore : NAN;}},
+                    {"background_efficiency_particle", "N_{nonCE,recon,particle,in bin} / N_{nonCE,recon,particle,all bins}", kGreen + 2, [&](double ce, double, double pa){return nonPartBefore > 0 ? (pa - ce) / nonPartBefore : NAN;}},
+                    {"signal_significance_proton", "N_{CE,recon,in bin} / sqrt(N_{nonCE,recon,proton,in bin})", kBlue, [&](double ce, double pr, double){return pr - ce > 0 ? ce / std::sqrt(pr - ce) : NAN;}},
+                    {"signal_significance_particle", "N_{CE,recon,in bin} / sqrt(N_{nonCE,recon,particle,in bin})", kGreen + 2, [&](double ce, double, double pa){return pa - ce > 0 ? ce / std::sqrt(pa - ce) : NAN;}}};
                 for (int k = 0; k < 8; k++){
                     TGraph gR;
                     for (int b = 0; b < nBins; b++){const double v = ratios[k].f(nCE[b], nRecon[b], nPart[b]); if (std::isfinite(v)) gR.SetPoint(gR.GetN(), (b + 0.5) * binW, v);}
                     if (gR.GetN() < 2) continue;
                     c.Clear();
-                    gR.SetTitle((std::string(ratios[k].label) + " per #theta bin (0.05 deg), N_{CE,recon} = CE recon protons, " + cutNote(set) + ", " + setName.at(set) + ";" +
+                    std::string quantity = ratios[k].file; // the file name without underscores leads the title: "purity particle", "signal significance proton"
+                    for (char& ch : quantity) if (ch == '_') ch = ' ';
+                    gR.SetTitle((quantity + ": " + ratios[k].label + " per #theta bin (0.05 deg), N_{CE,recon} = CE recon protons, " + cutNote(set) + ", " + setName.at(set) + ";" +
                                  std::string(set == "2_reconBlockTheta" ? "recon block #theta" : "recon #theta") + " (deg);" + ratios[k].label).c_str());
                     gR.SetMarkerStyle(20); gR.SetMarkerSize(0.6); gR.SetLineWidth(1); gR.SetLineColor(ratios[k].color); gR.SetMarkerColor(ratios[k].color);
                     gR.Draw("APL");

@@ -31,7 +31,7 @@ using ColumnAdder = std::function<ROOT::RDF::RNode(ROOT::RDF::RNode)>; // adds t
 // Every fitted proton of AnglesRaw (cut_angles_all.root, before any cut) by (fEvent, TrackID), as three flat arrays in key order (LoadPlot3DMaps), found by a binary search of gP3Keys.
 // A std::map and three std::sets of the same rows took about 100 GB at 213M rows, the arrays 32 GB.
 // gP3Flags: kP3Reco the proton has a reconstructed track (cut_angles_all.root, Angles): the position plots only show these protons, the ones that can actually be drawn on the ZDC.
-// kP3RecoD: the ones that also pass the block residual cut (PassesBlockResidual, QualityCut.h), for the block position plots only. kP3Res2: block residual under 2 mm, the _res2mm twin of every KE cut (kRes2Mm, QualityCut.h).
+// There is no residual flag: the block position plots use the same isReco as the true position ones.
 // gP3Vals: the cut candidates for the 1_additionalinfo plots of the KE cut folders. Index: see kInfoVars in Plot3D (14, 15: recon phi and recon block phi in degrees, 0 to 360); 16: recon vertex z (mm), from the block position line fit.
 // Slots 17 and 18 are nTrackerHitsEv (tracker entries of every charged particle in the event) and nTrackerTracksEv (charged tracks hitting 2+ planes), NaN without them.
 // Slot 7 is nZdcCharged, the charged particles at the ZDC in the event (EventSummary of the sim, via ReconAngleAll.cpp), NaN without it.
@@ -40,7 +40,7 @@ inline constexpr int kP3Slots = 19; // values per fitted proton
 inline std::vector<std::pair<int, int>> gP3Keys;
 inline std::vector<unsigned char> gP3Flags;
 inline std::vector<std::array<double, kP3Slots>> gP3Vals;
-inline constexpr unsigned char kP3Reco = 1, kP3RecoD = 2, kP3Res2 = 4;
+inline constexpr unsigned char kP3Reco = 1;
 inline long P3Index(int fEvent, int trackID){ // position of the key in gP3Keys, -1 if it is not there
     const std::pair<int, int> key{fEvent, trackID};
     const auto it = std::lower_bound(gP3Keys.begin(), gP3Keys.end(), key);
@@ -48,8 +48,6 @@ inline long P3Index(int fEvent, int trackID){ // position of the key in gP3Keys,
 }
 inline bool P3HasFlag(int fEvent, int trackID, unsigned char bit){const long i = P3Index(fEvent, trackID); return i >= 0 && (gP3Flags[i] & bit) != 0;}
 inline bool isReco(int fEvent, int trackID){return P3HasFlag(fEvent, trackID, kP3Reco);}
-inline bool isRes2(int fEvent, int trackID){return P3HasFlag(fEvent, trackID, kP3Res2);}
-inline bool isRecoD(int fEvent, int trackID){return P3HasFlag(fEvent, trackID, kP3RecoD);}
 
 inline bool rawOk(int fEvent, int trackID, int k){
     const long i = P3Index(fEvent, trackID);
@@ -62,7 +60,7 @@ inline double rawVal(int fEvent, int trackID, int k){
 }
 
 // Fills the arrays above from cuts/cut_angles_all.root and the block limits from settings.csv. False (with an Error) if the file or tree is missing.
-// one fitted proton of AnglesRaw while LoadPlot3DMaps builds the arrays: its key, which sets it belongs to (bits: reco, reco block, res2) and its kP3Slots values
+// one fitted proton of AnglesRaw while LoadPlot3DMaps builds the arrays: its key, which sets it belongs to (bit: reco) and its kP3Slots values
 struct P3Item {std::pair<int, int> key; unsigned char flags; std::array<double, kP3Slots> a;};
 inline bool LoadPlot3DMaps(){
     TFile* fReco = TFile::Open("cuts/cut_angles_all.root", "READ");
@@ -82,7 +80,7 @@ inline bool LoadPlot3DMaps(){
     // one pass over AnglesRaw, each entry read once and on all the threads (RDataFrame): every row is a reconstructed track (the Angles tree), gP3Vals has every row.
     // Every slot collects its rows in a vector, the vectors are sorted and merged on all the threads, and the arrays are filled from the merged vector in key order.
     const bool withRaw = raw->GetBranch("nProtonsEv") != nullptr;
-    const unsigned char kReco = kP3Reco, kRecoD = kP3RecoD, kRes2 = kP3Res2;
+    const unsigned char kReco = kP3Reco;
     ROOT::RDataFrame df0(*raw);
     ROOT::RDF::RNode df = df0;
     for (const char* col : {"nZdcCharged", "nTrackerHitsEv", "nTrackerTracksEv"}){
@@ -90,14 +88,11 @@ inline bool LoadPlot3DMaps(){
     }
     df = df.Filter([&want](int ev, int tid){return std::binary_search(want.begin(), want.end(), std::make_pair(ev, tid));}, {"fEvent", "TrackID"}); // before the ForeachSlot: its other branches are read for the kept rows only
     std::vector<std::vector<P3Item>> parts(df.GetNSlots());
-    auto flagsOf = [&](double resDRms){
-        return (unsigned char)(kReco | (PassesBlockResidual(resDRms) ? kRecoD : 0) | (resDRms < kRes2Mm ? kRes2 : 0));
-    };
     if (withRaw){
         const double rad = TMath::RadToDeg(), twoPi = 2 * TMath::Pi();
         df.ForeachSlot([&](unsigned slot, int ev, int tid, double resRms, double resDRms, double impact, double impactD, double r2, double r2D, int nP, int nZdc, int nH,
                            double phiRad, double phiBlockRad, double firstXD, double firstYD, double zRecon, double resHalfRatioD, double thetaRad, double thetaBlockRad, int nTH, int nTT){
-            P3Item it; it.key = {ev, tid}; it.flags = flagsOf(resDRms);
+            P3Item it; it.key = {ev, tid}; it.flags = kReco;
             double* v = it.a.data();
             v[0] = resRms; v[1] = resDRms; v[2] = impact; v[3] = impactD; v[4] = r2; v[5] = r2D;
             v[6] = nP; v[7] = nZdc >= 0 ? nZdc : NAN;
@@ -108,7 +103,7 @@ inline bool LoadPlot3DMaps(){
             "outPhi", "outDPhi", "firstXD", "firstYD", "z_bx_reconVertexOut", "resHalfRatioD", "outTheta", "outDTheta", "nTrackerHitsEv", "nTrackerTracksEv"});
     } else {
         df.ForeachSlot([&](unsigned slot, int ev, int tid, double resDRms){
-            P3Item it; it.key = {ev, tid}; it.flags = flagsOf(resDRms); it.a.fill(0); it.a[1] = resDRms;
+            P3Item it; it.key = {ev, tid}; it.flags = kReco; it.a.fill(0); it.a[1] = resDRms;
             parts[slot].push_back(it);
         }, {"fEvent", "TrackID", "resDRms"});
     }
@@ -151,15 +146,13 @@ inline const std::array<double, kP3Slots>* P3Row(int ev, int tid){
     return lastRow;
 }
 
-// Adds isReco, isRecoD, isRes2 (Int_t 0/1), raw_0..raw_16 (Double_t, NaN if the key is missing) and ok_0..ok_16 (Int_t, the rawOk logic).
+// Adds isReco (Int_t 0/1), raw_0..raw_16 (Double_t, NaN if the key is missing) and ok_0..ok_16 (Int_t, the rawOk logic).
 // The arrays are read only while the event loop runs, so the lambdas are safe on several threads.
 inline ColumnAdder Plot3DColumns(){
     return [](ROOT::RDF::RNode n){
         static const bool mapsLoaded = LoadPlot3DMaps(); // the 213M rows of AnglesRaw are read once, when CutPlots.cpp (zdc) builds the columns
         if (!mapsLoaded) throw std::runtime_error("Plot3DColumns: the maps could not be loaded (cuts/cut_angles_all.root)");
-        n = n.Define("isReco", [](int ev, int tid){return (Int_t)isReco(ev, tid);}, {"fEvent", "TrackID"})
-             .Define("isRecoD", [](int ev, int tid){return (Int_t)isRecoD(ev, tid);}, {"fEvent", "TrackID"})
-             .Define("isRes2", [](int ev, int tid){return (Int_t)isRes2(ev, tid);}, {"fEvent", "TrackID"});
+        n = n.Define("isReco", [](int ev, int tid){return (Int_t)isReco(ev, tid);}, {"fEvent", "TrackID"});
         for (int k = 0; k < kP3Slots; k++){
             n = n.Define("raw_" + std::to_string(k), [k](int ev, int tid){
                 const auto* r = P3Row(ev, tid);
@@ -174,9 +167,9 @@ inline ColumnAdder Plot3DColumns(){
     };
 }
 
-// Rewrites the isReco/isRecoD/isRes2/rawVal/rawOk calls of a TTree::Draw expression or cut into the columns (or, on AnglesRaw, the aliases).
+// Rewrites the isReco/rawVal/rawOk calls of a TTree::Draw expression or cut into the columns (or, on AnglesRaw, the aliases).
 inline std::string P3(const std::string& s){
-    static const std::regex fn(R"(\b(isRecoD|isReco|isRes2)\s*\(\s*fEvent\s*,\s*TrackID\s*\))");
+    static const std::regex fn(R"(\b(isReco)\s*\(\s*fEvent\s*,\s*TrackID\s*\))");
     static const std::regex val(R"(\brawVal\s*\(\s*fEvent\s*,\s*TrackID\s*,\s*(\d+)\s*\))");
     static const std::regex ok(R"(\brawOk\s*\(\s*fEvent\s*,\s*TrackID\s*,\s*(\d+)\s*\))");
     std::string o = std::regex_replace(s, fn, "($1==1)");
@@ -195,8 +188,6 @@ inline void Plot3DRawAliases(TTree* raw){
         raw->SetAlias(Form("ok_%d", k), Form("TMath::Finite(raw_%d)", k));
     }
     raw->SetAlias("isReco", "1");
-    raw->SetAlias("isRecoD", ("(" + std::string(BlockCut()) + ")").c_str());
-    raw->SetAlias("isRes2", Form("(resDRms < %g)", kRes2Mm));
 }
 
 // The start-theta scan of Plot3D.cpp part 4 in one pass over a sample instead of one pass per start value. th, phi (deg) are the recon (block) theta and phi of the protons of a sample, apScale the
@@ -206,7 +197,7 @@ inline void Plot3DRawAliases(TTree* raw){
 inline constexpr int kScanStarts = 100, kScanBins = 52;
 // fit[b]: the unbinned P (UnbinnedPFromCos, FitCore.h) of the protons of start b, A fixed to their mean model A (aSum[b] / count), phi normalised over loDeg to hiDeg; ok is false below 10 protons.
 struct StartScan {std::vector<std::array<double, kScanBins>> phi = std::vector<std::array<double, kScanBins>>(kScanStarts); std::vector<double> aSum = std::vector<double>(kScanStarts, 0.0); double aAll = 0; std::vector<PFit> fit = std::vector<PFit>(kScanStarts);};
-inline StartScan ScanStartTheta(const std::vector<double>& th, const std::vector<double>& ph, double apScale, double loDeg = 0, double hiDeg = 360){
+inline StartScan ScanStartTheta(const std::vector<double>& th, const std::vector<double>& ph, double apScale, double loDeg = 0, double hiDeg = 360, double thHi = 1.0){ // thHi: the upper theta of the protons that count (deg), 1 unless the folder has no upper limit
     constexpr int kTable = 400; // 0.05 deg bins up to 20 deg; further out the model is evaluated per proton
     auto aOfBin = [&](long k){return APFromT(kBeamMomentum, TFromAngle(kBeamMomentum, (k + 0.5) * 0.05 * TMath::Pi() / 180), apScale);};
     std::vector<double> table(kTable);
@@ -218,7 +209,7 @@ inline StartScan ScanStartTheta(const std::vector<double>& th, const std::vector
             const long k = (long)std::floor(th[i] / 0.05);
             const double a = (k >= 0 && k < kTable) ? table[k] : aOfBin(k);
             p.aAll += a;
-            if (th[i] < 0 || th[i] > 1.0) continue;
+            if (th[i] < 0 || th[i] > thHi) continue;
             int b = std::min(kScanStarts - 1, (int)std::floor(th[i] / 0.01)); // the last start value with b * 0.01 <= theta, as the comparison of the plain loop
             while (b < kScanStarts - 1 && (b + 1) * 0.01 <= th[i]) b++;
             while (b > 0 && b * 0.01 > th[i]) b--;

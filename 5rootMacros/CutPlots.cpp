@@ -26,14 +26,14 @@
 // side by side, then the ZDC KE samples as several processes (CUT_ONLY).
 
 // Applies every shared cut (KeCuts, CutFiles.h) once to the already cut trees of cut_APandT.root (CalcAPandT.cpp) and to the proton tree AnglesRaw of cut_angles_all.root
-// (ReconAngleAll.cpp), true and detector energy, and writes the entries that pass as TEntryLists to cuts/<ke dir>.root (the residual threshold from RES_CUT_MM, QualityCut.h): one list per tree,
-// named like the tree, plus <tree>_block with the block residual cut (BlockCut()) on top for the trees that have it. Run after CalcAPandT.cpp.
+// (ReconAngleAll.cpp), true and detector energy, and writes the entries that pass as TEntryLists to cuts/<ke dir>.root (no residual cut): one list per tree,
+// named like the tree. Run after CalcAPandT.cpp.
 // AnglesRaw gets one list per view (Angles, AnglesCE: the rows AngleSelection picks) and energy, named view + suffix, with the KE cut on that energy's KE branch.
 static void CutTrees(){
     TFile* fAP = TFile::Open("cuts/cut_APandT.root", "READ");
     TFile* fAng = TFile::Open("cuts/cut_angles_all.root", "READ");
     if (!fAP || !fAng){Error("CutTrees", "cuts/cut_APandT.root or cut_angles_all.root missing"); return;}
-    // One list to build: the tree it indexes, its name (without _block), the rows it covers (sel) and the energy suffix of its KE cut.
+    // One list to build: the tree it indexes, its name, the rows it covers (sel) and the energy suffix of its KE cut.
     struct Job {TTree* t; std::string name, base, sel, sfx;};
     std::vector<Job> jobs;
     TTree* raw = (TTree*)fAng->Get(kAngleTree);
@@ -48,7 +48,7 @@ static void CutTrees(){
     for (const auto& ke : KeCuts()){
         // One event loop per tree on all the threads books every list of that tree at once: the entries that pass are collected per thread (with their entry number, rdfentry_),
         // sorted, and entered into the TEntryLists afterwards.
-        struct Want {std::string name, title; bool block; int view; bool detector;}; // view: 0 none, 1 Angles (every row), 2 AnglesCE (inCE)
+        struct Want {std::string name, title; int view; bool detector;}; // view: 0 none, 1 Angles (every row), 2 AnglesCE (inCE)
         struct Hit {TEntryList* list; std::vector<std::vector<ULong64_t>> perSlot;};
         TFile out(("cuts/" + ke.dir + ".root").c_str(), "RECREATE");
         const unsigned nSlots = std::max(1u, NThreads()) + 1;
@@ -62,48 +62,43 @@ static void CutTrees(){
                 h.list->SetDirectory(&out);
             }
         };
-        // cut_APandT.root: one tree per name and energy, every list on finalKE (the _DE trees hold the detector KE there) and resDRms
+        // cut_APandT.root: one tree per name and energy, every list on finalKE (the _DE trees hold the detector KE there)
         for (const std::string sfx : {"", "_DE"}) for (const auto& n : ApTrees()){
             TTree* t = (TTree*)fAP->Get((n + sfx).c_str());
-            const bool hasBlock = std::find(BlockTrees().begin(), BlockTrees().end(), n) != BlockTrees().end();
-            std::vector<Hit> hits(hasBlock ? 2 : 1);
+            std::vector<Hit> hits(1);
             out.cd();
             hits[0] = {new TEntryList((n + sfx).c_str(), ke.cut.c_str(), t), std::vector<std::vector<ULong64_t>>(nSlots)};
-            if (hasBlock) hits[1] = {new TEntryList((n + sfx + "_block").c_str(), (ke.cut + " && " + BlockCut()).c_str(), t), std::vector<std::vector<ULong64_t>>(nSlots)};
             ROOT::RDataFrame df0(n + sfx, "cuts/cut_APandT.root");
             auto df = WithEntryNumber(df0, df0.GetNSlots()); // the true entry numbers (rdfentry_ is wrong under MT on a tree with several clusters)
             const double minKE = ke.minKE;
-            df.ForeachSlot([&](unsigned slot, ULong64_t e, double keVal, double res){
+            df.ForeachSlot([&](unsigned slot, ULong64_t e, double keVal){
                 if (!(keVal > minKE)) return;
                 hits[0].perSlot[slot].push_back(e);
-                if (hasBlock && PassesBlockResidual(res)) hits[1].perSlot[slot].push_back(e);
-            }, {"entryNo", "finalKE", "resDRms"});
+            }, {"entryNo", "finalKE"});
             finish(t, hits);
         }
         // AnglesRaw: the views Angles and AnglesCE of both energies in one loop
         {
             std::vector<Want> wants;
-            for (const std::string sfx : {"", "_DE"}) for (const auto& v : AngleTrees()) for (const bool block : {false, true})
-                wants.push_back({v + sfx + (block ? "_block" : ""), "", block, v == "AnglesCE" ? 2 : 1, !sfx.empty()});
+            for (const std::string sfx : {"", "_DE"}) for (const auto& v : AngleTrees())
+                wants.push_back({v + sfx, "", v == "AnglesCE" ? 2 : 1, !sfx.empty()});
             std::vector<Hit> hits(wants.size());
             out.cd();
             for (size_t i = 0; i < wants.size(); i++){
-                const std::string cut = AngleSelection(wants[i].view == 2 ? "AnglesCE" : "Angles") + " && " + KeCutFor(ke.cut, wants[i].detector ? "_DE" : "") + (wants[i].block ? " && " + BlockCut() : "");
+                const std::string cut = AngleSelection(wants[i].view == 2 ? "AnglesCE" : "Angles") + " && " + KeCutFor(ke.cut, wants[i].detector ? "_DE" : "");
                 hits[i] = {new TEntryList(wants[i].name.c_str(), cut.c_str(), raw), std::vector<std::vector<ULong64_t>>(nSlots)};
             }
             ROOT::RDataFrame df0(kAngleTree, "cuts/cut_angles_all.root");
             auto df = WithEntryNumber(df0, df0.GetNSlots());
             const double minKE = ke.minKE;
-            df.ForeachSlot([&](unsigned slot, ULong64_t e, int inCE, double keTrue, double keDet, double res){
-                const bool blockOk = PassesBlockResidual(res);
+            df.ForeachSlot([&](unsigned slot, ULong64_t e, int inCE, double keTrue, double keDet){
                 for (size_t i = 0; i < wants.size(); i++){
                     const Want& w = wants[i];
                     if (w.view == 2 && !inCE) continue;
                     if (!((w.detector ? keDet : keTrue) > minKE)) continue;
-                    if (w.block && !blockOk) continue;
                     hits[i].perSlot[slot].push_back(e);
                 }
-            }, {"entryNo", "inCE", "finalKE", "finalKED", "resDRms"});
+            }, {"entryNo", "inCE", "finalKE", "finalKED"});
             finish(raw, hits);
         }
         out.Write();
@@ -112,7 +107,7 @@ static void CutTrees(){
 }
 
 // Writes the two ZDC proton cut files Plot3D.cpp draws from: cut_ZdcCE.root (the ZDC protons of the CE children, cut_ParentZdc.root) and cut_ZdcAllEv.root (the ZDC protons
-// of every event, cut_AllEvProtons.root), each row with the Plot3D columns of its reconstructed track (isReco, isRecoD, isRes2, raw_0..16, ok_0..16, Plot3DCols.h).
+// of every event, cut_AllEvProtons.root), each row with the Plot3D columns of its reconstructed track (isReco, raw_0..16, ok_0..16, Plot3DCols.h).
 // Run after CutEvents.cpp and ReconAngleAll.cpp, with all the threads: the maps of AnglesRaw are read once (serial), then both files are written in one parallel pass.
 static void ZdcColumns(){
     ROOT::EnableImplicitMT(NThreads());
@@ -138,9 +133,9 @@ static void ZdcColumns(){
 //   cut_nParticles1/2 at most 1 / 2 reconstructed particles in the event
 //   cut_nZdc1         at most 1 charged particle at the ZDC in the event (8_nZdcParticles, EventSummary of the sim)
 //   cut_nHits         2, 4, 6 or 8 tracker hits
-//   cut_megacut_1, 2  6_megaCut/1_1particlecut, 2_2particlecut: at most 1 / 2 reconstructed particles in the event, 2, 4, 6 or 8 tracker hits, recon theta and recon block theta 0 to 1 degree
-//   cut_megacut2_1, 2 7_megaCut2/1_1particlecut, 2_2particlecut: the same, and a reconstructed ZDC proton with ZDC KE > 80% of the beam KE
-//   cut_megacut3_1, 2 9_megaCut3/1_1particlecut, 2_2particlecut: the cut_megacut2 cuts, 2, 4, 6 or 8 charged tracker hits in the event (nTrackerHitsEv, all particles added up) and exactly 1 charged particle at the ZDC (nZdcCharged)
+//   cut_megacut_1     6_megaCut/1_1particlecut: at most 1 reconstructed particle in the event, 2, 4, 6 or 8 tracker hits, recon theta and recon block theta 0 to 1 degree
+//   cut_megacut2_1    7_megaCut2/1_1particlecut: the same, and a reconstructed ZDC proton with ZDC KE > 80% of the beam KE
+//   cut_megacut3_1    9_megaCut3/1_1particlecut: the cut_megacut2 cuts, 2, 4, 6 or 8 charged tracker hits in the event (nTrackerHitsEv, all particles added up) and exactly 1 charged particle at the ZDC (nZdcCharged)
 // ZDC cut (cut_ZdcAllEv.root, the ZDC protons with the Plot3D columns of ZdcColumns.cpp):
 //   cut_hitZDC_AllEv           the proton has a reconstructed track (isReco)
 // Run after ZdcColumns.cpp, with all the threads: every input is read once and all the cut files of it are written in the same pass.
@@ -183,19 +178,24 @@ static void CutSamples(){
         return keys;
     };
     // only the keys a wanted file needs are read (CUT_ONLY): the jobs of Plot.pbs run the sample files in several processes, and the files without a ZDC KE cut do not wait for the zdc part
-    const bool need80 = CutWanted("cuts/cut_megacut2_1.root") || CutWanted("cuts/cut_megacut2_2.root") || CutWanted("cuts/cut_megacut3_1.root") || CutWanted("cuts/cut_megacut3_2.root");
+    const bool need80 = CutWanted("cuts/cut_megacut2_1.root") || CutWanted("cuts/cut_megacut3_1.root");
     const KeyKeys ke80Keys = need80 ? keKeys(0.80) : KeyKeys();
-    // KE scan of 9_megaCut3/1_1particlecut: the same cuts with ZDC KE > 85, 90 and 95% of the beam KE (cut_megacut3_1_ke85.root to _ke95.root, phi fits in Plot3D.cpp part 4)
+    // KE scan of 7_megaCut2 and 9_megaCut3: the same cuts as cut_megacut2_1 and cut_megacut3_1 (ZDC KE > 80%) with ZDC KE > 85, 90 and 95% of the beam KE
+    // (cut_megacut2_1_ke85.root to cut_megacut3_1_ke95.root; the phi fits are Plot3D.cpp part 4, the overlay with the 80% folder is PlotKEOverlay.cpp). 6_megaCut + KE > x is the megacut2 sample, so it has no files of its own.
     std::vector<KeyKeys> scanKeys;
-    scanKeys.reserve(3); // the filters keep a reference into it
-    for (const int pct : {85, 90, 95}){
-        const std::string scanFile = Form("cuts/cut_megacut3_1_ke%d.root", pct);
+    scanKeys.reserve(6); // the filters keep a reference into it
+    for (const int family : {2, 3}) for (const int maxP : {1}) for (const int pct : {85, 90, 95}){
+        const std::string scanFile = Form("cuts/cut_megacut%d_%d_ke%d.root", family, maxP, pct);
         scanKeys.push_back(CutWanted(scanFile) ? keKeys(pct / 100.0) : KeyKeys());
         const KeyKeys& keys = scanKeys.back();
-        snap(base.Filter([&keys](int np, int n, int e, int t, int nTh, int nZ){return np <= 1 && (n == 2 || n == 4 || n == 6 || n == 8) && keys.count({e, t}) > 0 && (nTh == 2 || nTh == 4 || nTh == 6 || nTh == 8) && nZ == 1;},
-                         {"nProtonsEv", "nHits", "fEvent", "TrackID", "nTrackerHitsEv", "nZdcCharged"}), scanFile.c_str());
+        if (family == 2)
+            snap(base.Filter([&keys, maxP](int np, int n, int e, int t){return np <= maxP && (n == 2 || n == 4 || n == 6 || n == 8) && keys.count({e, t}) > 0;},
+                             {"nProtonsEv", "nHits", "fEvent", "TrackID"}), scanFile.c_str());
+        else
+            snap(base.Filter([&keys, maxP](int np, int n, int e, int t, int nTh, int nZ){return np <= maxP && (n == 2 || n == 4 || n == 6 || n == 8) && keys.count({e, t}) > 0 && (nTh == 2 || nTh == 4 || nTh == 6 || nTh == 8) && nZ == 1;},
+                             {"nProtonsEv", "nHits", "fEvent", "TrackID", "nTrackerHitsEv", "nZdcCharged"}), scanFile.c_str());
     }
-    for (const int maxP : {1, 2}){ // 1_1particlecut and 2_2particlecut of 6_megaCut and 7_megaCut2: at most 1 / 2 reconstructed particles in the event
+    for (const int maxP : {1}){ // 1_1particlecut of 6_megaCut, 7_megaCut2 and 9_megaCut3: at most 1 reconstructed particle in the event
         snap(base.Filter([maxP](int np, int n){return np <= maxP && (n == 2 || n == 4 || n == 6 || n == 8);},
                          {"nProtonsEv", "nHits"}), Form("cuts/cut_megacut_%d.root", maxP));
         snap(base.Filter([&ke80Keys, maxP](int np, int n, int e, int t){return np <= maxP && (n == 2 || n == 4 || n == 6 || n == 8) && ke80Keys.count({e, t}) > 0;},

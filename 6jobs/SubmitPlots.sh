@@ -22,22 +22,18 @@ source ./submit_lib.sh
 
 # cut_indexes <folder under 6_cuts, empty for all>: the P3_CUT numbers of Plot3D.cpp (0: 0_cuts, 1_hitZDC and 2_KECUT80, then sampleCuts in order). Keep in step with Plot3D.cpp and Plot.pbs.
 cut_indexes() {
-    local n=${1#*/}
     case $1 in
-        "") echo 0 1 2 3 4 5 6 7 8 9 10 11 ;;
+        "") echo 0 1 2 3 4 5 6 7 8 ;;
         0_cuts|0_cuts/*|1_hitZDC|1_hitZDC/*|2_KECUT80|2_KECUT80/*) echo 0 ;;
         3_ResCuts|3_ResCuts/*) echo 1 ;;
         4_nParticles) echo 2 3 ;;
         4_nParticles/1_*) echo 2 ;;
         4_nParticles/2_*) echo 3 ;;
         5_nHits|5_nHits/*) echo 4 ;;
-        6_megaCut) echo 5 6 ;;
-        6_megaCut/[1-2]_*) echo $((4 + ${n:0:1})) ;;
-        7_megaCut2) echo 7 8 ;;
-        7_megaCut2/[1-2]_*) echo $((6 + ${n:0:1})) ;;
-        8_nZdcParticles|8_nZdcParticles/*) echo 9 ;;
-        9_megaCut3) echo 10 11 ;;
-        9_megaCut3/[1-2]_*) echo $((9 + ${n:0:1})) ;;
+        6_megaCut|6_megaCut/1_*) echo 5 ;;
+        7_megaCut2|7_megaCut2/1_*) echo 6 ;;
+        8_nZdcParticles|8_nZdcParticles/*) echo 7 ;;
+        9_megaCut3|9_megaCut3/1_*) echo 8 ;;
         *) return 1 ;;
     esac
 }
@@ -55,7 +51,7 @@ if [ -n "$TARGET" ]; then
                 if [ "$i" = 0 ]; then PARTS+="2:0+3:0:0+3:0:1+3:0:2+3:0:3+4:0:0+4:0:1+4:0:2+4:0:3+" # cut 0 holds four folders (P3_SUB), a process each
                 else PARTS+="2:$i+3:$i+4:$i+"; fi
             done
-            [ -z "$rest" ] && PARTS+="4:12+4:13+4:14+" # all of 6_cuts: also the KE scan sets of Plot3D.cpp part 4 (cuts 12 to 14)
+            [ -z "$rest" ] && PARTS+="4:9+4:10+4:11+4:12+4:13+4:14+" # all of 6_cuts: also the KE scan sets of Plot3D.cpp part 4 (cuts 9 to 14)
             case " $idx " in *" 0 "*) PARTS+="1::3+" ;; esac # 1_hitZDC, 0_cuts and 2_KECUT80 also hold plots of part 1
             PARTS=${PARTS%+}
             case $rest in ""|3_ResCuts*|4_nParticles*|5_nHits*) QS=1 ;; esac ;;
