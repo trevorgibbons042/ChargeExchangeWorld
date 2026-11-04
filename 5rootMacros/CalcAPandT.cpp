@@ -25,7 +25,6 @@
 
 namespace
 {
-  const double z_end = 23000;
 
   // Lab momentum of the beam neutron, MeV (kBeamMomentum, FitCore.h). LastMomentum is the CMS momentum of the model, so it cannot be
   // used as the lab momentum in t and in the AP exponent (the model uses the lab pin.mag() there).
@@ -133,114 +132,59 @@ static void CalcAPandTOne(std::string energy){ // energy: "fKEnergy" (true KE) o
     const std::size_t nChunks = std::min<std::size_t>(ceTracks.size(), nShards * 4);
     pool.Foreach([&](unsigned chunk){
         auto outFile = merger.GetFile();
-        TTree *outTree = new TTree(("CE" + suffix).c_str(), "values from ChargeExchange directly");
-        TTree *outTree2 = new TTree(("CalcValsRe" + suffix).c_str(), "Calculated AP and t from recon");
-        TTree *outTree3 = new TTree(("CalcValsReD" + suffix).c_str(), "Calculated AP and t from recon Dectector Blocks");
-        TTree *outTree4 = new TTree(("CalcValsReDIFF" + suffix).c_str(), "Difference Calculated AP and t from recon");
-        TTree *outTree5 = new TTree(("CalcValsReDDIFF" + suffix).c_str(), "Difference Calculated AP and t from recon Dectector Blocks");
-
-        int outTrackID;
-        int outPDG;
-        int outEventID;
-        int outType;
+        int outTrackID, outPDG, outEventID, outType;
         double outFinalKE;
-    
-        double outThetaCE;
-        double outPhiCE;
-        double outMomCE;
-        double outTCE;
-        double outAPCE;
-        double outFOMCE;
-    
-        double outThetaRe;
-        double outPhiRe;
-        double outMomRe;
-        double outTRe;
-        double outAPRe;
-        double outFOMRe;
-    
-        double outThetaReD;
-        double outPhiReD;
-        double outMomReD;
-        double outTReD;
-        double outAPReD;
-        double outFOMReD;
-    
-        double outThetaReDIFF;
-        double outPhiReDIFF;
-        double outTReDIFF;
-        double outAPReDIFF;
-        double outFOMReDIFF;
-    
-        double outThetaReDDIFF;
-        double outPhiReDDIFF;
-        double outTReDDIFF;
-        double outAPReDDIFF;
-        double outFOMReDDIFF;
         double outResDRms; // block fit residual of the track, on every tree (no cut on it)
+        double outThetaCE, outPhiCE, outMomCE, outTCE, outAPCE;
+        double outThetaRe, outPhiRe, outMomRe, outTRe, outAPRe;
+        double outThetaReD, outPhiReD, outMomReD, outTReD, outAPReD;
+        double outThetaReDIFF, outPhiReDIFF, outTReDIFF, outAPReDIFF;
+        double outThetaReDDIFF, outPhiReDDIFF, outTReDDIFF, outAPReDDIFF;
 
-        outTree->Branch("TrackID", &outTrackID);
-        outTree->Branch("PDG", &outPDG);
-        outTree->Branch("fEvent", &outEventID);
-        outTree->Branch("fType", &outType);
-        outTree->Branch("finalKE", &outFinalKE);
-        outTree->Branch("resDRms", &outResDRms);
+        // the six branches every tree starts with
+        auto makeTree = [&](const std::string& name, const char* title){
+            TTree* t = new TTree((name + suffix).c_str(), title);
+            t->Branch("TrackID", &outTrackID);
+            t->Branch("PDG", &outPDG);
+            t->Branch("fEvent", &outEventID);
+            t->Branch("fType", &outType);
+            t->Branch("finalKE", &outFinalKE);
+            t->Branch("resDRms", &outResDRms);
+            return t;
+        };
+        TTree *outTree = makeTree("CE", "values from ChargeExchange directly");
+        TTree *outTree2 = makeTree("CalcValsRe", "Calculated AP and t from recon");
+        TTree *outTree3 = makeTree("CalcValsReD", "Calculated AP and t from recon Dectector Blocks");
+        TTree *outTree4 = makeTree("CalcValsReDIFF", "Difference Calculated AP and t from recon");
+        TTree *outTree5 = makeTree("CalcValsReDDIFF", "Difference Calculated AP and t from recon Dectector Blocks");
+
         outTree->Branch("thetaCE", &outThetaCE);
         outTree->Branch("phiCE", &outPhiCE);
         outTree->Branch("tCE", &outTCE);
         outTree->Branch("apCE", &outAPCE);
-        outTree->Branch("fomCE", &outFOMCE);
         outTree->Branch("momCE",  &outMomCE);
-    
-        outTree2->Branch("TrackID", &outTrackID);
-        outTree2->Branch("PDG", &outPDG);
-        outTree2->Branch("fEvent", &outEventID);
-        outTree2->Branch("fType", &outType);
-        outTree2->Branch("finalKE", &outFinalKE);
-        outTree2->Branch("resDRms", &outResDRms);
+
         outTree2->Branch("thetaRe", &outThetaRe);
         outTree2->Branch("phiRe", &outPhiRe);
         outTree2->Branch("tRe", &outTRe);
         outTree2->Branch("apRe", &outAPRe);
-        outTree2->Branch("fomRe", &outFOMRe);
         outTree2->Branch("momRe",  &outMomRe);
-    
-        outTree3->Branch("TrackID", &outTrackID);
-        outTree3->Branch("PDG", &outPDG);
-        outTree3->Branch("fEvent", &outEventID);
-        outTree3->Branch("fType", &outType);
-        outTree3->Branch("finalKE", &outFinalKE);
-        outTree3->Branch("resDRms", &outResDRms);
+
         outTree3->Branch("thetaReD", &outThetaReD);
         outTree3->Branch("phiReD", &outPhiReD);
         outTree3->Branch("tReD", &outTReD);
         outTree3->Branch("apReD", &outAPReD);
-        outTree3->Branch("fomReD", &outFOMReD);
         outTree3->Branch("momReD", &outMomReD);
-    
-        outTree4->Branch("TrackID", &outTrackID);
-        outTree4->Branch("PDG", &outPDG);
-        outTree4->Branch("fEvent", &outEventID);
-        outTree4->Branch("fType", &outType);
-        outTree4->Branch("finalKE", &outFinalKE);
-        outTree4->Branch("resDRms", &outResDRms);
+
         outTree4->Branch("thetaReD", &outThetaReDIFF);
         outTree4->Branch("phiReD", &outPhiReDIFF);
         outTree4->Branch("tReD", &outTReDIFF);
         outTree4->Branch("apReD", &outAPReDIFF);
-        outTree4->Branch("fomReD", &outFOMReDIFF);
-    
-        outTree5->Branch("TrackID", &outTrackID);
-        outTree5->Branch("PDG", &outPDG);
-        outTree5->Branch("fEvent", &outEventID);
-        outTree5->Branch("fType", &outType);
-        outTree5->Branch("finalKE", &outFinalKE);
-        outTree5->Branch("resDRms", &outResDRms);
+
         outTree5->Branch("thetaReD", &outThetaReDDIFF);
         outTree5->Branch("phiReD", &outPhiReDDIFF);
         outTree5->Branch("tReD", &outTReDDIFF);
         outTree5->Branch("apReD", &outAPReDDIFF);
-        outTree5->Branch("fomReD", &outFOMReDDIFF);
         for (std::size_t idx = chunk * ceTracks.size() / nChunks; idx < (chunk + 1) * ceTracks.size() / nChunks; idx++) {
             const Key3 &key = *ceTracks[idx].first;
             const Track &tCE = *ceTracks[idx].second;
@@ -249,11 +193,10 @@ static void CalcAPandTOne(std::string energy){ // energy: "fKEnergy" (true KE) o
                 int eventID = std::get<0>(key);
                 int CETrackID = std::get<1>(key);
         
-                auto itRecon = tracksAngles[(unsigned)eventID % nShards].find({eventID, CETrackID, 1});
-                auto itReconD =tracksAngles[(unsigned)eventID % nShards].find({eventID, CETrackID, 2});
-        
-                if (itRecon == tracksAngles[(unsigned)eventID % nShards].end()) {continue;}
-                if (itReconD == tracksAngles[(unsigned)eventID % nShards].end()) {continue;}
+                const auto& shard = tracksAngles[(unsigned)eventID % nShards];
+                auto itRecon = shard.find({eventID, CETrackID, 1});
+                auto itReconD = shard.find({eventID, CETrackID, 2});
+                if (itRecon == shard.end() || itReconD == shard.end()) {continue;}
                 auto &tRecon  = itRecon->second;
                 auto &tReconD = itReconD->second;
 
@@ -293,13 +236,11 @@ static void CalcAPandTOne(std::string energy){ // energy: "fKEnergy" (true KE) o
                 outPhiReDIFF = std::remainder(outPhiRe - outPhiCE, 360.0);
                 outTReDIFF = outTRe - outTCE;
                 outAPReDIFF = outAPRe - outAPCE;
-                outFOMReDIFF = 0;
         
                 outThetaReDDIFF = outThetaReD - outThetaCE;
                 outPhiReDDIFF = std::remainder(outPhiReD - outPhiCE, 360.0);
                 outTReDDIFF = outTReD - outTCE;
                 outAPReDDIFF = outAPReD - outAPCE;
-                outFOMReDDIFF = 0;
         
 
                 outTree->Fill();

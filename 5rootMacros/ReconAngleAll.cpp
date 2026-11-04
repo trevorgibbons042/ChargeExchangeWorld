@@ -46,70 +46,38 @@ struct Track {
     }
 };
 
-FitResult fitTrack(const Track& t){
-    FitResult fit{NAN, NAN, NAN, NAN,
-                NAN, NAN, NAN, NAN};
-
-    const std::size_t N = t.size();
-    if (N < 2) {return fit;}
-
+// Least-squares line x = x0 + bx z, y = y0 + by z through the points of t: all of them, or with block the detector block points (zD != 0) at their block positions.
+// Leaves the four outputs alone (NAN from the caller) with fewer than 2 points or no spread in z.
+static void LineFit(const Track& t, bool block, double& x0, double& y0, double& bx, double& by){
+    const std::vector<double>& X = block ? t.xD : t.x; const std::vector<double>& Y = block ? t.yD : t.y; const std::vector<double>& Z = block ? t.zD : t.z;
     double meanX = 0.0, meanY = 0.0, meanZ = 0.0;
-    for (std::size_t i = 0; i < N; i++) {
-        meanX += t.x[i];
-        meanY += t.y[i];
-        meanZ += t.z[i];
+    std::size_t N = 0;
+    for (std::size_t i = 0; i < t.size(); i++) {
+        if (block && t.zD[i] == 0.0) {continue;}
+        meanX += X[i]; meanY += Y[i]; meanZ += Z[i];
+        N++;
     }
-    meanX /= N;
-    meanY /= N;
-    meanZ /= N;
+    if (N < 2) {return;}
+    meanX /= N; meanY /= N; meanZ /= N;
 
     double Szz = 0.0, Szx = 0.0, Szy = 0.0;
-    for (std::size_t i = 0; i < N; i++) {
-        double dz = t.z[i] - meanZ;
+    for (std::size_t i = 0; i < t.size(); i++) {
+        if (block && t.zD[i] == 0.0) {continue;}
+        const double dz = Z[i] - meanZ;
         Szz += dz * dz;
-        Szx += dz * (t.x[i] - meanX);
-        Szy += dz * (t.y[i] - meanY);
+        Szx += dz * (X[i] - meanX);
+        Szy += dz * (Y[i] - meanY);
     }
-
     if (std::abs(Szz) >= 1e-20) {
-        fit.bx = Szx / Szz;
-        fit.by = Szy / Szz;
-        fit.x0 = meanX - fit.bx * meanZ;
-        fit.y0 = meanY - fit.by * meanZ;
+        bx = Szx / Szz; by = Szy / Szz;
+        x0 = meanX - bx * meanZ; y0 = meanY - by * meanZ;
     }
+}
 
-    double meanXD = 0.0, meanYD = 0.0, meanZD = 0.0;
-    std::size_t ND = 0;
-    for (std::size_t i = 0; i < N; i++) {
-        if (t.zD[i] == 0.0) {continue;}
-        meanXD += t.xD[i];
-        meanYD += t.yD[i];
-        meanZD += t.zD[i];
-        ND++;
-    }
-
-    if (ND < 2) {return fit;}
-
-    meanXD /= ND;
-    meanYD /= ND;
-    meanZD /= ND;
-
-    double SzzD = 0.0, SzxD = 0.0, SzyD = 0.0;
-    for (std::size_t i = 0; i < N; i++) {
-        if (t.zD[i] == 0.0) {continue;}
-        double dzD = t.zD[i] - meanZD;
-        SzzD += dzD * dzD;
-        SzxD += dzD * (t.xD[i] - meanXD);
-        SzyD += dzD * (t.yD[i] - meanYD);
-    }
-
-    if (std::abs(SzzD) >= 1e-20) {
-        fit.bxD = SzxD / SzzD;
-        fit.byD = SzyD / SzzD;
-        fit.x0D = meanXD - fit.bxD * meanZD;
-        fit.y0D = meanYD - fit.byD * meanZD;
-    }
-
+FitResult fitTrack(const Track& t){
+    FitResult fit{NAN, NAN, NAN, NAN, NAN, NAN, NAN, NAN};
+    LineFit(t, false, fit.x0, fit.y0, fit.bx, fit.by);
+    LineFit(t, true, fit.x0D, fit.y0D, fit.bxD, fit.byD);
     return fit;
 }
 
@@ -237,7 +205,7 @@ void ReconAngleAll(){
         }, {"boundaryType", "fEvent", "TrackID", "pdg", "fX", "fY", "fZ", "fDx", "fDy", "fDz", "fKEnergy", "fDEnergy", "ParentID", "entryNo"});
         // The fits run on every thread: each shard builds its tracks, fits them and keeps the results as rows. Only the TTree fills below are serial.
         struct Row {
-            int trackID, pdg, eventID, parentID, isFromCE, inCE, nProtonsEv, nZdcCharged, nTrackerHitsEv, nTrackerTracksEv, nHits;
+            int trackID, pdg, eventID, parentID, isFromCE, inCE, nProtonsEv, nZdcCharged, nTrackerHitsEv, nTrackerTracksEv, nHits, nMaxChargedPerPlaneEv;
             double theta, phi, dTheta, dPhi, x0, y0, bx, by, x0D, y0D, bxD, byD, finalKE, finalKED;
             double xVertex, yVertex, zVertex, zBxRecon, zByRecon, zBxReconDIFF, zByReconDIFF;
             double resRms, resDRms, impact, impactD, r2, r2D, firstXD, firstYD, resHalfRatioD;
@@ -285,10 +253,24 @@ void ReconAngleAll(){
                 for (j = i + 1; j < keys.size() && keys[j].track == keys[i].track; j++) {}
                 runs.emplace_back(i, j);
             }
-            std::vector<int> nProtonsInEvent(runs.size()); // tracks of any pdg in the event
+            // per event (a group of runs): the tracks of any pdg, and the most distinct charged tracks that entered one tracker plane (a plane is its centre z, 1 um steps;
+            // the tracks ParticleInfo holds, every one of them hit 2+ planes or is a CE proton)
+            std::vector<int> nProtonsInEvent(runs.size()), nMaxPerPlaneInEvent(runs.size());
+            std::vector<std::pair<long, ULong64_t>> planeTracks;
             for (std::size_t i = 0, j; i < runs.size(); i = j) {
                 for (j = i + 1; j < runs.size() && (keys[runs[j].first].track >> 32) == (keys[runs[i].first].track >> 32); j++) {}
-                for (std::size_t k = i; k < j; k++) nProtonsInEvent[k] = int(j - i);
+                planeTracks.clear();
+                for (std::size_t k = i; k < j; k++) for (std::size_t p = runs[k].first; p < runs[k].second; p++) {
+                    if (at(p).zD != 0.0) planeTracks.emplace_back(std::lround(at(p).zD * 1000.0), keys[p].track);
+                }
+                std::sort(planeTracks.begin(), planeTracks.end());
+                planeTracks.erase(std::unique(planeTracks.begin(), planeTracks.end()), planeTracks.end());
+                int best = 0;
+                for (std::size_t a = 0, b; a < planeTracks.size(); a = b) {
+                    for (b = a + 1; b < planeTracks.size() && planeTracks[b].first == planeTracks[a].first; b++) {}
+                    best = std::max(best, int(b - a));
+                }
+                for (std::size_t k = i; k < j; k++) {nProtonsInEvent[k] = int(j - i); nMaxPerPlaneInEvent[k] = best;}
             }
 
             std::vector<Row> &rows = shardRows[shard];
@@ -357,6 +339,7 @@ void ReconAngleAll(){
                 r.impactD = ImpactToAxis(fit.x0D, fit.y0D, fit.bxD, fit.byD);
 
                 r.nProtonsEv = nProtonsInEvent[run];
+                r.nMaxChargedPerPlaneEv = nMaxPerPlaneInEvent[run];
                 const EvCounts ec = (r.eventID >= 0 && (size_t)r.eventID < evCountsOf.size()) ? evCountsOf[r.eventID] : EvCounts();
                 r.nZdcCharged = ec.zdcCharged; r.nTrackerHitsEv = ec.trackerHits; r.nTrackerTracksEv = ec.trackerTracks;
                 {
@@ -382,77 +365,55 @@ void ReconAngleAll(){
         writePool.Foreach([&](unsigned shard){
             auto outFile = merger.GetFile();
             TTree *tree = new TTree("AnglesRaw", "Reconstructed Angles, every recon proton before the quality cut");
-        int outTrackID, outPDG, outEventID, fParentID;
-        double outTheta, outPhi, outDTheta, outDPhi;
-        double x0Out, y0Out, bxOut, byOut;
-        double x0DOut, y0DOut, bxDOut, byDOut;
-        double xVertexOut, yVertexOut, zVertexOut;
-        double z_bx_reconVertexOut, z_by_reconVertexOut;
-        double z_bx_reconVertexDIFFOut, z_by_reconVertexDIFFOut;
-        double finalKE, finalKED; // true and smeared KE at the ZDC, NAN without a ZDC hit
-        double resRms, resDRms, impact, impactD; // quality variables, see QualityCut.h
-        double r2, r2D; // R^2 of the line fit (true and block position), plotted by QualityStudy.cpp, not cut on
-        double firstXD = NAN, firstYD = NAN; // block position (mm) of the first tracker hit (lowest z)
-        int nProtonsEv, nZdcCharged, nTrackerHitsEv, nTrackerTracksEv, nHits; // (the two tracker counts: sim EventSummary, all charged particles) // tracks with a fit in the event (any pdg), charged particles at the ZDC in the event (-1 without EventSummary), tracker hits (block points)
-        double resHalfRatioD; // block residual of the tracker hits after the first 2 over the first 2 hits, NAN with 2 or fewer hits
-        int isFromCE;
-        int inCE; // event has a carbon CE (1/0)
-
-    tree->Branch("TrackID", &outTrackID);
-    tree->Branch("PDG", &outPDG);
-    tree->Branch("fEvent", &outEventID);
-    tree->Branch("outTheta", &outTheta);
-    tree->Branch("outPhi", &outPhi);
-    tree->Branch("outDTheta", &outDTheta);
-    tree->Branch("outDPhi", &outDPhi);
-    tree->Branch("x0Out", &x0Out);
-    tree->Branch("y0Out", &y0Out);
-    tree->Branch("bxOut", &bxOut);
-    tree->Branch("byOut", &byOut);
-    tree->Branch("x0DOut", &x0DOut);
-    tree->Branch("y0DOut", &y0DOut);
-    tree->Branch("bxDOut", &bxDOut);
-    tree->Branch("byDOut", &byDOut);
-    tree->Branch("finalKE", &finalKE);
-    tree->Branch("finalKED", &finalKED);
-    tree->Branch("inCE", &inCE);
-    tree->Branch("ParentID", &fParentID);
-    tree->Branch("xVertexOut", &xVertexOut);
-    tree->Branch("yVertexOut", &yVertexOut);
-    tree->Branch("zVertexOut", &zVertexOut);
-    tree->Branch("z_bx_reconVertexOut", &z_bx_reconVertexOut);
-    tree->Branch("z_by_reconVertexOut", &z_by_reconVertexOut);
-    tree->Branch("z_bx_reconVertexDIFFOut", &z_bx_reconVertexDIFFOut);
-    tree->Branch("z_by_reconVertexDIFFOut", &z_by_reconVertexDIFFOut);
-    tree->Branch("isFromCE", &isFromCE);
-    tree->Branch("resRms", &resRms);
-    tree->Branch("resDRms", &resDRms);
-    tree->Branch("impact", &impact);
-    tree->Branch("impactD", &impactD);
-    tree->Branch("r2", &r2);
-    tree->Branch("r2D", &r2D);
-    tree->Branch("nProtonsEv", &nProtonsEv);
-    tree->Branch("nZdcCharged", &nZdcCharged);
-    tree->Branch("nTrackerHitsEv", &nTrackerHitsEv);
-    tree->Branch("nTrackerTracksEv", &nTrackerTracksEv);
-    tree->Branch("nHits", &nHits);
-    tree->Branch("firstXD", &firstXD); tree->Branch("firstYD", &firstYD);
-    tree->Branch("resHalfRatioD", &resHalfRatioD);
+            // one branch per Row field; finalKE / finalKED are the true and smeared KE at the ZDC (NAN without a hit), the quality variables are in QualityCut.h, r2 / r2D are plotted by QualityStudy.cpp, not cut on,
+            // firstXD / firstYD the block position (mm) of the first tracker hit (lowest z), resHalfRatioD the block residual of the hits after the first 2 over the first 2 (NAN with 2 or fewer),
+            // nProtonsEv the tracks with a fit in the event (any pdg), nTrackerHitsEv / nTrackerTracksEv from the sim EventSummary (all charged particles), nMaxChargedPerPlaneEv the most charged tracks
+            // (ParticleInfo) that entered one tracker plane in the event, inCE: the event has a carbon CE
+            Row cur;
+            tree->Branch("TrackID", &cur.trackID);
+            tree->Branch("PDG", &cur.pdg);
+            tree->Branch("fEvent", &cur.eventID);
+            tree->Branch("outTheta", &cur.theta);
+            tree->Branch("outPhi", &cur.phi);
+            tree->Branch("outDTheta", &cur.dTheta);
+            tree->Branch("outDPhi", &cur.dPhi);
+            tree->Branch("x0Out", &cur.x0);
+            tree->Branch("y0Out", &cur.y0);
+            tree->Branch("bxOut", &cur.bx);
+            tree->Branch("byOut", &cur.by);
+            tree->Branch("x0DOut", &cur.x0D);
+            tree->Branch("y0DOut", &cur.y0D);
+            tree->Branch("bxDOut", &cur.bxD);
+            tree->Branch("byDOut", &cur.byD);
+            tree->Branch("finalKE", &cur.finalKE);
+            tree->Branch("finalKED", &cur.finalKED);
+            tree->Branch("inCE", &cur.inCE);
+            tree->Branch("ParentID", &cur.parentID);
+            tree->Branch("xVertexOut", &cur.xVertex);
+            tree->Branch("yVertexOut", &cur.yVertex);
+            tree->Branch("zVertexOut", &cur.zVertex);
+            tree->Branch("z_bx_reconVertexOut", &cur.zBxRecon);
+            tree->Branch("z_by_reconVertexOut", &cur.zByRecon);
+            tree->Branch("z_bx_reconVertexDIFFOut", &cur.zBxReconDIFF);
+            tree->Branch("z_by_reconVertexDIFFOut", &cur.zByReconDIFF);
+            tree->Branch("isFromCE", &cur.isFromCE);
+            tree->Branch("resRms", &cur.resRms);
+            tree->Branch("resDRms", &cur.resDRms);
+            tree->Branch("impact", &cur.impact);
+            tree->Branch("impactD", &cur.impactD);
+            tree->Branch("r2", &cur.r2);
+            tree->Branch("r2D", &cur.r2D);
+            tree->Branch("nProtonsEv", &cur.nProtonsEv);
+            tree->Branch("nZdcCharged", &cur.nZdcCharged);
+            tree->Branch("nTrackerHitsEv", &cur.nTrackerHitsEv);
+            tree->Branch("nTrackerTracksEv", &cur.nTrackerTracksEv);
+            tree->Branch("nHits", &cur.nHits);
+            tree->Branch("nMaxChargedPerPlaneEv", &cur.nMaxChargedPerPlaneEv);
+            tree->Branch("firstXD", &cur.firstXD);
+            tree->Branch("firstYD", &cur.firstYD);
+            tree->Branch("resHalfRatioD", &cur.resHalfRatioD);
             for (const Row &r : shardRows[shard]) {
-                outTheta = r.theta; outPhi = r.phi; outDTheta = r.dTheta; outDPhi = r.dPhi;
-                outEventID = r.eventID; outTrackID = r.trackID; outPDG = r.pdg;
-                xVertexOut = r.xVertex; yVertexOut = r.yVertex; zVertexOut = r.zVertex;
-                x0Out = r.x0;   y0Out = r.y0;   bxOut = r.bx;   byOut = r.by;
-                x0DOut = r.x0D; y0DOut = r.y0D; bxDOut = r.bxD; byDOut = r.byD;
-                finalKE = r.finalKE; finalKED = r.finalKED; fParentID = r.parentID;
-                z_bx_reconVertexOut = r.zBxRecon; z_by_reconVertexOut = r.zByRecon;
-                z_bx_reconVertexDIFFOut = r.zBxReconDIFF; z_by_reconVertexDIFFOut = r.zByReconDIFF;
-                isFromCE = r.isFromCE;
-                resRms = r.resRms; resDRms = r.resDRms; impact = r.impact; impactD = r.impactD; r2 = r.r2; r2D = r.r2D;
-                nProtonsEv = r.nProtonsEv; nZdcCharged = r.nZdcCharged; nTrackerHitsEv = r.nTrackerHitsEv; nTrackerTracksEv = r.nTrackerTracksEv; nHits = r.nHits;
-                firstXD = r.firstXD; firstYD = r.firstYD; resHalfRatioD = r.resHalfRatioD;
-
-                inCE = r.inCE;
+                cur = r;
                 tree->Fill();
             }
             outFile->Write();

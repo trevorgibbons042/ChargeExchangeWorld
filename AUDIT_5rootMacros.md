@@ -47,3 +47,25 @@ Checked by reading the code. The load check (`.L` of Plot3D, PlotAngle, Secondar
 - **EnergySD.** Each event uses the mean p for t and A_P, and the SD only enters as the error (`kBeamTFrac`, `kBeamAFrac`). That is fine for a small SD. A large SD also puts the fixed 80% KE cut inside the low tail of the beam.
 - **Beam angle and vertex spread (`randPAngle`, `randPos`).** `7run.cc` does not write them to `settings.csv`, so the macros cannot tell a run had them. `ReconAngleAll.cpp` measures theta and phi from the z axis and `ImpactToAxis` assumes the beam at x = y = 0, while the true `LastTheta` is relative to the neutron direction. A beam angle of up to 5 mrad (0.29 deg) is as large as the CE angle at 50 to 137.5 GeV, so recon theta, t, A_P and phi are biased on such a run. The vertex sigmas (5.5 um, 3 um, 1.5 cm in z) are harmless. Fixing the angle needs the beam direction per event in the ntuple and a change to the sim.
 - `nParticlesEv` (0 to 19) and `nZdcCharged` (0 to 9) stay fixed; they are fine for the current scans.
+
+## Run size and range: 100M events, low and high energy, many and few blocks
+
+Read from the code. Nothing was timed or measured, and no run was repeated at these settings.
+
+### Fixed
+- **Smear difference axis** (`Plot3D.cpp`, `5_diff_CE` and `9_diff_overlay`) was fixed at +-10000 MeV. The smear sigma is `resStochastic * sqrt(KE in GeV)` GeV, so at 2 GeV the fit saw two bins. The axis now scales with sqrt(KE) and is unchanged at 25 GeV/c.
+- **Zero-width quantile axis** (`Plot3D.cpp`, `kInfoVars`). With one block every track has 2 hits, so `resDRms` is exactly 0 and the 1 to 99% range is zero wide. A range with no spread is now widened by 1.
+- **`GraphBlocks.cpp` grids** were fixed at 1500 x 1200 pixels. A 4 x 4 grid for 16 blocks left each pad about 375 x 300. The page is now 750 x 600 per pad, and the 2 x 2 grid of 4 blocks keeps 1500 x 1200.
+
+### Left for you to decide
+- **Memory at 100M events.** `gP3Vals` (`Plot3DCols.h`) holds 20 doubles per fitted proton, 32 GB at 213M rows by that file's own comment. Rows grow with the number of blocks. Seven of the 20 slots are removed variables, which are listed in item 5 of the first section.
+- **`std::map` over every row** in `CutPlots.cpp` (`zdcKeOf`), `SecondaryCE.cpp`, `Plot3D.cpp` (`blockDiff`) and `CountCE.cpp`. Each entry costs roughly 50 to 100 bytes. Not measured.
+- **Low energy, theta baseline.** The 0 to 1 deg baseline of `6_cuts` is fixed. CE theta is about 0.5 deg at 25 GeV, 1.3 deg at 10 GeV and 2.5 deg at 5 GeV, so below about 10 GeV most CE protons fall outside it.
+- **Low energy, KE cut.** The 80% KE cut is a fixed fraction, but the energy loss in each 20 cm carbon block is absolute. At a few GeV the CE protons born in the first blocks may fall below the cut. Suspected, not computed.
+- **Low energy, `TFromAngle`** uses the transverse part only; the neglected energy term matters more as the beam energy drops. Suspected.
+- **Many blocks.** The sim overlaps blocks from 30 blocks up (pitch 7700 / (n + 1) mm against about 251 mm per block with its trackers). `CountCE.cpp` does one pass per block, so run time grows with n. The `nParticlesEv` and `nZdcCharged` axes overflow with many blocks.
+- **One block.** `r2` is NaN and `ReconAngleAll.cpp` never reaches its more-than-2-hits branch, so `3_ResCuts` is empty by construction.
+
+### Checked and fine
+- No integer overflow: event ids are `int` (good to 2.1 billion), the keys pack `eventID << 32 | trackID`, counts are `long long` or `double`, and `TotalNeutrons` is a double.
+- The even-hit cuts, the `nHits` and `nChargedTrackerHitsEv` axes, block z and the block tree order all follow nBlocks. Two blocks and up need no change.

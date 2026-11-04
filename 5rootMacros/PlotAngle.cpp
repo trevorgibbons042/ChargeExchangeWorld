@@ -418,7 +418,6 @@ void PlotAngle(std::string energy = "fKEnergy"){ // energy: "fKEnergy" (true KE)
 
     printf("[PlotAngle] FOM csv done %s\n", TDatime().AsSQLString()); fflush(stdout);
     // every recon proton, no theta acceptance cut, so the theta plots run up to the largest recon theta
-    auto thetaHistAll = [&](const std::string& name){return Form(">>%s(100,0,%g)", name.c_str(), std::ceil(maxTheta));};
     const std::string deg = "*180/TMath::Pi()";
 
     // 3_ReconCalcVals only holds detector energy plots, so the true KE pass stops after its FOM tables

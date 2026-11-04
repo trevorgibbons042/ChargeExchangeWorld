@@ -17,9 +17,9 @@ A proton passes if its z order is right (`zOrderOK`) and `PassesQuality` holds (
 
 `inCE` marks the protons of an event in cut_CE. The view `Angles` is `passQuality == 1`, and `AnglesCE` is `passQuality == 1 && inCE == 1`.
 
-## Block residual cut (CutTrees.cpp, the `_block` lists)
+## Residual cut
 
-`resDRms <= 2.0` mm, the RMS distance of the block hits to the fitted line. It applies only to quantities from block positions. The env var `RES_CUT_MM` overrides it.
+None. No plot, entry list or column applies a residual cut. `resDRms` (RMS distance of the block hits to the fitted line, mm) stays a branch. The only use of a threshold is the `3_ResCuts` sample (`resDRms < 4 mm`, `kRes4Mm`, a cut study) and the QualityStudy efficiency table.
 
 ## KE cut (CutFiles.h, the list file `cuts/ke_gt80.root`)
 

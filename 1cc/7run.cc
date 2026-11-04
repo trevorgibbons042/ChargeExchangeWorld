@@ -43,6 +43,7 @@ MyRunAction::MyRunAction()
     man->CreateNtupleDColumn("fDy");
     man->CreateNtupleDColumn("fDz");
     man->CreateNtupleDColumn("fDEnergy");
+    man->CreateNtupleSColumn("CreatorProcess"); // process that made the track ("primary" for the beam neutron)
     man->FinishNtuple(0);
 
     //9stepping.cc

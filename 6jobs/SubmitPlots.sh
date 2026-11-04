@@ -48,7 +48,7 @@ if [ -n "$TARGET" ]; then
         6_cuts)
             idx=$(cut_indexes "$rest") || { echo "unknown cut folder: 6_cuts/$rest"; exit 1; }
             for i in $idx; do
-                if [ "$i" = 0 ]; then PARTS+="2:0+3:0:0+3:0:1+3:0:2+3:0:3+4:0:0+4:0:1+4:0:2+4:0:3+" # cut 0 holds four folders (P3_SUB), a process each
+                if [ "$i" = 0 ]; then PARTS+="2:0+3:0:0+3:0:1:0+3:0:1:1+3:0:1:2+3:0:1:3+3:0:1:4+3:0:1:5+3:0:2+3:0:3+4:0:0+4:0:1+4:0:2:0+4:0:2:1+4:0:3+" # cut 0 holds four folders (P3_SUB), a process each; the slow noCuts ones (3:0:1, 4:0:2) split further (P3_SEC, Plot3D.cpp)
                 else PARTS+="2:$i+3:$i+4:$i+"; fi
             done
             [ -z "$rest" ] && PARTS+="4:9+4:10+4:11+4:12+4:13+4:14+" # all of 6_cuts: also the KE scan sets of Plot3D.cpp part 4 (cuts 9 to 14)

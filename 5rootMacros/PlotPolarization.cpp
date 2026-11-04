@@ -162,7 +162,6 @@ void PlotPolarization(std::string energy = "fKEnergy"){ // energy: "fKEnergy" (t
         {"1_reconTheta", "recon theta", "CalcValsRe", "thetaRe", "phiRe", "apRe", "outTheta", "outPhi", false},
         {"2_reconBlockTheta", "recon block theta", "CalcValsReD", "thetaReD", "phiReD", "apReD", "outDTheta", "outDPhi", true}};
     const std::vector<std::string> typeTags = {"CE", "recon"}, typeNames = {"CE recon protons", "all recon protons"}; // CE and recon files share a folder, the tag ends the file name
-    const int colors[] = {kBlack, kRed, kBlue, kGreen + 2, kMagenta, kOrange + 7, kCyan + 2, kGray + 2};
     const std::string deg = "*180/TMath::Pi()";
 
     TCanvas pageC("cPolPage", "", 1500, 1200); // phi pages and graphs, same canvas and margins as the PlotAngle.cpp histograms
@@ -245,14 +244,10 @@ void PlotPolarization(std::string energy = "fKEnergy"){ // energy: "fKEnergy" (t
                             apRange.Add(ceCols[2][i]);
                         }
                         if (apRange.n == 0) continue;
+                        const auto& phiSrc = type == 0 ? ceCols : allCols; // theta and phi of the protons type of this plot
                         std::vector<double> phis;
-                        if (type == 0){
-                            for (size_t i = 0; i < ceCols[0].size(); i++)
-                                if (ceCols[0][i] >= range.first && ceCols[0][i] < range.second) phis.push_back(ceCols[1][i]);
-                        } else {
-                            for (size_t i = 0; i < allCols[0].size(); i++)
-                                if (allCols[0][i] >= range.first && allCols[0][i] < range.second) phis.push_back(allCols[1][i]);
-                        }
+                        for (size_t i = 0; i < phiSrc[0].size(); i++)
+                            if (phiSrc[0][i] >= range.first && phiSrc[0][i] < range.second) phis.push_back(phiSrc[1][i]);
                         Slice t{range.first, range.second, 0, apRange.Mean(), 0, 0, apRange.n, (double)ce->GetEntries(), nReconAll, apRange};
                         pageC.cd(); pageC.Clear();
                         const std::string totPdf = totDir + (range.first > 0 ? fileNum(3) : fileNum(4)) + "phi_fit_" + degTag(range.first) + "to" + degTag(range.second) + "deg_" + tag + ".pdf";

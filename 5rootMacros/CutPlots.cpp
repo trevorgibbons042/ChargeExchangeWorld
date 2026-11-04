@@ -132,10 +132,10 @@ static void ZdcColumns(){
 //   cut_ResCuts       resDRms < 4 mm (3_ResCuts)
 //   cut_nParticles1/2 at most 1 / 2 reconstructed particles in the event
 //   cut_nZdc1         at most 1 charged particle at the ZDC in the event (8_nZdcParticles, EventSummary of the sim)
-//   cut_nHits         2, 4, 6 or 8 tracker hits
-//   cut_megacut_1     6_megaCut/1_1particlecut: at most 1 reconstructed particle in the event, 2, 4, 6 or 8 tracker hits, recon theta and recon block theta 0 to 1 degree
+//   cut_nHits         the even tracker hit counts 2, 4, ... 2 * nBlocks (EvenHits, FitCore.h)
+//   cut_megacut_1     6_megaCut/1_1particlecut: at most 1 reconstructed particle in the event, the even tracker hits, at most 1 charged particle in every tracker plane of the event (nMaxChargedPerPlaneEv), recon theta and recon block theta 0 to 1 degree
 //   cut_megacut2_1    7_megaCut2/1_1particlecut: the same, and a reconstructed ZDC proton with ZDC KE > 80% of the beam KE
-//   cut_megacut3_1    9_megaCut3/1_1particlecut: the cut_megacut2 cuts, 2, 4, 6 or 8 charged tracker hits in the event (nTrackerHitsEv, all particles added up) and exactly 1 charged particle at the ZDC (nZdcCharged)
+//   cut_megacut3_1    9_megaCut3/1_1particlecut: the cut_megacut2 cuts, the even charged tracker hit counts in the event (nTrackerHitsEv, all particles added up) and exactly 1 charged particle at the ZDC (nZdcCharged)
 // ZDC cut (cut_ZdcAllEv.root, the ZDC protons with the Plot3D columns of ZdcColumns.cpp):
 //   cut_hitZDC_AllEv           the proton has a reconstructed track (isReco)
 // Run after ZdcColumns.cpp, with all the threads: every input is read once and all the cut files of it are written in the same pass.
@@ -155,8 +155,10 @@ static void CutSamples(){
     std::vector<ROOT::RDF::RResultHandle> handles;
 
     const std::vector<std::string> rawCols = {"fEvent", "TrackID", "PDG", "isFromCE", "inCE", "finalKE", "resRms", "resDRms", "impact", "impactD", "r2", "r2D", "nProtonsEv", "nZdcCharged", "nTrackerHitsEv", "nTrackerTracksEv",
-                                              "resHalfRatioD", "outTheta", "outDTheta", "outPhi", "outDPhi", "nHits", "firstXD", "firstYD", "z_bx_reconVertexOut", "ParentID"};
+                                              "resHalfRatioD", "outTheta", "outDTheta", "outPhi", "outDPhi", "nHits", "firstXD", "firstYD", "z_bx_reconVertexOut", "ParentID", "nMaxChargedPerPlaneEv"};
     ROOT::RDataFrame raw("AnglesRaw", "cuts/cut_angles_all.root");
+    const int maxHits = MaxTrackerHits(); // the even tracker hit counts 2 to 2 * nBlocks (FitCore.h), read once outside the event loops
+    const auto onePerPlane = [](int n){return n >= 0 && n <= 1;}; // at most 1 charged particle in every tracker plane of the event (ParticleInfo; -1 in an AnglesRaw without it fails)
     // baseline of every cut of 6_cuts: recon theta and recon block theta from 0 to 1 degree (NaN fails)
     auto base = raw.Filter([](double theta, double thetaBlock){const double deg = theta * TMath::RadToDeg(), degBlock = thetaBlock * TMath::RadToDeg(); return deg >= 0 && deg <= 1 && degBlock >= 0 && degBlock <= 1;}, {"outTheta", "outDTheta"});
     auto snap = [&](ROOT::RDF::RNode node, const char* file){if (CutWanted(file)) handles.emplace_back(node.Snapshot("AnglesRaw", file, rawCols, lazy));};
@@ -164,7 +166,7 @@ static void CutSamples(){
     snap(base.Filter([](int n){return n <= 1;}, {"nProtonsEv"}), "cuts/cut_nParticles1.root");
     snap(base.Filter([](int n){return n <= 2;}, {"nProtonsEv"}), "cuts/cut_nParticles2.root");
     snap(base.Filter([](int n){return n >= 0 && n <= 1;}, {"nZdcCharged"}), "cuts/cut_nZdc1.root"); // -1: no EventSummary, fails
-    snap(base.Filter([](int n){return n == 2 || n == 4 || n == 6 || n == 8;}, {"nHits"}), "cuts/cut_nHits.root");
+    snap(base.Filter([maxHits](int n){return EvenHits(n, maxHits);}, {"nHits"}), "cuts/cut_nHits.root");
 
     // 7_megaCut2: the same cuts as 6_megaCut, and the proton must also be a reconstructed ZDC proton with ZDC KE > 80% of the beam KE
     using KeyKeys = std::set<std::pair<int, int>>;
@@ -205,20 +207,20 @@ static void CutSamples(){
         const std::string scanFile = Form("cuts/cut_megacut%d_%d_ke%d.root", family, maxP, pct);
         const KeyKeys& keys = chainKeys[i];
         if (family == 2)
-            snap(base.Filter([&keys, maxP](int np, int n, int e, int t){return np <= maxP && (n == 2 || n == 4 || n == 6 || n == 8) && keys.count({e, t}) > 0;},
-                             {"nProtonsEv", "nHits", "fEvent", "TrackID"}), scanFile.c_str());
+            snap(base.Filter([&keys, maxP, maxHits, onePerPlane](int np, int n, int e, int t, int nPl){return np <= maxP && EvenHits(n, maxHits) && keys.count({e, t}) > 0 && onePerPlane(nPl);},
+                             {"nProtonsEv", "nHits", "fEvent", "TrackID", "nMaxChargedPerPlaneEv"}), scanFile.c_str());
         else
-            snap(base.Filter([&keys, maxP](int np, int n, int e, int t, int nTh, int nZ){return np <= maxP && (n == 2 || n == 4 || n == 6 || n == 8) && keys.count({e, t}) > 0 && (nTh == 2 || nTh == 4 || nTh == 6 || nTh == 8) && nZ == 1;},
-                             {"nProtonsEv", "nHits", "fEvent", "TrackID", "nTrackerHitsEv", "nZdcCharged"}), scanFile.c_str());
+            snap(base.Filter([&keys, maxP, maxHits, onePerPlane](int np, int n, int e, int t, int nTh, int nZ, int nPl){return np <= maxP && EvenHits(n, maxHits) && keys.count({e, t}) > 0 && EvenHits(nTh, maxHits) && nZ == 1 && onePerPlane(nPl);},
+                             {"nProtonsEv", "nHits", "fEvent", "TrackID", "nTrackerHitsEv", "nZdcCharged", "nMaxChargedPerPlaneEv"}), scanFile.c_str());
     }
     for (const int maxP : {1}){ // 1_1particlecut of 6_megaCut, 7_megaCut2 and 9_megaCut3: at most 1 reconstructed particle in the event
-        snap(base.Filter([maxP](int np, int n){return np <= maxP && (n == 2 || n == 4 || n == 6 || n == 8);},
-                         {"nProtonsEv", "nHits"}), Form("cuts/cut_megacut_%d.root", maxP));
-        snap(base.Filter([&ke80Keys, maxP](int np, int n, int e, int t){return np <= maxP && (n == 2 || n == 4 || n == 6 || n == 8) && ke80Keys.count({e, t}) > 0;},
-                         {"nProtonsEv", "nHits", "fEvent", "TrackID"}), Form("cuts/cut_megacut2_%d.root", maxP));
-        snap(base.Filter([&ke80Keys, maxP](int np, int n, int e, int t, int nTh, int nZ){return np <= maxP && (n == 2 || n == 4 || n == 6 || n == 8) && ke80Keys.count({e, t}) > 0
-                                                                                                          && (nTh == 2 || nTh == 4 || nTh == 6 || nTh == 8) && nZ == 1;},
-                         {"nProtonsEv", "nHits", "fEvent", "TrackID", "nTrackerHitsEv", "nZdcCharged"}), Form("cuts/cut_megacut3_%d.root", maxP)); // 9_megaCut3: megaCut2, 2, 4, 6 or 8 charged tracker hits in the event and exactly 1 charged particle at the ZDC
+        snap(base.Filter([maxP, maxHits, onePerPlane](int np, int n, int nPl){return np <= maxP && EvenHits(n, maxHits) && onePerPlane(nPl);},
+                         {"nProtonsEv", "nHits", "nMaxChargedPerPlaneEv"}), Form("cuts/cut_megacut_%d.root", maxP));
+        snap(base.Filter([&ke80Keys, maxP, maxHits, onePerPlane](int np, int n, int e, int t, int nPl){return np <= maxP && EvenHits(n, maxHits) && ke80Keys.count({e, t}) > 0 && onePerPlane(nPl);},
+                         {"nProtonsEv", "nHits", "fEvent", "TrackID", "nMaxChargedPerPlaneEv"}), Form("cuts/cut_megacut2_%d.root", maxP));
+        snap(base.Filter([&ke80Keys, maxP, maxHits, onePerPlane](int np, int n, int e, int t, int nTh, int nZ, int nPl){return np <= maxP && EvenHits(n, maxHits) && ke80Keys.count({e, t}) > 0
+                                                                                                          && EvenHits(nTh, maxHits) && nZ == 1 && onePerPlane(nPl);},
+                         {"nProtonsEv", "nHits", "fEvent", "TrackID", "nTrackerHitsEv", "nZdcCharged", "nMaxChargedPerPlaneEv"}), Form("cuts/cut_megacut3_%d.root", maxP)); // 9_megaCut3: megaCut2, the even charged tracker hits in the event and exactly 1 charged particle at the ZDC
     }
 
     // opened only when their file is wanted: cut_ZdcAllEv.root and cut_ZdcAllPart.root are written by the zdc part, which Plot.pbs runs beside the samples without a ZDC KE cut; both stay alive until RunGraphs

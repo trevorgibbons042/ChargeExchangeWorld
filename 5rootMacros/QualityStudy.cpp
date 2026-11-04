@@ -162,7 +162,7 @@ void QualityStudy(double keepCE = 0.95){
     struct Cand {std::string branch, folder, label; double lo, hi; int nBins;};
     const std::vector<Cand> cands = {
         {"nProtonsEv", "4_nParticles", "reconstructed particles in the event", -0.5, 19.5, 20},
-        {"nHits", "5_nHits", "tracker hits", -0.5, 10.5, 11}};
+        {"nHits", "5_nHits", "tracker hits", -0.5, MaxTrackerHits() + 2.5, MaxTrackerHits() + 3}};
     {
         if (hasCand){
             // col[iCand + k]: 0 nProtonsEv, 1 nHits, 2 firstXD, 3 firstYD, 4 resHalfRatioD, 5 outTheta, 6 outDTheta
@@ -209,14 +209,15 @@ void QualityStudy(double keepCE = 0.95){
                     }
                     fclose(nf);
                 }
-                if (cd.branch == "nHits"){ // the cut keeping 2, 4, 6 or 8 tracker hits
+                if (cd.branch == "nHits"){ // the cut keeping the even tracker hit counts 2 to 2 * nBlocks
                     gSystem->mkdir((cdir + "csv").c_str(), true);
                     FILE* hf = fopen((cdir + "csv/cut_efficiency.csv").c_str(), "w");
                     fprintf(hf, "cut,CE_before,CE_after,CE_kept_pct,recon_before,recon_after,recon_left_out_pct\n");
-                    auto inRange = [](double x){return x == 2 || x == 4 || x == 6 || x == 8;};
+                    const int maxHits = MaxTrackerHits();
+                    auto inRange = [maxHits](double x){return EvenHits((int)x, maxHits) && x == (int)x;};
                     const size_t ceAfter = std::count_if(candCE[i].begin(), candCE[i].end(), inRange);
                     const size_t reAfter = std::count_if(candRecon[i].begin(), candRecon[i].end(), inRange);
-                    fprintf(hf, "2, 4, 6 or 8 tracker hits,%zu,%zu,%.4f,%zu,%zu,%.4f\n", candCE[i].size(), ceAfter, 100.0 * ceAfter / candCE[i].size(),
+                    fprintf(hf, "\"%s tracker hits\",%zu,%zu,%.4f,%zu,%zu,%.4f\n", EvenHitsText().c_str(), candCE[i].size(), ceAfter, 100.0 * ceAfter / candCE[i].size(),
                             candRecon[i].size(), reAfter, 100.0 * (1.0 - double(reAfter) / candRecon[i].size()));
                     fclose(hf);
                 }

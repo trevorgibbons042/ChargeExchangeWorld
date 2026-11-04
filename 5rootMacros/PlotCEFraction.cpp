@@ -30,7 +30,6 @@ void PlotCEFraction(){
     const auto &colors = kColors;
     const auto &setName = SetNames();
     auto cutNote = [](const std::string&){return std::string("no KE cut");};
-    const auto keName = KeName;
 
     const double thetaMax = 15.0; // deg, fixed axis range for every plot (ReadThetaMax() ran to the largest recon theta)
 
@@ -69,6 +68,13 @@ void PlotCEFraction(){
     for (const auto& set : sets){
         const std::string dir = "plots/5_fomCalc/" + set + "/";
         gSystem->mkdir((dir + "ke_gt80").c_str(), true);
+        const std::string xTitle = set == "2_reconBlockTheta" ? "recon block #theta" : "recon #theta";
+        // clears the canvas, titles the graph (title; x axis; yTitle), styles it in color and draws it over 0 to thetaMax; the caller saves it
+        const auto drawGraph = [&](TGraph& g, const std::string& title, const std::string& yTitle, int color){
+            c.Clear();
+            g.SetTitle((title + ";" + xTitle + " (deg);" + yTitle).c_str());
+            DrawPointsLine(g, color, thetaMax);
+        };
         // Not cumulative: percent of the simulated neutrons whose CE proton lands in each theta bin, 100 * N_CE(bin) / N_neutrons (TotalNeutrons, settings.csv)
         {
             const double binW = 0.05, nNeutrons = ReadSettings().at("TotalNeutrons");
@@ -81,12 +87,8 @@ void PlotCEFraction(){
             }
             TGraph g;
             for (int b = 0; b < nBins; b++) g.SetPoint(g.GetN(), (b + 0.5) * binW, 100.0 * nCE[b] / nNeutrons);
-            c.Clear(); c.SetLogy(0);
-            g.SetTitle(("100 #times N_{CE} / N_{neutrons} per #theta bin (0.05 deg), " + cutNote(set) + ", N_{CE} = CE recon protons, " + setName.at(set) + ";" +
-                        std::string(set == "2_reconBlockTheta" ? "recon block #theta" : "recon #theta") + " (deg);100 #times N_{CE} / N_{neutrons} (%)").c_str());
-            g.SetMarkerStyle(20); g.SetMarkerSize(0.6); g.SetLineWidth(1); g.SetLineColor(kGreen + 2); g.SetMarkerColor(kGreen + 2); // 3_: green
-            g.Draw("APL");
-            g.GetXaxis()->SetLimits(0, thetaMax);
+            c.SetLogy(0);
+            drawGraph(g, "100 #times N_{CE} / N_{neutrons} per #theta bin (0.05 deg), " + cutNote(set) + ", N_{CE} = CE recon protons, " + setName.at(set), "100 #times N_{CE} / N_{neutrons} (%)", kGreen + 2); // 3_: green
             c.SaveAs((dir + "ke_gt80/3_ce_percent_of_neutrons_per_bin.pdf").c_str());
 
             // The same, times A_y^2 at the bin center: t from theta (TFromAngle), A_y from t (APFromT, the model formula) with the run's APScale
@@ -97,12 +99,7 @@ void PlotCEFraction(){
                 const double ap = APFromT(kBeamMomentum, TFromAngle(kBeamMomentum, theta * TMath::Pi() / 180), apScale);
                 gA2.SetPoint(gA2.GetN(), theta, ap * ap * 100.0 * nCE[b] / nNeutrons);
             }
-            c.Clear();
-            gA2.SetTitle(("100 #times N_{CE} / N_{neutrons} #times A_{y}^{2}(#theta) per #theta bin (0.05 deg), " + cutNote(set) + ", N_{CE} = CE recon protons, " + setName.at(set) + ";" +
-                          std::string(set == "2_reconBlockTheta" ? "recon block #theta" : "recon #theta") + " (deg);A_{y}^{2} #times 100 #times N_{CE} / N_{neutrons} (%)").c_str());
-            gA2.SetMarkerStyle(20); gA2.SetMarkerSize(0.6); gA2.SetLineWidth(1); gA2.SetLineColor(kGreen + 2); gA2.SetMarkerColor(kGreen + 2); // 4_: green
-            gA2.Draw("APL");
-            gA2.GetXaxis()->SetLimits(0, thetaMax);
+            drawGraph(gA2, "100 #times N_{CE} / N_{neutrons} #times A_{y}^{2}(#theta) per #theta bin (0.05 deg), " + cutNote(set) + ", N_{CE} = CE recon protons, " + setName.at(set), "A_{y}^{2} #times 100 #times N_{CE} / N_{neutrons} (%)", kGreen + 2); // 4_: green
             c.SaveAs((dir + "ke_gt80/4_FOM_per_bin.pdf").c_str());
 
             // Running integral up to each bin: sum of N_CE / N_neutrons * A_y^2(theta) * delta theta (0.05 deg)
@@ -114,12 +111,7 @@ void PlotCEFraction(){
                 integral += nCE[b] / nNeutrons * ap * ap * binW;
                 gInt.SetPoint(gInt.GetN(), (b + 1) * binW, integral);
             }
-            c.Clear();
-            gInt.SetTitle(("#Sigma N_{CE} / N_{neutrons} #times A_{y}^{2}(#theta) #times #Delta#theta up to #theta (#Delta#theta = 0.05 deg), " + cutNote(set) + ", N_{CE} = CE recon protons, " + setName.at(set) + ";" +
-                           std::string(set == "2_reconBlockTheta" ? "recon block #theta" : "recon #theta") + " (deg);#Sigma N_{CE} / N_{neutrons} #times A_{y}^{2} #times #Delta#theta (deg)").c_str());
-            gInt.SetMarkerStyle(20); gInt.SetMarkerSize(0.6); gInt.SetLineWidth(1); gInt.SetLineColor(kRed); gInt.SetMarkerColor(kRed); // CE protons are red
-            gInt.Draw("APL");
-            gInt.GetXaxis()->SetLimits(0, thetaMax);
+            drawGraph(gInt, "#Sigma N_{CE} / N_{neutrons} #times A_{y}^{2}(#theta) #times #Delta#theta up to #theta (#Delta#theta = 0.05 deg), " + cutNote(set) + ", N_{CE} = CE recon protons, " + setName.at(set), "#Sigma N_{CE} / N_{neutrons} #times A_{y}^{2} #times #Delta#theta (deg)", kRed); // CE protons are red
             TPaveText finalValue(0.81, 0.78, 0.99, 0.88, "NDC"); // outside the graph, in the right margin: the integral up to the last bin
             finalValue.SetFillColor(0); finalValue.SetBorderSize(0); finalValue.SetTextAlign(12); finalValue.SetTextSize(0.028);
             finalValue.AddText("final value");
@@ -137,13 +129,9 @@ void PlotCEFraction(){
                     gShare.SetPoint(gShare.GetN(), (b + 0.5) * binW, 100.0 * (nonCE ? nDen[b] - nCE[b] : nCE[b]) / nDen[b]);
                 }
                 if (gShare.GetN() == 0) continue;
-                c.Clear();
-                gShare.SetTitle((std::string(nonCE ? "Contamination, " : "Purity, ") + (part ? "all recon particles: " : "all recon protons: ") + "100 #times " + num + " / " + den + " per #theta bin (0.05 deg), N_{CE,recon} = CE recon protons, " + den + " = all recon " + (part ? "particles (any pdg)" : "protons (pdg 2212)") + ", " + cutNote(set) + ", " + setName.at(set) + ";" +
-                                 std::string(set == "2_reconBlockTheta" ? "recon block #theta" : "recon #theta") + " (deg);100 #times " + num + " / " + den + " (%)").c_str());
-                gShare.SetMarkerStyle(20); gShare.SetMarkerSize(0.6); gShare.SetLineWidth(1); const int shareColor = part ? kRed : kBlue; // 1_, 2_ (all recon protons as the denominator) blue, 6_, 7_ (all recon particles) red
-                gShare.SetLineColor(shareColor); gShare.SetMarkerColor(shareColor);
-                gShare.Draw("APL");
-                gShare.GetXaxis()->SetLimits(0, thetaMax);
+                // 1_, 2_ (all recon protons as the denominator) blue, 6_, 7_ (all recon particles) red
+                drawGraph(gShare, std::string(nonCE ? "Contamination, " : "Purity, ") + (part ? "all recon particles: " : "all recon protons: ") + "100 #times " + num + " / " + den + " per #theta bin (0.05 deg), N_{CE,recon} = CE recon protons, " + den + " = all recon " + (part ? "particles (any pdg)" : "protons (pdg 2212)") + ", " + cutNote(set) + ", " + setName.at(set),
+                          "100 #times " + num + " / " + den + " (%)", part ? kRed : kBlue);
                 c.SaveAs((dir + "ke_gt80/" + (part ? (nonCE ? "7_contamination_particle_percent_per_bin.pdf" : "6_purity_particle_percent_per_bin.pdf") : (nonCE ? "2_contamination_proton_percent_per_bin.pdf" : "1_purity_proton_percent_per_bin.pdf"))).c_str());
             }
 
@@ -166,14 +154,9 @@ void PlotCEFraction(){
                     TGraph gR;
                     for (int b = 0; b < nBins; b++){const double v = ratios[k].f(nCE[b], nRecon[b], nPart[b]); if (std::isfinite(v)) gR.SetPoint(gR.GetN(), (b + 0.5) * binW, v);}
                     if (gR.GetN() < 2) continue;
-                    c.Clear();
                     std::string quantity = ratios[k].file; // the file name without underscores leads the title: "purity particle", "signal significance proton"
                     for (char& ch : quantity) if (ch == '_') ch = ' ';
-                    gR.SetTitle((quantity + ": " + ratios[k].label + " per #theta bin (0.05 deg), N_{CE,recon} = CE recon protons, " + cutNote(set) + ", " + setName.at(set) + ";" +
-                                 std::string(set == "2_reconBlockTheta" ? "recon block #theta" : "recon #theta") + " (deg);" + ratios[k].label).c_str());
-                    gR.SetMarkerStyle(20); gR.SetMarkerSize(0.6); gR.SetLineWidth(1); gR.SetLineColor(ratios[k].color); gR.SetMarkerColor(ratios[k].color);
-                    gR.Draw("APL");
-                    gR.GetXaxis()->SetLimits(0, thetaMax);
+                    drawGraph(gR, quantity + ": " + ratios[k].label + " per #theta bin (0.05 deg), N_{CE,recon} = CE recon protons, " + cutNote(set) + ", " + setName.at(set), ratios[k].label, ratios[k].color);
                     c.SaveAs((dir + "ke_gt80/" + std::to_string(8 + k) + "_" + ratios[k].file + "_per_bin.pdf").c_str());
                 }
             }

@@ -1,6 +1,8 @@
 #pragma once
 #include <memory>
+#include <TAxis.h>
 #include <TF1.h>
+#include <TGraph.h>
 #include <TH1.h>
 
 #include <TLegend.h>
@@ -123,13 +125,19 @@ inline bool EvenHits(int n, int maxHits){return n >= 2 && n <= maxHits && n % 2 
 // the Draw string of the same cut on expression e, e.g. (e == 2 || e == 4 || e == 6)
 inline std::string EvenHitsDraw(const std::string& e){
     std::string s = "(";
-    for (int n = 2; n <= MaxTrackerHits(); n += 2) s += (n > 2 ? " || " : "") + e + " == " + std::to_string(n);
+    for (int n = 2, maxHits = MaxTrackerHits(); n <= maxHits; n += 2) s += (n > 2 ? " || " : "") + e + " == " + std::to_string(n);
     return s + ")";
+}
+// the ratio and FOM graphs: round markers (size 0.6) joined by a width 1 line in one color, drawn "APL" with x from 0 to xMax
+inline void DrawPointsLine(TGraph& g, int color, double xMax){
+    g.SetMarkerStyle(20); g.SetMarkerSize(0.6); g.SetLineWidth(1); g.SetLineColor(color); g.SetMarkerColor(color);
+    g.Draw("APL");
+    g.GetXaxis()->SetLimits(0, xMax);
 }
 // the counts for a title, "2, 4, 6"
 inline std::string EvenHitsText(){
     std::string s;
-    for (int n = 2; n <= MaxTrackerHits(); n += 2) s += (n > 2 ? ", " : "") + std::to_string(n);
+    for (int n = 2, maxHits = MaxTrackerHits(); n <= maxHits; n += 2) s += (n > 2 ? ", " : "") + std::to_string(n);
     return s;
 }
 
@@ -146,7 +154,6 @@ inline unsigned NThreads(){
 
 // Runs f(lo, hi) on contiguous row ranges of [0, n) on NThreads() threads (8 ranges per thread) and returns the results in range order. The row loops that follow a Columns or
 // DrawPlan read use it, so they run on all the cores instead of one. f only reads shared data; each range builds and returns its own partial result.
-#include <numeric>
 #include <ROOT/TThreadExecutor.hxx>
 template <class F>
 inline auto MapRows(Long64_t n, F f) -> std::vector<decltype(f(Long64_t(0), Long64_t(0)))>
@@ -388,6 +395,20 @@ struct AMean {
     double Err() const {return std::fabs(Mean()) * RelErr();}
 };
 inline AMean AMeanOf(const std::vector<double>& v){AMean a; for (double x : v) a.Add(x); return a;}
+// P of an unbinned fit by Newton's method from 0, limited to -1 to 1: derivs(p, d1, d2) gives dlnL/dP and d2lnL/dP2. Stops when P moves less than tol, or when d2 is not negative.
+template <class D>
+inline double NewtonP(D derivs, double tol){
+    double p = 0, d1, d2;
+    for (int it = 0; it < 100; it++){
+        derivs(p, d1, d2);
+        if (!(d2 < 0)) break;
+        const double next = std::max(-1.0, std::min(1.0, p - d1 / d2));
+        const bool done = std::fabs(next - p) < tol;
+        p = next;
+        if (done) break;
+    }
+    return p;
+}
 // cosPhi: cos(phi) of every proton (a: its A, or null for aFix). parallel: the sums over the protons run on all threads (not when the caller is already one of the threads).
 inline PFit UnbinnedPFromCos(const double* cosPhi, Long64_t n, const double* a, const AMean& aMean, double loDeg, double hiDeg, bool parallel = true){
     PFit r;
@@ -410,15 +431,7 @@ inline PFit UnbinnedPFromCos(const double* cosPhi, Long64_t n, const double* a, 
         else tot = range(0, n);
         return tot;
     };
-    double p = 0;
-    for (int it = 0; it < 100; it++){
-        const Sums t = sums(p);
-        if (!(t.d2 < 0)) break;
-        const double next = std::max(-1.0, std::min(1.0, p - t.d1 / t.d2));
-        const bool done = std::fabs(next - p) < 1e-10;
-        p = next;
-        if (done) break;
-    }
+    const double p = NewtonP([&](double pp, double& d1, double& d2){const Sums t = sums(pp); d1 = t.d1; d2 = t.d2;}, 1e-10);
     const Sums t = sums(p);
     r.p = p; r.err = t.d2 < 0 ? 1 / std::sqrt(-t.d2) : 0; r.ok = true;
     AddAErrToP(r, a ? kBeamAFrac : aMean.RelErr()); // the A of each proton: the beam spread only
@@ -472,15 +485,8 @@ inline PFit UnbinnedPFromMoments(const double* m, double n, const AMean& aMean, 
         const double nr = span + p * as;
         d1 -= n * as / nr; d2 += n * as * as / (nr * nr);
     };
-    double p = 0, d1, d2;
-    for (int it = 0; it < 100; it++){
-        derivs(p, d1, d2);
-        if (!(d2 < 0)) break;
-        const double next = std::max(-1.0, std::min(1.0, p - d1 / d2));
-        const bool done = std::fabs(next - p) < 1e-12;
-        p = next;
-        if (done) break;
-    }
+    const double p = NewtonP(derivs, 1e-12);
+    double d1, d2;
     derivs(p, d1, d2);
     r.p = p; r.err = d2 < 0 ? 1 / std::sqrt(-d2) : 0; r.ok = true;
     AddAErrToP(r, aMean.RelErr());
@@ -690,7 +696,7 @@ inline void FitBlocks(TH1* h, const std::vector<double>& x){
     const UGaussFit r = FitUGaus(v, m, {mean, sigma}, {0.1 * sigma, 0.1 * sigma});
     if (!r.ok) return;
     AddGausCurve(h, "fBlocks", r, m);
-    AddFitEquation(h, {kGausEq, "unbinned likelihood fit, integrated over each block width"});
+    AddFitEquation(h, {kGausEq, "unbinned fit", "integrated over each block"});
 }
 
 // Unbinned fit of the core of the values x of h: a gaussian on a window around the peak (mean +- 2.5 sigma, refitted until it settles), plus a flat background when the plot has one (phi
@@ -750,7 +756,7 @@ inline void FitCore(TH1* h, const std::vector<double>& x){
     }
     TF1* g = AddGausCurve(h, useBkg ? "fCoreBkg" : "fGaus", r, m);
     if (!useBkg){
-        AddFitEquation(h, {kGausEq, "unbinned likelihood fit"});
+        AddFitEquation(h, {kGausEq, "unbinned fit"});
         DrawFitTails(h, g);
         return;
     }
@@ -768,9 +774,9 @@ inline void FitCore(TH1* h, const std::vector<double>& x){
         }
     }
     if (std::string(g->GetName()) == "fCore2Bkg")
-        AddFitEquation(h, {kGausEq, "+ Constant2 #times exp(-(x - Mean2)^{2} / 2 Sigma2^{2})", "+ Background", "unbinned likelihood fit"});
+        AddFitEquation(h, {kGausEq, "+ Constant2 #times exp(-(x - Mean2)^{2} / 2 Sigma2^{2})", "+ Background", "unbinned fit"});
     else
-        AddFitEquation(h, {kGausEq, "+ Background", "unbinned likelihood fit"});
+        AddFitEquation(h, {kGausEq, "+ Background", "unbinned fit"});
     DrawFitTails(h, g);
 }
 
