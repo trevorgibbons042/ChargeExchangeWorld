@@ -237,7 +237,7 @@ void ReconAngleAll(){
         }, {"boundaryType", "fEvent", "TrackID", "pdg", "fX", "fY", "fZ", "fDx", "fDy", "fDz", "fKEnergy", "fDEnergy", "ParentID", "entryNo"});
         // The fits run on every thread: each shard builds its tracks, fits them and keeps the results as rows. Only the TTree fills below are serial.
         struct Row {
-            int trackID, pdg, eventID, parentID, isFromCE, inCE, passResD, nProtonsEv, nZdcCharged, nTrackerHitsEv, nTrackerTracksEv, nHits;
+            int trackID, pdg, eventID, parentID, isFromCE, inCE, nProtonsEv, nZdcCharged, nTrackerHitsEv, nTrackerTracksEv, nHits;
             double theta, phi, dTheta, dPhi, x0, y0, bx, by, x0D, y0D, bxD, byD, finalKE, finalKED;
             double xVertex, yVertex, zVertex, zBxRecon, zByRecon, zBxReconDIFF, zByReconDIFF;
             double resRms, resDRms, impact, impactD, r2, r2D, firstXD, firstYD, resHalfRatioD;
@@ -356,8 +356,6 @@ void ReconAngleAll(){
                 r.impact  = ImpactToAxis(fit.x0, fit.y0, fit.bx, fit.by);
                 r.impactD = ImpactToAxis(fit.x0D, fit.y0D, fit.bxD, fit.byD);
 
-                r.passResD = PassesBlockResidual(r.resDRms) ? 1 : 0; // block plots only, see QualityCut.h
-
                 r.nProtonsEv = nProtonsInEvent[run];
                 const EvCounts ec = (r.eventID >= 0 && (size_t)r.eventID < evCountsOf.size()) ? evCountsOf[r.eventID] : EvCounts();
                 r.nZdcCharged = ec.zdcCharged; r.nTrackerHitsEv = ec.trackerHits; r.nTrackerTracksEv = ec.trackerTracks;
@@ -397,7 +395,6 @@ void ReconAngleAll(){
         double firstXD = NAN, firstYD = NAN; // block position (mm) of the first tracker hit (lowest z)
         int nProtonsEv, nZdcCharged, nTrackerHitsEv, nTrackerTracksEv, nHits; // (the two tracker counts: sim EventSummary, all charged particles) // tracks with a fit in the event (any pdg), charged particles at the ZDC in the event (-1 without EventSummary), tracker hits (block points)
         double resHalfRatioD; // block residual of the tracker hits after the first 2 over the first 2 hits, NAN with 2 or fewer hits
-        int passResD = 1; // block residual cut, cut on only by the block plots (QualityCut.h)
         int isFromCE;
         int inCE; // event has a carbon CE (1/0)
 
@@ -434,7 +431,6 @@ void ReconAngleAll(){
     tree->Branch("impactD", &impactD);
     tree->Branch("r2", &r2);
     tree->Branch("r2D", &r2D);
-    tree->Branch("passResD", &passResD);
     tree->Branch("nProtonsEv", &nProtonsEv);
     tree->Branch("nZdcCharged", &nZdcCharged);
     tree->Branch("nTrackerHitsEv", &nTrackerHitsEv);
@@ -453,7 +449,7 @@ void ReconAngleAll(){
                 z_bx_reconVertexDIFFOut = r.zBxReconDIFF; z_by_reconVertexDIFFOut = r.zByReconDIFF;
                 isFromCE = r.isFromCE;
                 resRms = r.resRms; resDRms = r.resDRms; impact = r.impact; impactD = r.impactD; r2 = r.r2; r2D = r.r2D;
-                passResD = r.passResD; nProtonsEv = r.nProtonsEv; nZdcCharged = r.nZdcCharged; nTrackerHitsEv = r.nTrackerHitsEv; nTrackerTracksEv = r.nTrackerTracksEv; nHits = r.nHits;
+                nProtonsEv = r.nProtonsEv; nZdcCharged = r.nZdcCharged; nTrackerHitsEv = r.nTrackerHitsEv; nTrackerTracksEv = r.nTrackerTracksEv; nHits = r.nHits;
                 firstXD = r.firstXD; firstYD = r.firstYD; resHalfRatioD = r.resHalfRatioD;
 
                 inCE = r.inCE;

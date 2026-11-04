@@ -20,9 +20,7 @@ inline const std::vector<std::string>& Kes(){static const std::vector<std::strin
 static const int kColors[] = {kBlack, kRed, kBlue, kGreen + 2, kMagenta, kOrange + 7, kCyan + 2, kGray + 2};
 inline const std::map<std::string, std::string>& SetNames(){static const std::map<std::string, std::string> m = {{"1_reconTheta", "true position"}, {"2_reconBlockTheta", "block position"}}; return m;}
 static std::string KeName(const std::string& ke){
-    const bool res2 = ke.size() > 7 && ke.compare(ke.size() - 7, 7, "_res2mm") == 0;
-    const std::string base = res2 ? ke.substr(0, ke.size() - 7) : ke;
-    return ("KE cut " + base.substr(5) + "%") + (res2 ? ", res < 2 mm" : "");
+    return "KE cut " + ke.substr(5) + "%";
 }
 
 // Base folder of the FOM and polarization plots, under it <theta set>/<ke>/... (PlotFomPolarization.cpp)

@@ -33,7 +33,7 @@ namespace
 }
 
 using Key = std::pair<int, int>;
-struct Angles {double LastPhi, LastTheta, LastMomentum, LastT, LastAP; int PDG; double FinalKE; ULong64_t entry = 0; int passResD = 1; double resDRms = 0;};
+struct Angles {double LastPhi, LastTheta, LastMomentum, LastT, LastAP; int PDG; double FinalKE; ULong64_t entry = 0; double resDRms = 0;};
 
 struct Track {std::vector<Angles> points;};
 
@@ -93,7 +93,7 @@ static void CalcAPandTOne(std::string energy){ // energy: "fKEnergy" (true KE) o
 
     std::vector<TrackMap> slotTracksAngles(dfAngles.GetNSlots());
     dfAngles.ForeachSlot([&](unsigned slot,
-    int eventID, int ParentID, double outTheta, double outPhi, double outDTheta, double outDPhi, double finalKE, int pdg, ULong64_t entry, int passResD, double resDRms){
+    int eventID, int ParentID, double outTheta, double outPhi, double outDTheta, double outDPhi, double finalKE, int pdg, ULong64_t entry, double resDRms){
         if (pdg != 2212) {return;}
 
         auto &tRecon = slotTracksAngles[slot][{eventID, ParentID, 1}];
@@ -103,8 +103,8 @@ static void CalcAPandTOne(std::string energy){ // energy: "fKEnergy" (true KE) o
 
         auto &tReconBlock = slotTracksAngles[slot][{eventID, ParentID, 2}];
 
-        tReconBlock.points.push_back({outDPhi, outDTheta, 0.0, 0.0, 0.0, pdg, finalKE, entry, passResD, resDRms});
-        },{"fEvent", "ParentID","outTheta", "outPhi", "outDTheta", "outDPhi", KeVar(suffix), "PDG","entryNo", "passResD", "resDRms"});
+        tReconBlock.points.push_back({outDPhi, outDTheta, 0.0, 0.0, 0.0, pdg, finalKE, entry, resDRms});
+        },{"fEvent", "ParentID","outTheta", "outPhi", "outDTheta", "outDPhi", KeVar(suffix), "PDG","entryNo", "resDRms"});
     std::vector<TrackMap> tracksAngles = mergeSlots(slotTracksAngles);
     
 
@@ -177,8 +177,7 @@ static void CalcAPandTOne(std::string energy){ // energy: "fKEnergy" (true KE) o
         double outTReDDIFF;
         double outAPReDDIFF;
         double outFOMReDDIFF;
-        int outPassResD; // block residual cut (QualityCut.h), only on the block trees: the block plots cut on passResD == 1
-        double outResDRms; // block fit residual of the track, on every tree: CutPlots.cpp (trees) cuts it into the block lists (BlockCut(), QualityCut.h)
+        double outResDRms; // block fit residual of the track, on every tree (no cut on it)
 
         outTree->Branch("TrackID", &outTrackID);
         outTree->Branch("PDG", &outPDG);
@@ -218,7 +217,6 @@ static void CalcAPandTOne(std::string energy){ // energy: "fKEnergy" (true KE) o
         outTree3->Branch("apReD", &outAPReD);
         outTree3->Branch("fomReD", &outFOMReD);
         outTree3->Branch("momReD", &outMomReD);
-        outTree3->Branch("passResD", &outPassResD);
     
         outTree4->Branch("TrackID", &outTrackID);
         outTree4->Branch("PDG", &outPDG);
@@ -243,7 +241,6 @@ static void CalcAPandTOne(std::string energy){ // energy: "fKEnergy" (true KE) o
         outTree5->Branch("tReD", &outTReDDIFF);
         outTree5->Branch("apReD", &outAPReDDIFF);
         outTree5->Branch("fomReD", &outFOMReDDIFF);
-        outTree5->Branch("passResD", &outPassResD);
         for (std::size_t idx = chunk * ceTracks.size() / nChunks; idx < (chunk + 1) * ceTracks.size() / nChunks; idx++) {
             const Key3 &key = *ceTracks[idx].first;
             const Track &tCE = *ceTracks[idx].second;
@@ -265,7 +262,6 @@ static void CalcAPandTOne(std::string energy){ // energy: "fKEnergy" (true KE) o
                 const auto &ce = tCE.points.back();
                 const auto &re = tRecon.points.back();
                 const auto &reD = tReconD.points.back();
-                outPassResD = reD.passResD;
                 outResDRms = reD.resDRms;
 
                 outEventID = eventID;

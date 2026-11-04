@@ -33,7 +33,7 @@
 // 2D maps over theta ranges [lo, hi): x = lower bound, y = upper bound (hi > lo always, so only the upper triangle is filled). True KE or detector KE
 // (energy argument, trees with the _DE suffix), one set of
 // maps for the one cut, ke_gt80 (no KE cut, KeCuts in CutFiles.h). The FOM is only in PlotCEPerBin.cpp (cumulative FOM plot).
-//   P maps, one per theta type (AP: the model equation at the CE t, same for both), plots/5_fomCalc/<1_reconTheta, 2_reconBlockTheta>/<ke>/ (recon block theta: block residual cut), files tagged apCE_<CE or recon> (recon protons: their
+//   P maps, one per theta type (AP: the model equation at the CE t, same for both), plots/5_fomCalc/<1_reconTheta, 2_reconBlockTheta>/<ke>/, files tagged apCE_<CE or recon> (recon protons: their
 //   phi is fit with A_eff = the mean A(recon theta) over all recon protons in the range, so the unpolarized non-CE protons pull P down): 5_P_fit_2d_<tag>.pdf and .csv, and 6_P_pct_error_2d_<tag>.pdf = |100 * (P_fit - PPValue) / PPValue| (PPValue from settings.csv),
 //   log color scale from 0.01 to 100:
 //     N0 * (1 + AP * P * cos(phi)) fit to the CE protons with theta in [lo, hi), AP fixed to their mean AP from the chosen source (same fit as FitSlice
@@ -133,7 +133,7 @@ void PlotFomPolarization(std::string energy = "fKEnergy"){ // energy: "fKEnergy"
     TFile* allFile = TFile::Open("cuts/cut_angles_all.root", "READ");
     TTree* all = allFile ? (TTree*)allFile->Get(kAngleTree) : nullptr; // every fitted proton
     if (!all){printf("PlotFomPolarization: AnglesRaw in cut_angles_all.root missing\n"); return;}
-    // block: the block position set, which only takes the block AP and the block residual cut (BlockCut(), QualityCut.h); the recon set takes AP from CE and from recon
+    // block: the block position set, which only takes the block AP; the recon set takes AP from CE and from recon
     struct ThetaSet {std::string dir, name, tree, theta, phi, allTheta, allPhi; bool block;}; // all* : theta and phi (rad) of every proton with a reconstructed path in the Angles tree
     // types: CE recon protons, all recon protons (pdg 2212) and all recon particles (every charged particle of AnglesRaw, any pdg)
     const std::vector<std::string> typeTags = {"CE", "recon", "reconParticles"}, typeNames = {"CE recon protons", "all recon protons", "all recon particles"};

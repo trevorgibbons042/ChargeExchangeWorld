@@ -13,7 +13,7 @@ import re
 import shutil
 import sys
 
-CUT_DIR = re.compile(r"^ke_(all|gt\d+|cut_\d+)(_res2mm)?$")
+CUT_DIR = re.compile(r"^ke_(all|gt\d+|cut_\d+)$")
 
 
 def csv_files(top):

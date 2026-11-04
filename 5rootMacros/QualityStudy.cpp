@@ -140,8 +140,8 @@ void QualityStudy(double keepCE = 0.95){
         c.SaveAs((dir + std::to_string(i + 1) + "_" + names[i] + ".pdf").c_str());
     }
 
-    // residual_cut_efficiency.csv: the block residual cut (the only residual cut, QualityCut.h) at the res_scan.sh thresholds and the default,
-    // Totals before and after the cut.
+    // residual_cut_efficiency.csv: study only, no plot applies a residual cut. CE and recon protons kept at three block residual thresholds,
+    // totals before and after.
     if (FILE* rc = fopen((dir + "residual_cut_efficiency.csv").c_str(), "w")){
         fprintf(rc, "cut,block_residual_max_mm,CE_before,CE_after,CE_kept_pct,recon_before,recon_after,recon_left_out_pct\n");
         auto row = [&](const char* name, double resMax){
@@ -155,7 +155,6 @@ void QualityStudy(double keepCE = 0.95){
             fprintf(rc, "%s,%g,%zu,%zu,%.4f,%zu,%zu,%.4f\n", name, resMax, nCE, ceAfter, 100.0 * ceAfter / nCE, nRecon, reconAfter, 100.0 * (nRecon - reconAfter) / nRecon);
         };
         for (double r : {2.0, 3.1, 5.0}) row(Form("block residual < %g mm", r), r);
-        row("block residual default", MaxResidualDMm());
         fclose(rc);
     }
 
@@ -231,6 +230,5 @@ void QualityStudy(double keepCE = 0.95){
         fclose(out);
     }
     printf("  all four together keep %.1f%% CE, %.1f%% recon (%.1f%% of recon removed)\n", 100.0 * ceKept, 100.0 * reconKept, 100.0 * (1.0 - reconKept));
-    printf("Paste into QualityCut.h:\n  kMaxResidualMm = %.6g, kMaxResidualDMm = %.6g, kMaxImpactMm = %.6g, kMaxImpactDMm = %.6g\n", th[0], th[1], th[2], th[3]);
     BoxAndCropPlots();
 }

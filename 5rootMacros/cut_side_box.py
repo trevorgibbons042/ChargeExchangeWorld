@@ -17,12 +17,11 @@ from pypdf.generic import DecodedStreamObject, DictionaryObject, NameObject, Rec
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__))) # FitCore.h runs these with python3 -I, which leaves out the script folder
 import pdfgeom
 
-COLS = ["CE_recon_proton_in_cut/recon_proton_in_cut", "CE_recon_proton_in_cut/CE_recon_before_cut",
-        "nonCE_recon_proton_in_cut/recon_proton_in_cut",
-        "CE_recon_proton_in_cut/recon_particle_in_cut", "nonCE_recon_particle_in_cut/recon_particle_in_cut",
-        "nonCE_recon_proton_in_cut/nonCE_recon_proton_out_of_cut", "nonCE_recon_particle_in_cut/nonCE_recon_particle_out_of_cut",
-        "nonCE_recon_proton_in_cut/nonCE_recon_proton_before_cut", "nonCE_recon_particle_in_cut/nonCE_recon_particle_before_cut",
-        "CE_recon_proton_in_cut/sqrt(nonCE_recon_proton_in_cut)", "CE_recon_proton_in_cut/sqrt(nonCE_recon_particle_in_cut)", "FOM_theta", "FOM_thetaBlock"]
+COLS = ["purity_proton", "signal_efficiency",
+        "contamination_proton",
+        "purity", "contamination",
+        "background_efficiency_proton", "background_efficiency",
+        "signal_significance_proton", "signal_significance", "FOM_theta", "FOM_thetaBlock"]
 MARK = "/CutSideBox"
 A4 = (595, 842) # pt, the page ROOT writes (portrait, /Rotate 90 for the landscape canvases)
 WIDTH, FONT, LEAD = 270.0, 7.5, 11.0
@@ -31,7 +30,7 @@ LEGEND_W = (100, 200) # pt, width of the legend frame (0.245 of the 567 pt wide 
 GAP = 12.0 # pt between the legend frame and the first line of the box
 KE80 = "cut and ZDC KE > 80%"
 BASELINES = {"1_hitZDC": "1_hitZDC (no cut)", "0_cuts": "0_cuts (no cut)"} # rank rows without a cut: key -> name in the box title
-FOM_CUTS = {"1_reconTheta": "1_hitZDC", "2_reconBlockTheta": "3_ResCuts"} # 5_fomCalc folder -> rank row cut of its sample
+FOM_CUTS = {"1_reconTheta": "1_hitZDC", "2_reconBlockTheta": "1_hitZDC"} # 5_fomCalc folder -> rank row cut of its sample
 
 
 def load_rows(cuts_dir):
@@ -65,8 +64,8 @@ def lines_for(row):
     n = {k: int(float(row[c])) for k, c in (("ce", "CE_recon_proton_in_cut"), ("non", "nonCE_recon_proton_in_cut"), ("all", "recon_proton_in_cut"), ("ceAll", "CE_recon_before_cut"), ("part", "recon_particle_in_cut"))}
     out = [f"N_{{CE,recon,in cut}} = {n['ce']}", f"N_{{nonCE,recon,proton,in cut}} = {n['non']}", f"N_{{recon,proton,in cut}} = {n['all']}", f"N_{{CE,recon}} = {n['ceAll']}", f"N_{{recon,particle,in cut}} = {n['part']}", f"N_{{nonCE,recon,particle,in cut}} = {n['part'] - n['ce']}"]
     label = {COLS[0]: "N_{CE,recon,in cut} / N_{recon,proton,in cut}", COLS[1]: "N_{CE,recon,in cut} / N_{CE,recon}", COLS[2]: "N_{nonCE,recon,proton,in cut} / N_{recon,proton,in cut}", COLS[3]: "N_{CE,recon,in cut} / N_{recon,particle,in cut}", COLS[4]: "N_{nonCE,recon,particle,in cut} / N_{recon,particle,in cut}",
-             COLS[5]: "N_{nonCE,recon,proton,in cut} / N_{nonCE,recon,proton,out of cut}", COLS[6]: "N_{nonCE,recon,particle,in cut} / N_{nonCE,recon,particle,out of cut}", COLS[7]: "N_{nonCE,recon,proton,in cut} / N_{nonCE,recon,proton,before cut}", COLS[8]: "N_{nonCE,recon,particle,in cut} / N_{nonCE,recon,particle,before cut}",
-             COLS[9]: "N_{CE,recon,in cut} / sqrt(N_{nonCE,recon,proton,in cut})", COLS[10]: "N_{CE,recon,in cut} / sqrt(N_{nonCE,recon,particle,in cut})", COLS[11]: "FOM_{theta}", COLS[12]: "FOM_{thetaBlock}"}
+             COLS[5]: "N_{nonCE,recon,proton,in cut} / N_{nonCE,recon,proton,before cut}", COLS[6]: "N_{nonCE,recon,particle,in cut} / N_{nonCE,recon,particle,before cut}",
+             COLS[7]: "N_{CE,recon,in cut} / sqrt(N_{nonCE,recon,proton,in cut})", COLS[8]: "N_{CE,recon,in cut} / sqrt(N_{nonCE,recon,particle,in cut})", COLS[9]: "FOM_{theta}", COLS[10]: "FOM_{thetaBlock}"}
     for c in COLS:
         out.append(f"{label.get(c, c)} = {float(row[c]):.4g}")
     return out
@@ -237,6 +236,8 @@ def main(plots):
     jobs = [] # (path, lines, title): collected first, then run in parallel, one worker per pdf
     for d, _, files in os.walk(cuts_dir):
         rel = os.path.relpath(d, cuts_dir)
+        if "KE_overlay" in rel.split(os.sep):
+            continue # PlotKEOverlay.cpp: several cuts on one plot, there is no single cut for the box
         for f in sorted(files):
             if not f.endswith(".pdf"):
                 continue
@@ -248,7 +249,7 @@ def main(plots):
                 continue
             title = f"{BASELINES.get(cut, cut)}, {'ZDC KE > 80%' if ke80 else 'no KE cut'}"
             jobs.append((os.path.join(d, f), lines_for(row), title))
-    for sub, cut in FOM_CUTS.items(): # 5_fomCalc samples (ke_gt80, PlotFomPolarization.cpp): recon theta has no cut, recon block theta the block residual cut (kBlockCut, QualityCut.h)
+    for sub, cut in FOM_CUTS.items(): # 5_fomCalc samples (ke_gt80, PlotFomPolarization.cpp): neither theta set has a cut (no residual cut), both take the 1_hitZDC rank row
         for d, _, files in os.walk(os.path.join(plots, "5_fomCalc", sub)):
             for f in sorted(files):
                 if f.endswith(".pdf"):
