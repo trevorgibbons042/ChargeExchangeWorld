@@ -1077,7 +1077,7 @@ void Plot3D(){
                         for (size_t i = 0; i < evD->size(); i++) blockDiff[{(*evD)[i], (*tidD)[i]}] = {(*thD)[i], (*phD)[i]};
                     }
                     const auto keys = Columns(tCE, {P3("fEvent"), P3("ParentID")}, P3(bCE + ke)); // the CE track is the parent of the CE proton
-                    const std::string cutNote = (nz ? sc->label + (sc->zdcKE80 ? ", hit ZDC" : ", no ZDC requirement") + ", " + kThetaNote
+                    const std::string cutNote = (sc ? sc->label + (sc->zdcKE80 ? ", hit ZDC" : ", no ZDC requirement") + ", " + kThetaNote : noTheta ? std::string("no cut, no ZDC requirement, ") + zNote
                                                     : std::string("hit ZDC, ") + zNote + (ic.second < 0 ? ", no KE cut" : ", ZDC KE > 80%"));
                     struct DiffPlot {std::string name, label; double lim; int nBins;};
                     const DiffPlot dps[2] = {{"thetaBlockDiff", "recon block theta - true CE theta (degrees)", 1.0, 80}, {"phiBlockDiff", "recon block phi - true CE phi (degrees)", 180.0, 72}};
@@ -1112,7 +1112,7 @@ void Plot3D(){
                     }
                 }
                 { // 11, 12: recon minus recon block, theta and phi, CE recon protons (red) and all recon protons (blue) of the folder
-                    const std::string cutNote = (nz ? sc->label + (sc->zdcKE80 ? ", hit ZDC" : ", no ZDC requirement") + ", " + kThetaNote
+                    const std::string cutNote = (sc ? sc->label + (sc->zdcKE80 ? ", hit ZDC" : ", no ZDC requirement") + ", " + kThetaNote : noTheta ? std::string("no cut, no ZDC requirement, ") + zNote
                                                     : std::string("hit ZDC, ") + zNote + (ic.second < 0 ? ", no KE cut" : ", ZDC KE > 80%"));
                     struct ReDiffPlot {std::string name, label, expr, ok; double lim; int nBins;};
                     const ReDiffPlot rps[2] = {
