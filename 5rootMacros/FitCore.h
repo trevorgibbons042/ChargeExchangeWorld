@@ -23,6 +23,8 @@
 #include <string>
 #include <vector>
 #include <thread>
+#include <functional>
+#include <numeric>
 #include <cstdlib>
 #include <sys/stat.h>
 #include <TStyle.h>
@@ -47,14 +49,21 @@ inline double BeamSetting(const char* name, double fallback){
         const auto it = s.find(name);
         if (it != s.end() && it->second > 0) return it->second;
     } catch (const std::exception&) {}
+    if (std::string(name) == "BeamMomentum") std::fprintf(stderr, "Warning: no BeamMomentum in settings.csv, using the 25 GeV/c beam of the first runs\n");
     return fallback;
 }
 static const double kBeamMomentum = BeamSetting("BeamMomentum", 25000.0); // MeV/c
 static const double kBeamKE = BeamSetting("BeamKE", std::sqrt(25000.0 * 25000.0 + kNeutronMass * kNeutronMass) - kNeutronMass); // MeV
 static const double kBeamMomentumSD = BeamSetting("BeamMomentumSD", 0.0); // MeV/c, the spread of the beam momentum (/randGun/EnergySD), 0 without one
 
+// Axis limits that follow the beam; the fixed values of the first runs were made for the 25 GeV/c beam. KeAxisMax: 1.2 x the beam KE rounded up to 5 GeV (30000 MeV at 25 GeV/c).
+// Theta at a given t goes as 1 / p, so the theta axes and theta windows scale by ThetaScale (2.3 deg at 25 GeV/c). t itself does not scale with p: the t axes stay fixed.
+inline double KeAxisMax(){return std::ceil(1.2 * kBeamKE / 5000.0 - 1e-9) * 5000.0;} // MeV
+inline double ThetaScale(){return 25000.0 / kBeamMomentum;}
+inline double ThetaAxisMax(){return 2.3 * ThetaScale();} // deg
+
 // The beam spread as relative errors, the same for every event. t = (p sin(theta))^2 gives sigma_t / t = 2 sigma_p / p. A_P is -kAPA (1 - exp(-kAPk p)) p sin(theta) (APFromT), so
-// sigma_A / |A| = sigma_p (1 / p + kAPk e^(-kAPk p) / (1 - e^(-kAPk p))), the theta cancels. P is the fit amplitude over A, so P carries the same fraction as A (PFit, AddBeamErrToP).
+// sigma_A / |A| = sigma_p (1 / p + kAPk e^(-kAPk p) / (1 - e^(-kAPk p))), the theta cancels. P is the fit amplitude over A, so P carries the same fraction as A (PFit, AddAErrToP).
 // pBeam, sdP in MeV/c; kAPk is per GeV in the model.
 static const double kAPA = 0.7079, kAPk = 0.3860;
 inline double BeamTFrac(double pBeam, double sdP){return pBeam > 0 ? 2 * sdP / pBeam : 0;}
@@ -105,6 +114,23 @@ inline std::map<std::string, double> ReadSettings(const std::string& path = "set
     if (settings.empty()) throw std::runtime_error(path + " has no settings");
     if (haveStat) memo[path] = {stamp, settings};
     return settings;
+}
+
+// The tracker hit cuts (5_nHits, 6_megaCut, 7_megaCut2, 9_megaCut3) keep the even counts 2, 4, ... 2 * nBlocks (1 block: 2; 3 blocks: 2, 4, 6; 7 blocks: 2 to 14), one pair of hits per block.
+// MaxTrackerHits reads settings.csv, so call it once outside an event loop and pass the value to EvenHits.
+inline int MaxTrackerHits(){return 2 * (int)std::lround(ReadSettings().at("nBlocks"));}
+inline bool EvenHits(int n, int maxHits){return n >= 2 && n <= maxHits && n % 2 == 0;}
+// the Draw string of the same cut on expression e, e.g. (e == 2 || e == 4 || e == 6)
+inline std::string EvenHitsDraw(const std::string& e){
+    std::string s = "(";
+    for (int n = 2; n <= MaxTrackerHits(); n += 2) s += (n > 2 ? " || " : "") + e + " == " + std::to_string(n);
+    return s + ")";
+}
+// the counts for a title, "2, 4, 6"
+inline std::string EvenHitsText(){
+    std::string s;
+    for (int n = 2; n <= MaxTrackerHits(); n += 2) s += (n > 2 ? ", " : "") + std::to_string(n);
+    return s;
 }
 
 // Threads for ROOT::EnableImplicitMT: env ANA_NTHREADS, else the hardware thread count (plot.sh splits the cores between its lanes).
@@ -332,17 +358,40 @@ inline void AddFitEquation(TH1* h, const std::vector<std::string>& lines){
 // (1 + P A cos phi) / N(P), N(P) = (hi - lo) + P A (sin hi - sin lo) (angles in rad), A the model A of the sample (fixed, aFix) or of the proton itself (aEach). P is found with Newton's method,
 // limited to -1 to 1 (a polarization), and its error is 1 / sqrt(-d2lnL/dP2) at that P. The fit that replaced the chi2 fit of a 50 bin histogram, which the 45 degree grid of the recon block phi
 // (spikes) pushed to the limit of P.
-// err is the error on P that every caller quotes: the likelihood error (errFit) and the error from the beam spread (errA = |P| * kBeamAFrac, the A_P error, see BeamAFrac) in quadrature.
-// Without a beam spread err == errFit.
+// err is the error on P that every caller quotes: the likelihood error (errFit) and the error from A (errA = |P| * the relative error of A, see AMean) in quadrature.
+// A fixed to the mean of a sample has the error of that mean (the spread of A over the theta distribution of the sample, std(A) / sqrt(N)) and the beam spread (kBeamAFrac, see BeamAFrac); the A of
+// each proton (aEach) has the beam spread only.
 struct PFit {double p = 0, err = 0, errFit = 0, errA = 0; bool ok = false;};
-inline void AddBeamErrToP(PFit& r){
+inline void AddAErrToP(PFit& r, double aRelErr){
     r.errFit = r.err;
-    r.errA = std::fabs(r.p) * kBeamAFrac;
+    r.errA = std::fabs(r.p) * aRelErr;
     r.err = std::sqrt(r.errFit * r.errFit + r.errA * r.errA);
 }
+
+// The mean A of a sample with its error: A = sum / n over the protons, StatErr = std(A) / sqrt(n) (the error of the mean over the theta distribution of the sample), and Err adds the beam
+// spread (kBeamAFrac) in quadrature, relative to the mean: this is the "+-" of the fixed A of a fit, and RelErr is what the P of that fit carries (AddAErrToP).
+// Add per proton, or add the sums of several parts (+=): n, sum and sum^2 add over slices.
+struct AMean {
+    double n = 0, sum = 0, sum2 = 0;
+    void Add(double a){n++; sum += a; sum2 += a * a;}
+    AMean& operator+=(const AMean& o){n += o.n; sum += o.sum; sum2 += o.sum2; return *this;}
+    double Mean() const {return n > 0 ? sum / n : 0.0;}
+    double StatErr() const {
+        if (n < 2) return 0.0;
+        const double m = Mean(), var = std::max(0.0, (sum2 / n - m * m) * n / (n - 1));
+        return std::sqrt(var / n);
+    }
+    double RelErr() const {
+        const double m = std::fabs(Mean()), s = m > 0 ? StatErr() / m : 0.0;
+        return std::sqrt(s * s + kBeamAFrac * kBeamAFrac);
+    }
+    double Err() const {return std::fabs(Mean()) * RelErr();}
+};
+inline AMean AMeanOf(const std::vector<double>& v){AMean a; for (double x : v) a.Add(x); return a;}
 // cosPhi: cos(phi) of every proton (a: its A, or null for aFix). parallel: the sums over the protons run on all threads (not when the caller is already one of the threads).
-inline PFit UnbinnedPFromCos(const double* cosPhi, Long64_t n, const double* a, double aFix, double loDeg, double hiDeg, bool parallel = true){
+inline PFit UnbinnedPFromCos(const double* cosPhi, Long64_t n, const double* a, const AMean& aMean, double loDeg, double hiDeg, bool parallel = true){
     PFit r;
+    const double aFix = aMean.Mean();
     if (n < 10 || (!a && std::fabs(aFix) < 1e-12)) return r;
     const double lo = loDeg * TMath::Pi() / 180, hi = hiDeg * TMath::Pi() / 180, span = hi - lo, s = std::sin(hi) - std::sin(lo);
     struct Sums {double d1 = 0, d2 = 0;};
@@ -372,22 +421,25 @@ inline PFit UnbinnedPFromCos(const double* cosPhi, Long64_t n, const double* a, 
     }
     const Sums t = sums(p);
     r.p = p; r.err = t.d2 < 0 ? 1 / std::sqrt(-t.d2) : 0; r.ok = true;
-    AddBeamErrToP(r);
+    AddAErrToP(r, a ? kBeamAFrac : aMean.RelErr()); // the A of each proton: the beam spread only
     return r;
 }
-inline PFit UnbinnedP(const std::vector<double>& phiDeg, double aFix, double loDeg = 0, double hiDeg = 360, const std::vector<double>* aEach = nullptr, bool parallel = true){
+// aMean: the A fixed for every proton (its error goes into P), or, with aEach, the A of each proton (aMean is then not used: pass AMean())
+inline PFit UnbinnedP(const std::vector<double>& phiDeg, const AMean& aMean, double loDeg = 0, double hiDeg = 360, const std::vector<double>* aEach = nullptr, bool parallel = true){
     std::vector<double> cs(phiDeg.size());
     for (size_t i = 0; i < cs.size(); i++) cs[i] = std::cos(phiDeg[i] * TMath::Pi() / 180);
-    return UnbinnedPFromCos(cs.data(), (Long64_t)cs.size(), aEach ? aEach->data() : nullptr, aFix, loDeg, hiDeg, parallel);
+    return UnbinnedPFromCos(cs.data(), (Long64_t)cs.size(), aEach ? aEach->data() : nullptr, aMean, loDeg, hiDeg, parallel);
 }
 
 // The curve N0 (1 + P A cos phi) of the unbinned P in the histogram h (50 bins over 0 to 360, N0 = entries / bins), where the stats box and WritePlotNumbers (fit_values.csv) look for a fit.
 // Without chi2: chi2 and ndf stay 0. draw: the curve is drawn with the histogram; otherwise it only sits in the function list, like a fit with option "0".
-inline TF1* AddUnbinnedFit(TH1* h, const char* name, const PFit& r, double aFix, bool draw){
+// A is the fixed A with its error (the stats box shows A +- aErr instead of +- 0).
+inline TF1* AddUnbinnedFit(TH1* h, const char* name, const PFit& r, double aFix, double aErr, bool draw){
     TF1* f = new TF1(name, "[0] * (1 + [1] * [2] * cos(x * TMath::Pi() / 180))", 0, 360);
     f->SetParNames("N0", "P", "A");
     f->SetParameters(h->GetEntries() / h->GetNbinsX(), r.p, aFix);
     f->SetParError(1, r.err);
+    f->SetParError(2, aErr);
     f->SetNDF(0); f->SetChisquare(0);
     if (!draw) f->SetBit(TF1::kNotDraw);
     h->GetListOfFunctions()->Add(f);
@@ -403,8 +455,9 @@ inline void AddCosMoments(double* m, double phiDeg){
     double pw = 1;
     for (int k = 0; k < kPhiMoments; k++){pw *= c; m[k] += pw;}
 }
-inline PFit UnbinnedPFromMoments(const double* m, double n, double aFix, double loDeg = 0, double hiDeg = 360){
+inline PFit UnbinnedPFromMoments(const double* m, double n, const AMean& aMean, double loDeg = 0, double hiDeg = 360){
     PFit r;
+    const double aFix = aMean.Mean();
     if (n < 10 || std::fabs(aFix) < 1e-12) return r;
     const double lo = loDeg * TMath::Pi() / 180, hi = hiDeg * TMath::Pi() / 180, span = hi - lo, as = aFix * (std::sin(hi) - std::sin(lo));
     const auto derivs = [&](double p, double& d1, double& d2){
@@ -430,7 +483,7 @@ inline PFit UnbinnedPFromMoments(const double* m, double n, double aFix, double 
     }
     derivs(p, d1, d2);
     r.p = p; r.err = d2 < 0 ? 1 / std::sqrt(-d2) : 0; r.ok = true;
-    AddBeamErrToP(r);
+    AddAErrToP(r, aMean.RelErr());
     return r;
 }
 
@@ -453,26 +506,203 @@ inline std::string BlockBins(int nCols, double targetMm, double halfRangeMm){
     return Form("%d,%.6f,%.6f", n, -lo, lo);
 }
 
-// Block positions (fDx) are discrete cell centers, so h needs one bin per block (bin width = block pitch). A plain
-// point-wise gaus fit on such a histogram is meaningless: the "I" option fits the gaussian integrated over each
-// block's width, seeded from the histogram mean and RMS. No windowed refit, since a block cannot be split.
-inline void FitBlocks(TH1* h){
-    if (h->GetEntries() < 3) return;
-    double bw = h->GetBinWidth(1);
-    TF1 f("fBlocks", "gaus", h->GetXaxis()->GetXmin(), h->GetXaxis()->GetXmax());
-    f.SetParameters(h->GetMaximum(), h->GetMean(), std::max(h->GetRMS(), 0.5 * bw));
-    h->Fit(&f, "QLI");
-    if (h->GetFunction("fBlocks")) AddFitEquation(h, {kGausEq, "integrated over each block width"});
+// ---- Unbinned fits of a gaussian (the position, energy and residual plots) ----
+// The raw values x of the plot enter the likelihood one by one, no bins. In window mode (cell == 0) the density of a value in [lo, hi] is
+//   (1 - fb) [ (1 - f2) G(x; mu, s) + f2 G(x; mu2, s2) ] + fb / (hi - lo),
+// each G a gaussian normalised over the window (erf), the second gaussian (nGaus 2) and the flat part (flat) optional. In cell mode (cell > 0, the values sit on a grid of that pitch,
+// the ZDC blocks) the probability of a value is the gaussian probability of its cell, normalised over [lo, hi].
+// Parameters, in this order: mu, s, [mu2, s2, f2 if nGaus is 2], [fb if flat]. The minimiser is a plain Nelder-Mead (no Minuit2: it is not in every ROOT build) and the errors come from the
+// inverse of the finite-difference Hessian of -ln L at the minimum, like the P fit's 1 / sqrt(-d2lnL/dP2).
+constexpr int kFitNone = 0, kFitCore = 1, kFitBlocks = 2; // the gaussian fit a plot gets (Plot3D.cpp drawPlot): none, FitCore (window, background, second gaussian), FitBlocks (block cells)
+inline double GausCdf(double z){return 0.5 * std::erfc(-z / 1.4142135623730951);}
+
+struct UGaussModel {
+    double lo = 0, hi = 0, cell = 0; int nGaus = 1; bool flat = false;
+    std::vector<double> pLo, pHi; // bounds of the parameters
+};
+inline double UGaussNll(const std::vector<double>& x, const UGaussModel& m, const std::vector<double>& p){
+    for (size_t k = 0; k < p.size(); k++) if (!(p[k] >= m.pLo[k] && p[k] <= m.pHi[k])) return 1e300;
+    const double mu = p[0], s = p[1];
+    double mu2 = 0, s2 = 1, f2 = 0, fb = 0;
+    size_t ix = 2;
+    if (m.nGaus == 2){mu2 = p[2]; s2 = p[3]; f2 = p[4]; ix = 5;}
+    if (m.flat) fb = p[ix];
+    const double z1 = GausCdf((m.hi - mu) / s) - GausCdf((m.lo - mu) / s);
+    const double z2 = m.nGaus == 2 ? GausCdf((m.hi - mu2) / s2) - GausCdf((m.lo - mu2) / s2) : 1.0;
+    if (!(z1 > 1e-12) || !(z2 > 1e-12)) return 1e300;
+    const double inv = 1.0 / std::sqrt(2.0 * TMath::Pi()), flatDens = fb / (m.hi - m.lo);
+    double nll = 0;
+    for (double v : x){
+        double pdf;
+        if (m.cell > 0) pdf = (GausCdf((v + 0.5 * m.cell - mu) / s) - GausCdf((v - 0.5 * m.cell - mu) / s)) / z1;
+        else {
+            const double a = (v - mu) / s;
+            pdf = inv * std::exp(-0.5 * a * a) / (s * z1);
+            if (m.nGaus == 2){const double b = (v - mu2) / s2; pdf = (1 - f2) * pdf + f2 * inv * std::exp(-0.5 * b * b) / (s2 * z2);}
+            pdf = (1 - fb) * pdf + flatDens;
+        }
+        nll -= std::log(std::max(pdf, 1e-300));
+    }
+    return nll;
 }
 
-inline void FitCore(TH1* h){
+inline std::vector<double> NelderMead(const std::function<double(const std::vector<double>&)>& f, const std::vector<double>& x0, const std::vector<double>& step){
+    const size_t n = x0.size();
+    std::vector<double> best = x0;
+    for (int restart = 0; restart < 3; restart++){ // a restart from the result gets out of a stalled simplex
+        std::vector<std::vector<double>> s(n + 1, best);
+        for (size_t i = 0; i < n; i++) s[i + 1][i] += step[i] * (restart ? 0.3 : 1.0);
+        std::vector<double> fv(n + 1);
+        for (size_t i = 0; i <= n; i++) fv[i] = f(s[i]);
+        for (int it = 0; it < 3000; it++){
+            std::vector<size_t> idx(n + 1);
+            std::iota(idx.begin(), idx.end(), 0);
+            std::sort(idx.begin(), idx.end(), [&](size_t a, size_t b){return fv[a] < fv[b];});
+            std::vector<std::vector<double>> s2(n + 1); std::vector<double> f2(n + 1);
+            for (size_t i = 0; i <= n; i++){s2[i] = s[idx[i]]; f2[i] = fv[idx[i]];}
+            s = s2; fv = f2;
+            double spread = 0;
+            for (size_t i = 1; i <= n; i++) for (size_t k = 0; k < n; k++) spread = std::max(spread, std::fabs(s[i][k] - s[0][k]) / (std::fabs(s[0][k]) + step[k]));
+            if (spread < 1e-8 && std::fabs(fv[n] - fv[0]) < 1e-9 * (std::fabs(fv[0]) + 1.0)) break;
+            std::vector<double> c(n, 0.0);
+            for (size_t i = 0; i < n; i++) for (size_t k = 0; k < n; k++) c[k] += s[i][k] / n;
+            auto along = [&](double t){std::vector<double> q(n); for (size_t k = 0; k < n; k++) q[k] = c[k] + t * (s[n][k] - c[k]); return q;}; // t = -1 reflect, -2 expand, 0.5 contract inside, -0.5 contract outside
+            const std::vector<double> xr = along(-1.0); const double fr = f(xr);
+            if (fr < fv[0]){
+                const std::vector<double> xe = along(-2.0); const double fe = f(xe);
+                if (fe < fr){s[n] = xe; fv[n] = fe;} else {s[n] = xr; fv[n] = fr;}
+            } else if (fr < fv[n - 1]){
+                s[n] = xr; fv[n] = fr;
+            } else {
+                const std::vector<double> xc = along(fr < fv[n] ? -0.5 : 0.5); const double fc = f(xc);
+                if (fc < std::min(fr, fv[n])){s[n] = xc; fv[n] = fc;}
+                else for (size_t i = 1; i <= n; i++){for (size_t k = 0; k < n; k++) s[i][k] = s[0][k] + 0.5 * (s[i][k] - s[0][k]); fv[i] = f(s[i]);}
+            }
+        }
+        size_t b = 0;
+        for (size_t i = 1; i <= n; i++) if (fv[i] < fv[b]) b = i;
+        best = s[b];
+    }
+    return best;
+}
+
+// Errors of the parameters p at the minimum of f (-ln L): sqrt of the diagonal of the inverse Hessian, from central differences with steps h. 0 where the Hessian cannot be inverted
+// (a parameter at its bound).
+inline std::vector<double> NllErrors(const std::function<double(const std::vector<double>&)>& f, const std::vector<double>& p, const std::vector<double>& h){
+    const size_t n = p.size();
+    std::vector<double> err(n, 0.0);
+    std::vector<std::vector<double>> H(n, std::vector<double>(2 * n, 0.0)); // [Hessian | identity], inverted in place
+    const double f0 = f(p);
+    auto at = [&](size_t i, double di, size_t j, double dj){std::vector<double> q = p; q[i] += di; q[j] += dj; return f(q);};
+    for (size_t i = 0; i < n; i++){
+        for (size_t j = 0; j <= i; j++){
+            double v;
+            if (i == j) v = (at(i, h[i], i, 0) - 2 * f0 + at(i, -h[i], i, 0)) / (h[i] * h[i]);
+            else v = (at(i, h[i], j, h[j]) - at(i, h[i], j, -h[j]) - at(i, -h[i], j, h[j]) + at(i, -h[i], j, -h[j])) / (4 * h[i] * h[j]);
+            if (!(std::fabs(v) < 1e290)) return err;
+            H[i][j] = H[j][i] = v;
+        }
+        H[i][n + i] = 1.0;
+    }
+    for (size_t c = 0; c < n; c++){ // Gauss-Jordan with row pivoting
+        size_t piv = c;
+        for (size_t r = c + 1; r < n; r++) if (std::fabs(H[r][c]) > std::fabs(H[piv][c])) piv = r;
+        if (std::fabs(H[piv][c]) < 1e-300) return err;
+        std::swap(H[c], H[piv]);
+        const double d = H[c][c];
+        for (size_t k = 0; k < 2 * n; k++) H[c][k] /= d;
+        for (size_t r = 0; r < n; r++) if (r != c){const double m = H[r][c]; for (size_t k = 0; k < 2 * n; k++) H[r][k] -= m * H[c][k];}
+    }
+    for (size_t i = 0; i < n; i++) err[i] = H[i][n + i] > 0 ? std::sqrt(H[i][n + i]) : 0.0;
+    return err;
+}
+
+struct UGaussFit {bool ok = false; std::vector<double> p, err; double n = 0;};
+inline UGaussFit FitUGaus(const std::vector<double>& x, const UGaussModel& m, const std::vector<double>& p0, const std::vector<double>& step){
+    UGaussFit r;
+    r.n = (double)x.size();
+    const auto nll = [&](const std::vector<double>& p){return UGaussNll(x, m, p);};
+    r.p = NelderMead(nll, p0, step);
+    if (!(nll(r.p) < 1e299)) return r;
+    std::vector<double> h(step.size());
+    for (size_t k = 0; k < h.size(); k++) h[k] = step[k] / 20;
+    r.err = NllErrors(nll, r.p, h);
+    r.ok = true;
+    for (double v : r.p) if (!std::isfinite(v)) r.ok = false;
+    return r;
+}
+
+// The fitted curve as a TF1 of the names of the old binned fits (Constant, Mean, Sigma, [Constant2, Mean2, Sigma2], [Background]) in the function list of h, so the stats box, the fit equation box
+// and fit_values.csv read it like before. Height in counts per bin of h (it overlays the histogram), chi2 and NDF 0 (unbinned). Constant = mass * binWidth / (sigma sqrt(2 pi) Z).
+inline TF1* AddGausCurve(TH1* h, const char* name, const UGaussFit& r, const UGaussModel& m){
+    const double bw = h->GetBinWidth(1), nEff = r.n, root2pi = std::sqrt(2.0 * TMath::Pi());
+    const double fb = m.flat ? r.p[m.nGaus == 2 ? 5 : 2] : 0.0, fbErr = m.flat ? r.err[m.nGaus == 2 ? 5 : 2] : 0.0;
+    const double f2 = m.nGaus == 2 ? r.p[4] : 0.0;
+    const char* form = m.nGaus == 2 ? "gaus(0) + gaus(3) + pol0(6)" : m.flat ? "gaus(0) + pol0(3)" : "gaus";
+    TF1* f = new TF1(name, form, m.lo, m.hi);
+    auto gauss = [&](int slot, double mu, double s, double muErr, double sErr, double mass){
+        const double z = GausCdf((m.hi - mu) / s) - GausCdf((m.lo - mu) / s);
+        const double c = mass * nEff * bw / (s * root2pi * z);
+        f->SetParameter(slot, c); f->SetParError(slot, c / std::sqrt(std::max(nEff, 1.0)));
+        f->SetParameter(slot + 1, mu); f->SetParError(slot + 1, muErr);
+        f->SetParameter(slot + 2, s); f->SetParError(slot + 2, sErr);
+    };
+    gauss(0, r.p[0], r.p[1], r.err[0], r.err[1], (1 - fb) * (1 - f2));
+    if (m.nGaus == 2){
+        gauss(3, r.p[2], r.p[3], r.err[2], r.err[3], (1 - fb) * f2);
+        f->SetParNames("Constant", "Mean", "Sigma", "Constant2", "Mean2", "Sigma2", "Background");
+    } else if (m.flat) f->SetParNames("Constant", "Mean", "Sigma", "Background");
+    else f->SetParNames("Constant", "Mean", "Sigma");
+    if (m.flat){
+        const int slot = m.nGaus == 2 ? 6 : 3;
+        f->SetParameter(slot, nEff * bw * fb / (m.hi - m.lo)); f->SetParError(slot, nEff * bw * fbErr / (m.hi - m.lo));
+    }
+    f->SetNDF(0); f->SetChisquare(0);
+    h->GetListOfFunctions()->Add(f);
+    return f;
+}
+
+// Pearson chi2 of h against the curve f per degree of freedom, bins with at least 1 expected count: only used to decide whether the core fit needs a second gaussian, never to fit.
+inline double CurveChi2PerNdf(TH1* h, TF1* f, int nPar){
+    double chi2 = 0; int nb = 0;
+    for (int b = 1; b <= h->GetNbinsX(); b++){
+        const double x = h->GetBinCenter(b);
+        if (x < f->GetXmin() || x > f->GetXmax()) continue;
+        const double e = f->Eval(x);
+        if (e < 1) continue;
+        chi2 += (h->GetBinContent(b) - e) * (h->GetBinContent(b) - e) / e; nb++;
+    }
+    return nb > nPar ? chi2 / (nb - nPar) : 0.0;
+}
+
+// Block positions (fDx) are discrete cell centers (one bin of h per block, bin width = block pitch). Unbinned fit of the gaussian to the values x, each value with the probability of
+// its cell (gaussian integrated over the block width), over the whole axis of h, seeded from the mean and RMS. No windowed refit, since a block cannot be split.
+inline void FitBlocks(TH1* h, const std::vector<double>& x){
+    const double bw = h->GetBinWidth(1), lo = h->GetXaxis()->GetXmin(), hi = h->GetXaxis()->GetXmax();
+    std::vector<double> v;
+    for (double a : x) if (a >= lo && a <= hi) v.push_back(a);
+    if (v.size() < 3) return;
+    double mean = 0, ms = 0;
+    for (double a : v) mean += a / v.size();
+    for (double a : v) ms += (a - mean) * (a - mean) / v.size();
+    const double sigma = std::max(std::sqrt(ms), 0.5 * bw);
+    UGaussModel m; m.lo = lo; m.hi = hi; m.cell = bw; m.pLo = {lo, 0.05 * bw}; m.pHi = {hi, hi - lo};
+    const UGaussFit r = FitUGaus(v, m, {mean, sigma}, {0.1 * sigma, 0.1 * sigma});
+    if (!r.ok) return;
+    AddGausCurve(h, "fBlocks", r, m);
+    AddFitEquation(h, {kGausEq, "unbinned likelihood fit, integrated over each block width"});
+}
+
+// Unbinned fit of the core of the values x of h: a gaussian on a window around the peak (mean +- 2.5 sigma, refitted until it settles), plus a flat background when the plot has one (phi
+// difference wrapped at +-180), plus a second wider gaussian when that does not describe the shoulders. h is only used for the seed and the axis.
+inline void FitCore(TH1* h, const std::vector<double>& x){
     if (h->GetEntries() < 3) return;
 
     // Seed from the peak bin and its FWHM, not the quantiles: a flat background (e.g. phi difference, wrapped at
     // +-180) inflates the IQR until the window covers the whole histogram and the fit goes broad.
     double bw = h->GetBinWidth(1);
     // The seed (peak bin, background, FWHM) is read from a lightly smoothed copy: with few entries one noisy bin
-    // looked like a one-bin-wide peak and the fit locked onto it. The fit itself still runs on h.
+    // looked like a one-bin-wide peak and the fit locked onto it.
     std::unique_ptr<TH1> hs(static_cast<TH1*>(h->Clone("fitCoreSeed")));
     hs->SetDirectory(nullptr);
     hs->Smooth(2);
@@ -494,63 +724,54 @@ inline void FitCore(TH1* h){
     while (hi < h->GetNbinsX() && hs->GetBinContent(hi + 1) > half) hi++;
     double sigma = std::max((h->GetBinCenter(hi) - h->GetBinCenter(lo) + bw) / 2.355, bw);
 
-    if (useBkg){
-        TF1 f("fCoreBkg", "gaus(0) + pol0(3)", h->GetXaxis()->GetXmin(), h->GetXaxis()->GetXmax());
-        f.SetParNames("Constant", "Mean", "Sigma", "Background");
-        for (int i = 0; i < 4; i++){
-            double halfWin = std::max(3.0 * sigma, 1.5 * bw);
-            f.SetParameters(hs->GetBinContent(pk) - bkg, mean, sigma, bkg);
-            f.SetParLimits(3, 0, hs->GetBinContent(pk));
-            h->Fit(&f, "QL", "", mean - halfWin, mean + halfWin);
-            TF1* g = h->GetFunction("fCoreBkg");
-            if (!g) return;
-            double m = g->GetParameter(1), s = std::fabs(g->GetParameter(2));
-            if (s < bw || !std::isfinite(m) || !std::isfinite(s)) return;
-            bool settled = std::fabs(m - mean) < 0.05 * sigma && std::fabs(s - sigma) < 0.05 * sigma;
-            mean = m; sigma = s;
-            if (settled) break;
+    const double axLo = h->GetXaxis()->GetXmin(), axHi = h->GetXaxis()->GetXmax();
+    const auto inRange = [&](double a, double b){std::vector<double> v; for (double t : x) if (t >= a && t <= b) v.push_back(t); return v;};
+    // the window fits: mean and sigma are refitted on mean +- halfWin until they stop moving
+    UGaussFit r; UGaussModel m; m.flat = useBkg;
+    for (int i = 0; i < 4; i++){
+        const double halfWin = useBkg ? std::max(3.0 * sigma, 1.5 * bw) : std::max(2.5 * sigma, 1.5 * bw);
+        m.lo = std::max(axLo, mean - halfWin); m.hi = std::min(axHi, mean + halfWin);
+        const std::vector<double> v = inRange(m.lo, m.hi);
+        if (v.size() < 5) return;
+        m.pLo = {m.lo, 0.05 * bw}; m.pHi = {m.hi, m.hi - m.lo};
+        std::vector<double> p0 = {mean, sigma}, step = {0.1 * sigma, 0.1 * sigma};
+        if (useBkg){
+            const double gMass = (hs->GetBinContent(pk) - bkg) * sigma * std::sqrt(2.0 * TMath::Pi()) / bw, fMass = bkg * (m.hi - m.lo) / bw;
+            p0.push_back(std::min(0.9, std::max(0.01, fMass / (gMass + fMass)))); step.push_back(0.05);
+            m.pLo.push_back(0.0); m.pHi.push_back(0.95);
         }
-        TF1* g = h->GetFunction("fCoreBkg");
-        if (!g) return;
-        // A flat background cannot take up shoulders around the core, so the window fit pushes it up to the shoulder level.
-        // When the fit is poor, refit the whole range with a second, wider gaussian for the shoulders: the flat part is then
-        // set by the far wings, and the narrow gaussian stays the core (Constant, Mean, Sigma).
-        if (g->GetNDF() > 0 && g->GetChisquare() / g->GetNDF() > 3){
-            const double c = g->GetParameter(0), m = g->GetParameter(1), s = std::fabs(g->GetParameter(2)), b0 = g->GetParameter(3);
-            const double xlo = h->GetXaxis()->GetXmin(), xhi = h->GetXaxis()->GetXmax();
-            TF1 f2("fCore2Bkg", "gaus(0) + gaus(3) + pol0(6)", xlo, xhi);
-            f2.SetParNames("Constant", "Mean", "Sigma", "Constant2", "Mean2", "Sigma2", "Background");
-            f2.SetParameters(c, m, s, 0.3 * c, m, 4 * s, 0.3 * b0);
-            f2.SetParLimits(2, bw, 2 * s);
-            f2.SetParLimits(4, m - 4 * s, m + 4 * s);
-            f2.SetParLimits(5, 1.5 * s, 0.5 * (xhi - xlo));
-            f2.SetParLimits(6, 0, b0);
-            h->Fit(&f2, "QL");
-            if (TF1* g2 = h->GetFunction("fCore2Bkg")) g = g2;
-        }
-        if (std::string(g->GetName()) == "fCore2Bkg")
-            AddFitEquation(h, {kGausEq, "+ Constant2 #times exp(-(x - Mean2)^{2} / 2 Sigma2^{2})", "+ Background"});
-        else
-            AddFitEquation(h, {kGausEq, "+ Background"});
+        r = FitUGaus(v, m, p0, step);
+        if (!r.ok) return;
+        const double mm = r.p[0], s = std::fabs(r.p[1]);
+        if (s < bw || !std::isfinite(mm) || !std::isfinite(s)) return;
+        const bool settled = std::fabs(mm - mean) < 0.05 * sigma && std::fabs(s - sigma) < 0.05 * sigma;
+        mean = mm; sigma = s;
+        if (settled) break;
+    }
+    TF1* g = AddGausCurve(h, useBkg ? "fCoreBkg" : "fGaus", r, m);
+    if (!useBkg){
+        AddFitEquation(h, {kGausEq, "unbinned likelihood fit"});
         DrawFitTails(h, g);
         return;
     }
-
-    for (int i = 0; i < 4; i++){
-        double halfWin = std::max(2.5 * sigma, 1.5 * bw);
-        h->Fit("gaus", "QL", "", mean - halfWin, mean + halfWin);
-        TF1* f = h->GetFunction("gaus");
-        if (!f) return;
-        double m = f->GetParameter(1), s = std::fabs(f->GetParameter(2));
-        if (s < bw || !std::isfinite(m) || !std::isfinite(s)) return;
-        bool settled = std::fabs(m - mean) < 0.05 * sigma && std::fabs(s - sigma) < 0.05 * sigma;
-        mean = m; sigma = s;
-        if (settled) break;
+    // A flat background cannot take up shoulders around the core, so the window fit pushes it up to the shoulder level.
+    // When the fit is poor, refit the whole range with a second, wider gaussian for the shoulders: the flat part is then
+    // set by the far wings, and the narrow gaussian stays the core (Constant, Mean, Sigma).
+    if (CurveChi2PerNdf(h, g, 4) > 3){
+        const double mm = r.p[0], s = std::fabs(r.p[1]), fb0 = r.p[2], range = axHi - axLo;
+        UGaussModel m2; m2.lo = axLo; m2.hi = axHi; m2.nGaus = 2; m2.flat = true;
+        m2.pLo = {axLo, bw, mm - 4 * s, 1.5 * s, 0.0, 0.0}; m2.pHi = {axHi, 2 * s, mm + 4 * s, 0.5 * range, 1.0, 0.95};
+        const UGaussFit r2 = FitUGaus(inRange(axLo, axHi), m2, {mm, s, mm, 4 * s, 0.3, 0.3 * fb0}, {0.1 * s, 0.1 * s, s, 0.3 * s, 0.05, 0.02});
+        if (r2.ok){
+            h->GetListOfFunctions()->Remove(g); delete g;
+            g = AddGausCurve(h, "fCore2Bkg", r2, m2);
+        }
     }
-    if (TF1* f = h->GetFunction("gaus")){
-        AddFitEquation(h, {kGausEq});
-        DrawFitTails(h, f);
-    }
+    if (std::string(g->GetName()) == "fCore2Bkg")
+        AddFitEquation(h, {kGausEq, "+ Constant2 #times exp(-(x - Mean2)^{2} / 2 Sigma2^{2})", "+ Background", "unbinned likelihood fit"});
+    else
+        AddFitEquation(h, {kGausEq, "+ Background", "unbinned likelihood fit"});
+    DrawFitTails(h, g);
 }
 
 // The first line of a stats box is the histogram's name: "Fit results" when h has a fit function, else what (or "Statistics").

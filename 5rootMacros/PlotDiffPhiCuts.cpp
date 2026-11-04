@@ -212,7 +212,8 @@ void PlotDiffPhiCuts(double absLo = 50, double absHi = 180, std::string energy =
 
     // KE: every recon proton and the CE ones in the phi diff window (finalKE of the Angles tree)
     {
-        TH1D hKERecon("hKERecon", "", 100, 0, 30000), hKEProt("hKEProt", "", 100, 0, 30000), hKECE("hKECE", "", 100, 0, 30000);
+        const double keMax = KeAxisMax(); // 30000 MeV at 25 GeV/c, FitCore.h
+        TH1D hKERecon("hKERecon", "", 100, 0, keMax), hKEProt("hKEProt", "", 100, 0, keMax), hKECE("hKECE", "", 100, 0, keMax);
         fill3(angCols[2], hKERecon, hKEProt, hKECE); // no ZDC hit: no KE, not filled
         drawOverlay(hKERecon, hKEProt, hKECE, nullptr, "Kinetic Energy at ZDC (MeV)", Form("all recon particles, all recon protons and CE recon protons, block phi diff -%g to -%g and %g to %g deg", absHi, absLo, absLo, absHi), "5_ke.pdf", {});
     }
@@ -240,8 +241,8 @@ void PlotDiffPhiCuts(double absLo = 50, double absHi = 180, std::string energy =
             {"residual, true position (mm)", "9_resRms.pdf", 0, 5, 100, {lineT, "residual = #sqrt{SS_{res} / n}"}},
             {"reconstructed particles in the event", "12_nParticles.pdf", -0.5, 19.5, 20, {}},
             {"block residual, hits after first 2 / first 2 hits (>2 hits)", "14_resHalf.pdf", 0, 10, 100, {}},
-            {"recon theta (degrees)", "15_theta.pdf", 0, 2.3, 100, {}},
-            {"recon block theta (degrees)", "16_thetaBlock.pdf", 0, 2.3, 100, {}},
+            {"recon theta (degrees)", "15_theta.pdf", 0, ThetaAxisMax(), 100, {}}, // 2.3 deg at 25 GeV/c, scaled with 1 / p (FitCore.h)
+            {"recon block theta (degrees)", "16_thetaBlock.pdf", 0, ThetaAxisMax(), 100, {}},
             {"tracker hits", "17_nHits.pdf", -0.5, 10.5, 11, {}}};
         std::vector<const double*> exCols(exVars.size());
         for (size_t c = 0; c < exVars.size(); c++) exCols[c] = cEx.V(c);
