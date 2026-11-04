@@ -19,14 +19,9 @@ source ./submit_lib.sh
 mkdir -p "../build/root/$RUN/cuts"
 rsync -a --exclude __pycache__ ../5rootMacros/ "../build/root/$RUN/" || exit 1 # the jobs run the run folder's copy of the macros
 
-# the analysis jobs take a whole node, as in run.sh; ConvertAngles.cpp runs one block of rows per thread too
-cutev=$(submit CutEvents cutevents "" 128)
-if [ "$MODE" = cutdone ]; then
-    angles=$(submit Convert convert "$cutev" 128)
-else
-    angles=$(submit Recon recon "$cutev" 128)
-fi
-calc=$(submit Calc calc "$angles" 128)
-count=$(submit CountCE countce "$cutev" 128)
-# CutPlots and every plot job after CalcAPandT and CountCE
-bash SubmitPlots.sh "$RUN" "$calc:$count"
+# CutEvents, Recon (or Convert), Calc, CountCE and CutPlots run as one job on a whole node, one after the other (Plot.pbs)
+if [ "$MODE" = cutdone ]; then step=analysisconvert; else step=analysis; fi
+ana=$(submit Analysis $step "" 128)
+# the plot jobs after it start at Cuts (CutPlots is in the analysis job); SubmitPlots.sh only clears plots/ when it starts at CutPlots, so do it here
+rm -rf "../build/root/$RUN/plots"; rm -f ../build/root/$RUN/Plot3D_part*.log
+bash SubmitPlots.sh "$RUN" "$ana" Cuts
