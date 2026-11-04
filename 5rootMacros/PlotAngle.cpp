@@ -125,17 +125,18 @@ static void DrawGroup(TCanvas* canvas, const std::string& groupDir, const std::v
                 const std::vector<double>& x = c[specCol[i].back()];
                 const std::vector<double>* y = specCol[i].size() > 1 ? &c[specCol[i].front()] : nullptr; // "y:x": y is the first expression
                 Long64_t nPass = 0; // rows that pass the theta cut
+                std::vector<double> xFit; // the values the unbinned fit (FitCore) takes: the rows that pass, no bins
                 for (size_t r = 0; r < x.size(); r++) {
                     if (!th.op.empty() && !(theta[r] > th.min)) continue;
                     nPass++;
                     if (y) ((TH2*)h)->Fill(x[r], (*y)[r]);
-                    else h->Fill(x[r]);
+                    else {h->Fill(x[r]); if (s.fit) xFit.push_back(x[r]);}
                 }
                 const bool is1D = h->GetDimension() == 1;
                 if (is1D) h->SetLineColor(kRed); else RedPalette(); // CE protons are red
                 h->Draw(s.opt.c_str()); // the histogram is the pad's current object, as after TTree::Draw
                 h->SetTitle(PlotTitle(s.file, title + ";" + s.axes).c_str());
-                if (s.fit && h->GetEntries() >= 10) FitCore(h);
+                if (s.fit && h->GetEntries() >= 10) FitCore(h, xFit);
                 if (is1D) for (TObject* o : *h->GetListOfFunctions()) if (TF1* f = dynamic_cast<TF1*>(o)) f->SetLineColor(kBlack); // a red histogram would hide a red fit
                 if (h->GetDimension() == 1 && s.expr.find("phi") != std::string::npos){h->SetMinimum(0); h->SetMaximum(1.1 * h->GetMaximum());} // every 1D phi plot, 0 to max
                 if (h->GetDimension() == 1 && h->GetXaxis()->GetXmin() == -180 && h->GetXaxis()->GetXmax() == 180) h->GetXaxis()->SetNdivisions(508, kFALSE); // phi differences, -180 to 180 every 45 deg
@@ -225,11 +226,11 @@ static void WriteFomCsv(const std::string& groupDir, const std::vector<KeCut>& k
 // phi histogram (50 bins) of t with the polarization fit N(phi) = N0 (1 + P <A> cos(phi)): N0 = entries / bins and <A> (mean sim analyzing power apCE of the CE protons) are fixed, only P is fitted
 // aExpr (the per-event analyzing power, e.g. "LastAP", all negative) switches to the A-weighted version: phi is filled with weight -A, so a bin holds sum(-A) (1 + P A_eff cos(phi)) with A_eff = sum(A^2) / sum(A)
 // (N0 = sum(-A) / bins and A_eff fixed), and the line P = 2 sum(A cos(phi)) / sum(A^2) +- sqrt(2 / sum(A^2)) is printed.
-static void PhiCosFit(TCanvas* canvas, TTree* t, const std::string& phiBranch, const std::string& cut, const std::string& name, const std::string& title, double aMean, const std::string& path, const std::string& aExpr = "", const std::string& aLabel = "mean sim A (LastAP)"){
+static void PhiCosFit(TCanvas* canvas, TTree* t, const std::string& phiBranch, const std::string& cut, const std::string& name, const std::string& title, const AMean& aMean, const std::string& path, const std::string& aExpr = "", const std::string& aLabel = "mean sim A (LastAP)"){
     const int nBins = 50;
     const bool weighted = !aExpr.empty();
     canvas->Clear(); canvas->SetRightMargin(0.25); canvas->SetTopMargin(weighted ? 0.2 : 0.17); // weighted: a third text line above the frame
-    double aFit = aMean, nFit = 0, pSum = 0, pSumErr = 0;
+    double aFit = aMean.Mean(), nFit = 0, pSum = 0, pSumErr = 0;
     TH1* h = nullptr;
     std::vector<double> phiAll, aAll; // phi (deg) and, weighted, the A of every proton: the unbinned fit below uses them, the histogram only shows them
     if (weighted){
@@ -259,8 +260,9 @@ static void PhiCosFit(TCanvas* canvas, TTree* t, const std::string& phiBranch, c
     h->SetTitle((title + ";Angle (degrees);" + (weighted ? "Weighted count (weight -A)" : "Count")).c_str());
     h->SetLineColor(kRed); // CE protons are red
     const bool block = phiBranch == "phiReD"; // the block phi fit leaves out the spike at 0 (kBlockPhiLo to kBlockPhiHi), the likelihood is normalised over that range
-    const PFit uf = UnbinnedP(phiAll, aFit, block ? kBlockPhiLo : 0, block ? kBlockPhiHi : 360, weighted ? &aAll : nullptr); // unbinned fit of every proton's phi (FitCore.h), weighted: each with its own A
-    TF1& fit = *AddUnbinnedFit(h, "fPhiCos", uf, aFit, true);
+    const PFit uf = UnbinnedP(phiAll, weighted ? AMean() : aMean, block ? kBlockPhiLo : 0, block ? kBlockPhiHi : 360, weighted ? &aAll : nullptr); // unbinned fit of every proton's phi (FitCore.h), weighted: each with its own A
+    const double aErr = weighted ? std::fabs(aFit) * kBeamAFrac : aMean.Err(); // the error of the fixed A: the beam spread (weighted) or the spread over the sample and the beam spread
+    TF1& fit = *AddUnbinnedFit(h, "fPhiCos", uf, aFit, aErr, true);
     fit.SetParameter(0, nFit / nBins);
     fit.SetLineColor(kBlack);
     h->SetMinimum(0); h->SetMaximum(1.1 * h->GetMaximum());
@@ -271,11 +273,11 @@ static void PhiCosFit(TCanvas* canvas, TTree* t, const std::string& phiBranch, c
     TLatex tx; tx.SetNDC(); tx.SetTextSize(0.028);
     if (weighted){
         tx.DrawLatex(0.13, 0.90, "Unbinned fit  N(#phi) #propto 1 + P #upoint A cos#phi,   the A of each event,   histogram weight -A per event");
-        tx.DrawLatex(0.13, 0.865, Form("A_{eff} = #SigmaA^{2} / #SigmaA = %.4f,   P = %.2f #pm %.2f", aFit, uf.p, uf.err));
+        tx.DrawLatex(0.13, 0.865, Form("A_{eff} = #SigmaA^{2} / #SigmaA = %.4f #pm %.4f,   P = %.2f #pm %.2f", aFit, aErr, uf.p, uf.err));
         tx.DrawLatex(0.13, 0.83, Form("P = 2 #SigmaA cos#phi / #SigmaA^{2} = %.2f #pm %.2f", pSum, pSumErr));
     } else {
         tx.DrawLatex(0.13, 0.90, "Unbinned fit  N(#phi) #propto 1 + P #upoint #LTA#GT cos#phi (every proton, no bins)");
-        tx.DrawLatex(0.13, 0.865, Form("#LTA#GT = %.4f (fixed, %s),   P = %.2f #pm %.2f", aMean, aLabel.c_str(), uf.p, uf.err));
+        tx.DrawLatex(0.13, 0.865, Form("#LTA#GT = %.4f #pm %.4f (fixed, %s),   P = %.2f #pm %.2f", aMean.Mean(), aMean.Err(), aLabel.c_str(), uf.p, uf.err));
     }
     canvas->Modified(); canvas->Update();
     canvas->SaveAs(path.c_str());
@@ -310,8 +312,8 @@ void PlotAngle(std::string energy = "fKEnergy"){ // energy: "fKEnergy" (true KE)
     gPad->SetLeftMargin(0.14); gPad->SetBottomMargin(0.13); // room for the rotated Y title and bottom tick labels
     gStyle->SetStatX(0.99); gStyle->SetStatW(0.19); gStyle->SetPalette(kViridis); gStyle->SetNumberContours(255); gStyle->SetNdivisions(505, "X"); // stats/fit box to the right, fewer x labels
 
-    // Same x range on every theta distribution so plots compare directly: 0.023 deg bins, 0 to 2.3 deg (theta acceptance 0.04 rad)
-    auto thetaHist = [](const std::string& name){return ">>" + name + "(100,0,2.3)";};
+    // Same x range on every theta distribution so plots compare directly: 100 bins, 0 to ThetaAxisMax deg (2.3 deg at 25 GeV/c, scaled with 1 / p, FitCore.h)
+    auto thetaHist = [](const std::string& name){return std::string(Form(">>%s(100,0,%g)", name.c_str(), ThetaAxisMax()));};
     const std::string ang = "Angle (degrees);Count";
     const std::string diff = "Angle Difference (degrees);Count";
     const std::string pct = "Percent Error (%);Count";
@@ -364,9 +366,9 @@ void PlotAngle(std::string energy = "fKEnergy"){ // energy: "fKEnergy" (true KE)
         {events4, pctErr("apReD", "apCE", "hPctAP"), "Percent Error of Recon AP vs CE", pct, true, "4_ap/6_apPct.pdf"},
         {events5, pctErr("apReD", "apCE", "hPctAPB"), "Percent Error of Recon Block AP vs CE", pct, true, "4_ap/7_apBlockPct.pdf"},
         // angle (degrees) vs AP; x is AP, y is the angle
-        {events,  "apCE:thetaCE>>hThetaAPCE(100,0,2.3,100,-1,0)",    "Reconstructed CE protons, CE theta vs AP",          thetaAP, false, "5_angle_vs_ap/1_thetaVsAP/1_thetaVsApCE.pdf", "colz"},
-        {events2, "apRe:thetaRe>>hThetaAPRe(100,0,2.3,100,-1,0)",    "Recon theta vs AP",       thetaAP, false, "5_angle_vs_ap/1_thetaVsAP/2_thetaVsApRe.pdf", "colz"},
-        {events3, "apReD:thetaReD>>hThetaAPBlock(100,0,2.3,100,-1,0)", "Recon block theta vs AP", thetaAP, false, "5_angle_vs_ap/1_thetaVsAP/3_thetaVsApBlock.pdf", "colz"},
+        {events,  Form("apCE:thetaCE>>hThetaAPCE(100,0,%g,100,-1,0)", ThetaAxisMax()),    "Reconstructed CE protons, CE theta vs AP",          thetaAP, false, "5_angle_vs_ap/1_thetaVsAP/1_thetaVsApCE.pdf", "colz"},
+        {events2, Form("apRe:thetaRe>>hThetaAPRe(100,0,%g,100,-1,0)", ThetaAxisMax()),    "Recon theta vs AP",       thetaAP, false, "5_angle_vs_ap/1_thetaVsAP/2_thetaVsApRe.pdf", "colz"},
+        {events3, Form("apReD:thetaReD>>hThetaAPBlock(100,0,%g,100,-1,0)", ThetaAxisMax()), "Recon block theta vs AP", thetaAP, false, "5_angle_vs_ap/1_thetaVsAP/3_thetaVsApBlock.pdf", "colz"},
         {events,  "apCE:phiCE>>hPhiAPCE(100,0,360,100,-1,0)",        "Reconstructed CE protons, CE phi vs AP",            phiAP, false, "5_angle_vs_ap/2_phiVsAP/1_phiVsApCE.pdf", "colz"},
         {events2, "apRe:phiRe>>hPhiAPRe(100,0,360,100,-1,0)",        "Recon phi vs AP",         phiAP, false, "5_angle_vs_ap/2_phiVsAP/2_phiVsApRe.pdf", "colz"},
         {events3, "apReD:phiReD>>hPhiAPBlock(100,0,360,100,-1,0)",   "Recon block phi vs AP",   phiAP, false, "5_angle_vs_ap/2_phiVsAP/3_phiVsApBlock.pdf", "colz"}};
@@ -376,7 +378,7 @@ void PlotAngle(std::string energy = "fKEnergy"){ // energy: "fKEnergy" (true KE)
         struct DiffSet {TTree* tree; std::string ap, name, what;};
         const std::vector<DiffSet> dsets = {{events4, "apReD", "Re", "Recon"}, {events5, "apReD", "Block", "Recon block"}};
         struct AngleAxis {std::string ce, dir, name, label, xrange;};
-        const std::vector<AngleAxis> axesSets = {{"thetaCE", "1_thetaVsAP", "theta", "Theta (degrees)", "0,2.3"}, {"phiCE", "2_phiVsAP", "phi", "Phi (degrees)", "0,360"}};
+        const std::vector<AngleAxis> axesSets = {{"thetaCE", "1_thetaVsAP", "theta", "Theta (degrees)", Form("0,%g", ThetaAxisMax())}, {"phiCE", "2_phiVsAP", "phi", "Phi (degrees)", "0,360"}};
         for (const auto& ax : axesSets) {
             // after the three 2D plots already in the folder: AP differences first (4-5), then percent errors (6-7)
             for (size_t i = 0; i < dsets.size(); i++) {
@@ -436,11 +438,11 @@ void PlotAngle(std::string energy = "fKEnergy"){ // energy: "fKEnergy" (true KE)
         gROOT->cd();
         const std::string ceCut = "";
         const auto apRaw = Columns(rawCE, {"LastAP"}, ceCut)[0];
-        double aRaw = 0; for (double a : apRaw) aRaw += a / apRaw.size();
+        const AMean aRaw = AMeanOf(apRaw);
         PhiCosFit(canvas, rawCE, "(LastPhiLab < 0 ? LastPhiLab + 2 * TMath::Pi() : LastPhiLab) * 180 / TMath::Pi()", ceCut, "hPhiCEfit", "All CE protons (every carbon-block CE), CE phi Distribution, no cuts", aRaw, phiDir + "1_phiCE_cosfit.pdf");
         // the same events at the recon angles (CE protons with a recon track), A is the mean sim A of those events
         const auto apCE = Columns(events, {"apCE"})[0];
-        double aMean = 0; for (double a : apCE) aMean += a / apCE.size();
+        const AMean aMean = AMeanOf(apCE);
         PhiCosFit(canvas, events, "phiRe", "", "hPhiRefit", "Reconstructed CE protons, recon phi Distribution, no cuts", aMean, phiDir + "2_phiRe_cosfit.pdf");
         // the same fit at the block position recon phi (phiReD), A is the mean sim A (apCE) of the same events (the trees are filled in one loop, so aMean is the same)
         PhiCosFit(canvas, events3, "phiReD", Form("phiReD >= %g && phiReD <= %g", kBlockPhiLo, kBlockPhiHi), "hPhiReDfit", std::string("Reconstructed CE protons, recon block phi Distribution, fit phi ") + "0.5 to 359.5 deg (spike at 0 left out), no other cuts", aMean, phiDir + "5_phiReD_cosfit.pdf");

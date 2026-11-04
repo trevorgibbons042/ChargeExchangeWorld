@@ -35,12 +35,12 @@
 // in settings.csv), tag = <CE or recon> in <ke>/1_apCE/ and <ke>/2_apRecon/ (recon theta), apReconBlock_<CE or recon> directly in <ke>/ (recon block theta). Recon theta uses AP from CE and from recon; recon block theta only AP from recon block, with the block residual cut.
 // The fit of every slice is in <ke>/slices_<tag>.csv, not plotted. Reads cut_APandT.root and cut_angles_all.root.
 static double kThetaStep = 0.1; // deg, set per pass over the slice widths
-static const double kThetaMax = 5.0; // deg
+static const double kThetaMax = 5.0 * ThetaScale(); // deg, 5 deg at 25 GeV/c, scaled with 1 / p (FitCore.h); the 0.5 to 2 deg total fit window scales the same way
 static std::string gApName; // which AP the current pass uses, named in the fit box
 static const int kPhiBins = 100;
 static const size_t kMinN = 10; // protons needed in a slice for its fit
 
-struct Slice {double lo, hi, nPhi, ap, p, pErr, nCE = 0, nCEAll = -1, nReconAll = -1;}; // nCEAll, nReconAll: CE and recon protons of the theta set before any cut, for the CE lost and the recon share // nCE: CE protons in the slice (= nPhi for the CE fits)
+struct Slice {double lo, hi, nPhi, ap, p, pErr, nCE = 0, nCEAll = -1, nReconAll = -1; AMean am;}; // nCEAll, nReconAll: CE and recon protons of the theta set before any cut, for the CE lost and the recon share // nCE: CE protons in the slice (= nPhi for the CE fits) // am: the A of the CE protons of the slice (ap is its mean) with its error, fixed in the fit
 
 // Reads expr (nCols columns separated by ':') once, multithreaded (Columns, TreeColumns.h), under the KE cut keDir (CutFiles.h) and copies the columns
 // out. The same (tree, expr, cut) comes back from a cache: the slice width and AP-source loops ask for the same columns many times.
@@ -65,15 +65,16 @@ static int SliceOf(double theta){return (theta >= 0 && theta < kThetaMax) ? (int
 
 // Fills h (kPhiBins over 0 to 360) with phis (deg) and fits it with f = N0 (1 + AP P cos(phi)), AP fixed to ap. False when there are too few
 // protons or the fit fails. opt "LQ" keeps the fit in h for drawing, "LQ0" does not. The fit is unbinned (UnbinnedP, FitCore.h): f only holds N0 = entries / bins, P, its error and AP for the curve.
-static bool FitPhi(const std::vector<double>& phis, double ap, TH1D& h, TF1& f, const char* opt){
-    if (phis.size() < kMinN || std::fabs(ap) < 1e-12) return false;
+static bool FitPhi(const std::vector<double>& phis, const AMean& ap, TH1D& h, TF1& f, const char* opt){
+    if (phis.size() < kMinN || std::fabs(ap.Mean()) < 1e-12) return false;
     h.SetDirectory(nullptr);
     for (double phi : phis) h.Fill(phi);
     const PFit r = UnbinnedP(phis, ap); // unbinned fit of every proton's phi (FitCore.h), P limited to -1 to 1; the histogram only shows it
     if (!r.ok || r.err <= 0) return false;
-    f.SetParameters(h.GetEntries() / kPhiBins, r.p, ap);
+    f.SetParameters(h.GetEntries() / kPhiBins, r.p, ap.Mean());
     f.SetParName(0, "N0"); f.SetParName(1, "P"); f.SetParName(2, "AP");
     f.SetParError(1, r.err);
+    f.SetParError(2, ap.Err());
     if (!std::strchr(opt, '0')) h.GetListOfFunctions()->Add(f.Clone()); // like a fit with option "0" left out: the curve is drawn with the histogram
     return true;
 }
@@ -82,10 +83,10 @@ static bool FitPhi(const std::vector<double>& phis, double ap, TH1D& h, TF1& f, 
 static bool FitSlice(const std::vector<double>& phis, Slice& s, bool draw, const std::string& file = "", const std::string& cutNote = ""){ // file: the drawn page, numbers the title; cutNote: the cuts applied, named in the title
     TH1D h("hPolPhi", "", kPhiBins, 0, 360);
     TF1 f("fPol", "[0]*(1+[1]*[2]*cos(x*TMath::DegToRad()))", 0, 360);
-    if (!FitPhi(phis, s.ap, h, f, draw ? "LQ" : "LQ0")) return false; // drawn pages keep the fit in the histogram, like the other plots' fit boxes
+    if (!FitPhi(phis, s.am, h, f, draw ? "LQ" : "LQ0")) return false; // drawn pages keep the fit in the histogram, like the other plots' fit boxes
     s.nPhi = h.GetEntries(); s.p = f.GetParameter(1); s.pErr = f.GetParError(1);
     if (draw){
-        h.SetTitle(PlotTitle(file, Form("Phi, theta %.2f to %.2f deg, AP = %.4f", s.lo, s.hi, s.ap) + (cutNote.empty() ? "" : ", " + cutNote) + std::string(";Angle (degrees);Count")).c_str());
+        h.SetTitle(PlotTitle(file, Form("Phi, theta %.2f to %.2f deg, AP = %.4f #pm %.4f", s.lo, s.hi, s.ap, s.am.Err()) + (cutNote.empty() ? "" : ", " + cutNote) + std::string(";Angle (degrees);Count")).c_str());
         h.GetXaxis()->SetNdivisions(505);
         h.SetStats(0);
         h.SetMinimum(0); h.SetMaximum(1.1 * h.GetMaximum());
@@ -96,7 +97,7 @@ static bool FitSlice(const std::vector<double>& phis, Slice& s, bool draw, const
         box->AddText("Fit function:");
         box->AddText("Unbinned fit: N(#phi) #propto 1 + AP #times P #times cos#phi");
         box->AddText(gApName.c_str());
-        box->AddText(Form("AP_{avg} = %.4f  (fixed)", s.ap));
+        box->AddText(Form("AP_{avg} = %.4f #pm %.4f  (fixed)", s.ap, s.am.Err()));
         box->AddText(Form("P = %.3f #pm %.3f", s.p, s.pErr));
         box->AddText(Form("entries = %.0f", s.nPhi));
         box->Draw(); // before DrawCEPercent: the CE lost box goes under it
@@ -127,8 +128,8 @@ static void DrawSliceGrid(const std::vector<std::vector<double>>& phis, const st
         gPad->SetLeftMargin(0.14); gPad->SetBottomMargin(0.14); gPad->SetTopMargin(0.12);
         TH1D h(Form("hGrid%zu", i), "", kPhiBins, 0, 360);
         TF1 f("fGrid", "[0]*(1+[1]*[2]*cos(x*TMath::DegToRad()))", 0, 360);
-        if (!FitPhi(phis[(int)std::lround(s.lo / kThetaStep)], s.ap, h, f, "LQ")) continue;
-        h.SetTitle(Form("#theta %.2f to %.2f deg: P = %.3f #pm %.3f, AP = %.4f, N = %.0f;#phi (deg);Count", s.lo, s.hi, f.GetParameter(1), f.GetParError(1), s.ap, h.GetEntries()));
+        if (!FitPhi(phis[(int)std::lround(s.lo / kThetaStep)], s.am, h, f, "LQ")) continue;
+        h.SetTitle(Form("#theta %.2f to %.2f deg: P = %.3f #pm %.3f, AP = %.4f #pm %.4f, N = %.0f;#phi (deg);Count", s.lo, s.hi, f.GetParameter(1), f.GetParError(1), s.ap, s.am.Err(), h.GetEntries()));
         h.SetStats(0);
         h.GetXaxis()->SetNdivisions(505);
         for (TAxis* a : {h.GetXaxis(), h.GetYaxis()}){a->SetTitleSize(0.055); a->SetLabelSize(0.05);}
@@ -202,12 +203,12 @@ void PlotPolarization(std::string energy = "fKEnergy"){ // energy: "fKEnergy" (t
                 Gather(ce, set.theta + ":" + set.phi + ":" + (apInOwnTree ? "" : apSrc.tree + ".") + apSrc.branch, kes[k].dir, 3, ceCols);
                 Gather(all, set.allTheta + deg + ":" + set.allPhi + deg, kes[k].dir, 2, allCols, "Angles" + suffix);
 
-                std::vector<double> apSum(nSlices, 0.0), apN(nSlices, 0.0);
+                std::vector<AMean> apA(nSlices); // the A of the CE protons of each slice
                 std::vector<std::vector<double>> cePhi(nSlices), allPhi(nSlices);
                 for (size_t i = 0; i < ceCols[0].size(); i++){
                     const int b = SliceOf(ceCols[0][i]);
                     if (b < 0) continue;
-                    cePhi[b].push_back(ceCols[1][i]); apSum[b] += ceCols[2][i]; apN[b]++;
+                    cePhi[b].push_back(ceCols[1][i]); apA[b].Add(ceCols[2][i]);
                 }
                 for (size_t i = 0; i < allCols[0].size(); i++){
                     const int b = SliceOf(allCols[0][i]);
@@ -217,8 +218,8 @@ void PlotPolarization(std::string energy = "fKEnergy"){ // energy: "fKEnergy" (t
                 FILE* out = fopen((base + kes[k].dir + "/" + apSrc.sub + "slices_" + tag + ".csv").c_str(), "w");
                 if (out) fprintf(out, "theta_lo,theta_hi,N,AP_mean,P,P_err,pct_err\n");
                 for (int b = 0; b < nSlices; b++){
-                    if (apN[b] == 0) continue; // no AP without a CE proton in the slice
-                    Slice s{b * kThetaStep, (b + 1) * kThetaStep, 0, apSum[b] / apN[b], 0, 0, apN[b]};
+                    if (apA[b].n == 0) continue; // no AP without a CE proton in the slice
+                    Slice s{b * kThetaStep, (b + 1) * kThetaStep, 0, apA[b].Mean(), 0, 0, apA[b].n, -1, -1, apA[b]};
                     if (!FitSlice(type == 0 ? cePhi[b] : allPhi[b], s, false)) continue; // slice fits are not plotted, only the csv
                     fits[type][k].push_back(s);
                     if (out) fprintf(out, "%g,%g,%.0f,%.8g,%.8g,%.8g,%.8g\n", s.lo, s.hi, s.nPhi, s.ap, s.p, s.pErr, 100.0 * (s.p - pRef) / pRef);
@@ -233,15 +234,17 @@ void PlotPolarization(std::string energy = "fKEnergy"){ // energy: "fKEnergy" (t
                 // Independent of the slice width: 5_fomCalc/<theta set>/<ke>/<ap>/5, 6_phi_fit_0p5to2deg_<tag>.pdf and 7, 8_phi_fit_0to5deg_<tag>.pdf, numbers in total_fits.csv.
                 // Recon theta only, the block set has no total fits.
                 if (!set.block){
-                    for (const auto& range : std::vector<std::pair<double, double>>{{0.5, 2.0}, {0.0, kThetaMax}}){
+                    for (const auto& range : std::vector<std::pair<double, double>>{{0.5 * ThetaScale(), 2.0 * ThetaScale()}, {0.0, kThetaMax}}){
+                        // the file name carries the window in degrees (0p5to2deg and 0to5deg at 25 GeV/c)
+                        const auto degTag = [](double v){std::string s = Form("%.3g", v); std::replace(s.begin(), s.end(), '.', 'p'); return s;};
                         const std::string totDir = base + kes[k].dir + "/" + apSrc.sub;
                         const std::string totHeader = "plot,theta_lo,theta_hi,N,AP_mean,P,P_err,pct_err";
-                        double apSum2 = 0, apN2 = 0;
+                        AMean apRange;
                         for (size_t i = 0; i < ceCols[0].size(); i++){
                             if (ceCols[0][i] < range.first || ceCols[0][i] >= range.second) continue;
-                            apSum2 += ceCols[2][i]; apN2++;
+                            apRange.Add(ceCols[2][i]);
                         }
-                        if (apN2 == 0) continue;
+                        if (apRange.n == 0) continue;
                         std::vector<double> phis;
                         if (type == 0){
                             for (size_t i = 0; i < ceCols[0].size(); i++)
@@ -250,9 +253,9 @@ void PlotPolarization(std::string energy = "fKEnergy"){ // energy: "fKEnergy" (t
                             for (size_t i = 0; i < allCols[0].size(); i++)
                                 if (allCols[0][i] >= range.first && allCols[0][i] < range.second) phis.push_back(allCols[1][i]);
                         }
-                        Slice t{range.first, range.second, 0, apSum2 / apN2, 0, 0, apN2, (double)ce->GetEntries(), nReconAll};
+                        Slice t{range.first, range.second, 0, apRange.Mean(), 0, 0, apRange.n, (double)ce->GetEntries(), nReconAll, apRange};
                         pageC.cd(); pageC.Clear();
-                        const std::string totPdf = totDir + (range.first > 0 ? fileNum(3) + "phi_fit_0p5to2deg_" : fileNum(4) + "phi_fit_0to5deg_") + tag + ".pdf";
+                        const std::string totPdf = totDir + (range.first > 0 ? fileNum(3) : fileNum(4)) + "phi_fit_" + degTag(range.first) + "to" + degTag(range.second) + "deg_" + tag + ".pdf";
                         if (!FitSlice(phis, t, true, gSystem->BaseName(totPdf.c_str()), kes[k].label)) continue;
                         pageC.SaveAs(totPdf.c_str());
                         WriteStatsRow(totPdf, totHeader, Form("%s,%g,%g,%.0f,%.8g,%.8g,%.8g,%.8g", gSystem->BaseName(totPdf.c_str()), t.lo, t.hi, t.nPhi, t.ap, t.p, t.pErr, 100.0 * (t.p - pRef) / pRef), statsStarted, "total_fits.csv");

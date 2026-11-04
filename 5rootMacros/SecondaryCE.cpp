@@ -151,7 +151,7 @@ void SecondaryCE(){
     const char* gName[4] = {"beam neutron", "neutronInelastic", "protonInelastic", "all other creators"};
     const int gColor[4] = {kBlack, kRed, kBlue, kGreen + 2};
     TH1D hKE[2][4]; // [0] true KE, [1] smeared KE
-    for (int q = 0; q < 2; q++) for (int g = 0; g < 4; g++) hKE[q][g] = TH1D(Form("hKE%d_%d", q, g), "", 100, 0, 30000);
+    for (int q = 0; q < 2; q++) for (int g = 0; g < 4; g++) hKE[q][g] = TH1D(Form("hKE%d_%d", q, g), "", 100, 0, KeAxisMax()); // 30000 MeV at 25 GeV/c, FitCore.h
     TTree* piPtr = OpenCut("cuts/cut_ParentZdc.root", "ParticleInfo");
     if (!piPtr){Error("SecondaryCE", "no cuts/cut_ParentZdc.root (run CutEvents.cpp)"); return;}
     TTree& pi = *piPtr;
@@ -248,7 +248,7 @@ void SecondaryCE(){
     // keep(k) picks the CE rows (it reads the vectors of the ce entry k), what is added to the title; 19_ is the same plot for the CE protons that hit the first tracker inside a square
     const auto phiFitPlot = [&](const std::string& phiFile, const std::string& what, const std::function<bool(Long64_t)>& keep){
         TH1D hPhi[2] = {TH1D("hPhiAll", "", 50, 0, 360), TH1D("hPhiBeam", "", 50, 0, 360)};
-        double sAng[2] = {0, 0}; long long nPhi[2] = {0, 0};
+        AMean sAng[2]; long long nPhi[2] = {0, 0}; // sAng: the A (LastAP) of each set, its mean and error are the fixed A of the fit
         std::vector<double> phiV[2]; // phi of every CE proton of each set: the unbinned fit below uses them, the histogram only shows them
         for (Long64_t k = 0; k < nCE; k++){
             if (!keep(k)) continue;
@@ -256,7 +256,7 @@ void SecondaryCE(){
             const double phiDeg = (phiRad < 0 ? phiRad + TMath::TwoPi() : phiRad) * 180 / TMath::Pi();
             for (int g = 0; g < 2; g++){
                 if (g == 1 && trackID != 1) continue;
-                hPhi[g].Fill(phiDeg); phiV[g].push_back(phiDeg); sAng[g] += lastAP; nPhi[g]++;
+                hPhi[g].Fill(phiDeg); phiV[g].push_back(phiDeg); sAng[g].Add(lastAP); nPhi[g]++;
             }
         }
         const char* phiName[2] = {"all CE", "beam neutron CE (TrackID 1)"};
@@ -265,9 +265,8 @@ void SecondaryCE(){
         double pFit[2], pFitErr[2];
         double phiMax = 0;
         for (int g = 0; g < 2; g++){
-            const double aFixG = sAng[g] / std::max<long long>(1, nPhi[g]);
-            const PFit uf = UnbinnedP(phiV[g], aFixG); // unbinned fit of every proton's phi (FitCore.h), A fixed to the mean
-            phiFit[g] = *AddUnbinnedFit(&hPhi[g], Form("fPhiCos%d", g), uf, aFixG, false); // in the function list for fit_values.csv, a copy here for the dashed curve
+            const PFit uf = UnbinnedP(phiV[g], sAng[g]); // unbinned fit of every proton's phi (FitCore.h), A fixed to the mean
+            phiFit[g] = *AddUnbinnedFit(&hPhi[g], Form("fPhiCos%d", g), uf, sAng[g].Mean(), sAng[g].Err(), false); // in the function list for fit_values.csv, a copy here for the dashed curve
             phiFit[g].ResetBit(TF1::kNotDraw);
             pFit[g] = uf.p; pFitErr[g] = uf.err;
             hPhi[g].SetLineColor(phiColor[g]); hPhi[g].SetLineWidth(2); hPhi[g].SetStats(0);
@@ -287,7 +286,7 @@ void SecondaryCE(){
         for (int g = 0; g < 2; g++){ // two lines per curve, kept inside the plot area (the legend box sits lower in the right margin)
             txPhi.SetTextColor(phiColor[g]);
             txPhi.DrawLatex(0.13, 0.875 - 0.10 * g, Form("%s,   P = %.3f #pm %.3f", phiName[g], pFit[g], pFitErr[g]));
-            txPhi.DrawLatex(0.13, 0.845 - 0.10 * g, Form("#LTA#GT = %.4f,   %lld CE protons", sAng[g] / std::max<long long>(1, nPhi[g]), nPhi[g]));        }
+            txPhi.DrawLatex(0.13, 0.845 - 0.10 * g, Form("#LTA#GT = %.4f #pm %.4f,   %lld CE protons", sAng[g].Mean(), sAng[g].Err(), nPhi[g]));        }
         WritePlotNumbers(&hPhi[0], outDir + phiFile, numbersStarted);
         canvas.SaveAs((outDir + phiFile).c_str());
     };
