@@ -168,26 +168,42 @@ static void CutSamples(){
 
     // 7_megaCut2: the same cuts as 6_megaCut, and the proton must also be a reconstructed ZDC proton with ZDC KE > 80% of the beam KE
     using KeyKeys = std::set<std::pair<int, int>>;
-    const auto keKeys = [](double frac){ // (fEvent, TrackID) of the reconstructed ZDC protons with ZDC KE > frac of the beam KE
-        KeyKeys keys;
-        ROOT::RDataFrame zdcKe("ParticleInfo", "cuts/cut_ZdcAllEv.root");
+    // ZDC KE of every reconstructed ZDC proton, read once (the highest KE if a (fEvent, TrackID) repeats)
+    std::map<std::pair<int, int>, double> zdcKeOf;
+    bool zdcKeRead = false;
+    // (fEvent, TrackID) of the reconstructed ZDC protons with ZDC KE > frac of the beam KE: out of all of them, or out of from (the keys of the next lower KE cut) so each cut is a subset of the one below
+    const auto keKeys = [&](double frac, const KeyKeys* from){
+        if (!zdcKeRead){
+            ROOT::RDataFrame zdcKe("ParticleInfo", "cuts/cut_ZdcAllEv.root");
+            auto pass = zdcKe.Filter([](int r){return r == 1;}, {"isReco"});
+            auto ev = pass.Take<int>("fEvent"), tid = pass.Take<int>("TrackID");
+            auto ke = pass.Take<double>("fDEnergy");
+            for (size_t i = 0; i < ev->size(); i++){
+                double& v = zdcKeOf.emplace(std::make_pair((*ev)[i], (*tid)[i]), (*ke)[i]).first->second;
+                if ((*ke)[i] > v) v = (*ke)[i];
+            }
+            zdcKeRead = true;
+        }
         const double cutVal = kBeamKE * frac;
-        auto pass = zdcKe.Filter([cutVal](int r, double ke){return r == 1 && ke > cutVal;}, {"isReco", "fDEnergy"});
-        auto ev = pass.Take<int>("fEvent"), tid = pass.Take<int>("TrackID");
-        for (size_t i = 0; i < ev->size(); i++) keys.emplace_hint(keys.end(), (*ev)[i], (*tid)[i]);
+        KeyKeys keys;
+        if (from){for (const auto& k : *from) if (zdcKeOf.at(k) > cutVal) keys.insert(keys.end(), k);}
+        else for (const auto& kv : zdcKeOf) if (kv.second > cutVal) keys.insert(keys.end(), kv.first);
         return keys;
     };
     // only the keys a wanted file needs are read (CUT_ONLY): the jobs of Plot.pbs run the sample files in several processes, and the files without a ZDC KE cut do not wait for the zdc part
-    const bool need80 = CutWanted("cuts/cut_megacut2_1.root") || CutWanted("cuts/cut_megacut3_1.root");
-    const KeyKeys ke80Keys = need80 ? keKeys(0.80) : KeyKeys();
-    // KE scan of 7_megaCut2 and 9_megaCut3: the same cuts as cut_megacut2_1 and cut_megacut3_1 (ZDC KE > 80%) with ZDC KE > 85, 90 and 95% of the beam KE
-    // (cut_megacut2_1_ke85.root to cut_megacut3_1_ke95.root; the phi fits are Plot3D.cpp part 4, the overlay with the 80% folder is PlotKEOverlay.cpp). 6_megaCut + KE > x is the megacut2 sample, so it has no files of its own.
-    std::vector<KeyKeys> scanKeys;
-    scanKeys.reserve(6); // the filters keep a reference into it
-    for (const int family : {2, 3}) for (const int maxP : {1}) for (const int pct : {85, 90, 95}){
+    bool needScan = false;
+    for (const int family : {2, 3}) for (const int pct : {85, 90, 95}) needScan = needScan || CutWanted(Form("cuts/cut_megacut%d_1_ke%d.root", family, pct));
+    const bool need80 = needScan || CutWanted("cuts/cut_megacut2_1.root") || CutWanted("cuts/cut_megacut3_1.root");
+    const KeyKeys ke80Keys = need80 ? keKeys(0.80, nullptr) : KeyKeys();
+    // KE scan of 7_megaCut2 and 9_megaCut3: the same cuts as cut_megacut2_1 and cut_megacut3_1 (ZDC KE > 80%) with ZDC KE > 85, 90 and 95% of the beam KE, each cut taken from the one below
+    // (ke85 from 80, ke90 from ke85, ke95 from ke90; cut_megacut2_1_ke85.root to cut_megacut3_1_ke95.root; the phi fits are Plot3D.cpp part 4, the overlay with the 80% folder is PlotKEOverlay.cpp). 6_megaCut + KE > x is the megacut2 sample, so it has no files of its own.
+    std::vector<KeyKeys> chainKeys; // 85, 90, 95; the filters keep a reference into it, the same keys serve both families
+    chainKeys.reserve(3);
+    if (needScan) for (const int pct : {85, 90, 95}) chainKeys.push_back(keKeys(pct / 100.0, chainKeys.empty() ? &ke80Keys : &chainKeys.back()));
+    for (const int family : {2, 3}) for (const int maxP : {1}) for (int i = 0; i < (int)chainKeys.size(); i++){
+        const int pct = 85 + 5 * i;
         const std::string scanFile = Form("cuts/cut_megacut%d_%d_ke%d.root", family, maxP, pct);
-        scanKeys.push_back(CutWanted(scanFile) ? keKeys(pct / 100.0) : KeyKeys());
-        const KeyKeys& keys = scanKeys.back();
+        const KeyKeys& keys = chainKeys[i];
         if (family == 2)
             snap(base.Filter([&keys, maxP](int np, int n, int e, int t){return np <= maxP && (n == 2 || n == 4 || n == 6 || n == 8) && keys.count({e, t}) > 0;},
                              {"nProtonsEv", "nHits", "fEvent", "TrackID"}), scanFile.c_str());
