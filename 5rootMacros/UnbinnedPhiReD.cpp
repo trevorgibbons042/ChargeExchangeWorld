@@ -19,11 +19,16 @@
 // Writes UnbinnedPhiReD.pdf with the 50 bin histogram of the binned plot, the binned fit (dashed black) and the unbinned fit (blue). Run in a run folder: root -l -b -q UnbinnedPhiReD.cpp
 void UnbinnedPhiReD(){
     ROOT::EnableImplicitMT(NThreads());
-    ROOT::RDataFrame dfCE("CE", "cuts/cut_APandT.root"), dfPhi("CalcValsReD", "cuts/cut_APandT.root");
-    const AMean aM = AMeanOf(*dfCE.Take<double>("apCE")); // the mean A with its error (the error goes into P)
-    const double aMean = aM.Mean();
-    auto phiTake = dfPhi.Filter(Form("phiReD >= %g && phiReD <= %g", kBlockPhiLo, kBlockPhiHi)).Take<double>("phiReD");
+    ROOT::RDataFrame dfPhi("CalcValsReD", "cuts/cut_APandT.root");
+    auto fitRows = dfPhi.Filter(Form("phiReD >= %g && phiReD <= %g", kBlockPhiLo, kBlockPhiHi));
+    auto phiTake = fitRows.Take<double>("phiReD");
+    auto thetaTake = fitRows.Take<double>("thetaReD");
     const auto& phi = *phiTake;
+    // A_eff = sum_i N_i AP(theta_i) / N0 over the protons of the fit, theta_i the 0.05 degree theta bins of the block theta (AEffOfTheta, FitCore.h); its error goes into P
+    const double apScale = ReadSettings().at("APScale");
+    AMean aM;
+    for (double th : *thetaTake) aM.Add(AEffOfTheta(th, apScale));
+    const double aMean = aM.Mean();
     const double n = (double)phi.size(), lo = kBlockPhiLo * TMath::Pi() / 180, hi = kBlockPhiHi * TMath::Pi() / 180;
     const double sd = std::sin(hi) - std::sin(lo);
 
@@ -47,8 +52,8 @@ void UnbinnedPhiReD(){
     fb.SetLineColor(kBlack); fb.SetLineStyle(2); fb.SetLineWidth(3); fb.Draw("same");
     fu.SetLineColor(kBlue); fu.SetLineWidth(3); fu.Draw("same");
     TLatex tx; tx.SetNDC(); tx.SetTextSize(0.032);
-    tx.DrawLatex(0.16, 0.86, "N(#phi) #propto 1 + P #upoint #LTA#GT cos#phi, #LTA#GT fixed");
-    tx.SetTextColor(kBlue); tx.DrawLatex(0.16, 0.81, Form("unbinned fit (blue): P = %.3f #pm %.3f,  %.0f protons, #LTA#GT = %.4f #pm %.4f", p, err, n, aMean, aM.Err()));
+    tx.DrawLatex(0.16, 0.86, "N(#phi) #propto 1 + P #upoint A_{eff} cos#phi, A_{eff} fixed");
+    tx.SetTextColor(kBlue); tx.DrawLatex(0.16, 0.81, Form("unbinned fit (blue): P = %.3f #pm %.3f,  %.0f protons, A_{eff} = %.4f #pm %.4f", p, err, n, aMean, aM.Err()));
     tx.SetTextColor(kBlack); tx.DrawLatex(0.16, 0.76, Form("binned #chi^{2} fit (dashed): P = %.3f #pm %.3f,  #chi^{2}/ndf = %.0f / %d", fb.GetParameter(1), fb.GetParError(1), h.Chisquare(&fb), 49));
     cv.SaveAs("UnbinnedPhiReD.pdf");
     printf("unbinned P = %.4f +- %.4f (n = %.0f, <A> = %.5f +- %.5f), binned P = %.4f +- %.4f\n", p, err, n, aMean, aM.Err(), fb.GetParameter(1), fb.GetParError(1));

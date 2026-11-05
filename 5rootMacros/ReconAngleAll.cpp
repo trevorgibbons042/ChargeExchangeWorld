@@ -4,6 +4,8 @@
 #include <TTree.h>
 #include <ROOT/RDataFrame.hxx>
 #include <ROOT/TTreeProcessorMT.hxx>
+#include <TDatabasePDG.h>
+#include <TParticlePDG.h>
 
 #include <algorithm>
 #include <cmath>
@@ -191,11 +193,19 @@ void ReconAngleAll(){
         std::vector<std::vector<std::vector<Point>>> buckets(df.GetNSlots(), std::vector<std::vector<Point>>(nShards));
         // boundaryType 1 (tracker exit, older sim runs only) is left out. A ZDC row (boundaryType 2) is not a fit point: it goes to zdcBuckets, the only source of a KE (the trackers give none),
         // so a tracker hit is its entry row (boundaryType 0) only; particles that never reach the ZDC are reconstructed too, with KE NAN.
-        // The sim writes only charged particles (6detector.cc, 9stepping.cc), so every pdg passes: no pdg test here.
+        // The sim writes only charged particles (FillParticleInfo in 6detector.hh); the pdg test below is a guard so a neutral row never becomes a recon particle.
+        // A nucleus (pdg >= 1000000000) is charged when its Z is above 0, an unknown pdg is kept. The PDG table is loaded once here so the threads only read it.
+        TDatabasePDG::Instance()->GetParticle(2212);
+        const auto isCharged = [](int pdg){
+            const int a = pdg < 0 ? -pdg : pdg;
+            if (a >= 1000000000) return (a / 10000) % 1000 > 0;
+            const TParticlePDG* p = TDatabasePDG::Instance()->GetParticle(pdg);
+            return p == nullptr || p->Charge() != 0.;
+        };
         // The selection is a typed Filter lambda, not a Filter string: a string Filter is JIT-compiled, which fails on a ROOT whose cling cannot materialize libc++ symbols (the Mac).
         // A Filter node, unlike a test inside the ForeachSlot lambda, reads the other branches only for rows that pass, not for every particle row.
         std::vector<std::vector<std::vector<ZdcHit>>> zdcBuckets(df.GetNSlots(), std::vector<std::vector<ZdcHit>>(nShards));
-        df.Filter([](int boundaryType){return boundaryType != 1;}, {"boundaryType"})
+        df.Filter([isCharged](int boundaryType, int pdg){return boundaryType != 1 && isCharged(pdg);}, {"boundaryType", "pdg"})
           .ForeachSlot([&](unsigned slot,
             int boundaryType, int eventID, int trackID, int pdg,
             double x, double y, double z, double xD, double yD, double zD, double KE, double KED, int ParentID, ULong64_t entry){

@@ -23,6 +23,8 @@
 #include <utility>
 #include <vector>
 
+#include <unordered_map>
+
 #include "FitCore.h"
 #include "QualityCut.h"
 
@@ -170,12 +172,15 @@ inline ColumnAdder Plot3DColumns(){
 
 // Rewrites the isReco/rawVal/rawOk calls of a TTree::Draw expression or cut into the columns (or, on AnglesRaw, the aliases).
 inline std::string P3(const std::string& s){
+    thread_local std::unordered_map<std::string, std::string> cache; // the same expressions and cuts come back in many calls
+    if (const auto hit = cache.find(s); hit != cache.end()) return hit->second;
     static const std::regex fn(R"(\b(isReco)\s*\(\s*fEvent\s*,\s*TrackID\s*\))");
     static const std::regex val(R"(\brawVal\s*\(\s*fEvent\s*,\s*TrackID\s*,\s*(\d+)\s*\))");
     static const std::regex ok(R"(\brawOk\s*\(\s*fEvent\s*,\s*TrackID\s*,\s*(\d+)\s*\))");
     std::string o = std::regex_replace(s, fn, "($1==1)");
     o = std::regex_replace(o, val, "raw_$1");
     o = std::regex_replace(o, ok, "(ok_$1==1)");
+    cache.emplace(s, o);
     return o;
 }
 

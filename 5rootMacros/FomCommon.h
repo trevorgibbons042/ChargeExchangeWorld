@@ -19,9 +19,6 @@ inline const std::vector<std::string>& Sets(){static const std::vector<std::stri
 inline const std::vector<std::string>& Kes(){static const std::vector<std::string> v = {"ke_gt80"}; return v;} // the FOM plots have the 80% KE cut and no residual cut folders
 static const int kColors[] = {kBlack, kRed, kBlue, kGreen + 2, kMagenta, kOrange + 7, kCyan + 2, kGray + 2};
 inline const std::map<std::string, std::string>& SetNames(){static const std::map<std::string, std::string> m = {{"1_reconTheta", "true position"}, {"2_reconBlockTheta", "block position"}}; return m;}
-static std::string KeName(const std::string& ke){
-    return "KE cut " + ke.substr(5) + "%";
-}
 
 // Base folder of the FOM and polarization plots, under it <theta set>/<ke>/... (PlotFomPolarization.cpp)
 static std::string FomRoot(){return "plots/5_fomCalc";}

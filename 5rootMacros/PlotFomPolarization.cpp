@@ -85,7 +85,7 @@ static void AddProton(PhiAP& d, double theta, double phi, double apScale, bool b
     const int pt = (int)(phi / 360.0 * kPhiBinsFP);
     if (pt >= 0 && pt < kPhiBinsFP){
         d.total[pt]++; d.totalN++; AddCosMoments(d.totalMom.data(), phi);
-        const double aAny = APFromT(kBeamMomentum, TFromAngle(kBeamMomentum, (std::floor(theta / kStep) + 0.5) * kStep * TMath::Pi() / 180), apScale);
+        const double aAny = AEffOfTheta(theta, apScale);
         d.totalApSum += aAny; d.totalApSum2 += aAny * aAny;
     }
     const int s = BinPhi(d.phi, theta, phi);
@@ -136,8 +136,8 @@ void PlotFomPolarization(std::string energy = "fKEnergy"){ // energy: "fKEnergy"
     if (!all){printf("PlotFomPolarization: AnglesRaw in cut_angles_all.root missing\n"); return;}
     // block: the block position set, which only takes the block AP; the recon set takes AP from CE and from recon
     struct ThetaSet {std::string dir, name, tree, theta, phi, allTheta, allPhi; bool block;}; // all* : theta and phi (rad) of every proton with a reconstructed path in the Angles tree
-    // types: CE recon protons, all recon protons (pdg 2212) and all recon particles (every charged particle of AnglesRaw, any pdg)
-    const std::vector<std::string> typeTags = {"CE", "recon", "reconParticles"}, typeNames = {"CE recon protons", "all recon protons", "all recon particles"};
+    // types: CE recon protons, all recon protons (pdg 2212) and all recon charged particles (every charged particle of AnglesRaw, any pdg)
+    const std::vector<std::string> typeTags = {"CE", "recon", "reconParticles"}, typeNames = {"CE recon protons", "all recon protons", "all recon charged particles"};
     // the one AP source: the model equation (APFromT, FitCore.h) at the CE t (tCE) of each CE proton; theta and phi come from the theta set, rows line up between the trees
     struct ApSrc {std::string tag, name, tree, branch;};
     std::vector<ThetaSet> sets = {{"1_reconTheta", "recon theta", "CalcValsRe" + suffix, "thetaRe", "phiRe", "outTheta", "outPhi", false},
@@ -146,13 +146,11 @@ void PlotFomPolarization(std::string energy = "fKEnergy"){ // energy: "fKEnergy"
     const std::vector<ApSrc> apSrcs = {{"apCE", "AP from CE t", "CE" + suffix, "tCE"}};
     // phi counts of protons with reconstructed paths per theta set and KE cut: they do not depend on the AP source, so one read of the (large) all-protons tree per theta set and KE cut fills them all
     std::vector<std::vector<PhiAP>> phiAll(sets.size(), std::vector<PhiAP>(kes.size(), PhiAP(nSlices))); // A of each proton from its recon theta (APFromT, FitCore.h)
-    auto phiAllPart = phiAll; // the same for every recon particle (any pdg), not only the protons
+    auto phiAllPart = phiAll; // the same for every recon charged particle (any pdg), not only the protons
     {
         const double toDeg = 180 / TMath::Pi();
         for (size_t s = 0; s < sets.size(); s++) for (size_t k = 0; k < kes.size(); k++){
-            // no KE or residual cut here: every recon proton (pdg 2212) and every recon particle (the Angles view); one multithreaded read (ColumnsUnordered, TreeColumns.h) of their angles each, rows in any order (AddProton only adds counts and AP sums)
-            const auto angles = ColumnsUnordered(all, {sets[s].allTheta, sets[s].allPhi}, AngleSelection("Angles") + " && PDG == 2212");
-            AddProtons(phiAll[s][k], angles, toDeg, apScale, sets[s].block);
+            // no KE or residual cut here: every recon proton (pdg 2212) and every recon charged particle (the Angles view); one multithreaded read (ColumnsUnordered, TreeColumns.h) of their angles each, rows in any order (AddProton only adds counts and AP sums)
             const auto anglesPart = ColumnsUnordered(all, {sets[s].allTheta, sets[s].allPhi}, AngleSelection("Angles"));
             AddProtons(phiAllPart[s][k], anglesPart, toDeg, apScale, sets[s].block);
         }
@@ -175,24 +173,25 @@ void PlotFomPolarization(std::string energy = "fKEnergy"){ // energy: "fKEnergy"
             // per theta slice, the phi counts of the CE protons and the AP sum of the CE protons (the AP of both fits, as in PlotPolarization.cpp)
             PhiAP phiCE(nSlices);
             PhiAP phiCERecon(nSlices); // the same CE protons at their recon angles (set.theta, set.phi), for the all-theta phi fit
-            AMean apSimMean; // mean of the sim A (LastAP, apCE) of the CE protons, the A of the CE phi fits, with its error
+            AMean apSimMean; // A_eff of the CE protons (the 0.05 degree theta bins of their true CE theta, AEffOfTheta), the A of the CE phi fits, with its error
             for (Long64_t k = 0; k < nCE; k++){
                 AddProton(phiCE, ceV[0][k], ceV[1][k], apScale, set.block);
                 AddProton(phiCERecon, ceV[4][k], ceV[5][k], apScale, set.block);
-                apSimMean.Add(ceV[3][k]);
+                apSimMean.Add(AEffOfTheta(ceV[0][k], apScale));
             }
 
             struct Ovl {TH1D* h = nullptr; double nPhi = 0; AMean aFix; bool ok = false; PFit uf;}; // uf: the unbinned fit of the range
             Ovl ovl[2][3]; // per range and type: the phi counts of the fit plot, collected here and drawn together after the type loop
             for (int type = 0; type < 3; type++){
+                if (type == 1) continue; // no all recon protons (pdg 2212): only the CE recon protons and all recon charged particles
                 // file numbers continue PlotPolarization.cpp's (CE 2k-1, recon 2k): kinds 5, 6 in the recon theta AP folders, 3, 4 in the block KE folder (no total fits there)
-                // the all recon particles files come after those: 20 + kind
+                // the all recon charged particles files come after those: 20 + kind
                 auto fileNum = [type](int kind){return std::to_string(type == 2 ? 20 + kind : 2 * (kind - 1) + 1 + type) + "_";};
                 const PhiAP& protons = type == 0 ? phiCE : type == 1 ? phiAll[si][ki] : phiAllPart[si][ki];
                 const std::string dir = FomRoot() + "/" + set.dir + "/" + kFitDir; // // with the total and slice phi fits of PlotPolarization.cpp
                 const std::string tag = typeTags[type];
                 gSystem->mkdir(dir.c_str(), true);
-                Map pMap = MakeMap(fileNum(set.block ? 3 : 5) + "P_fit_2d", "P_{fit}, unbinned fit 1 + #LTAP#GT P cos#phi, #LTAP#GT fixed", nSlices);
+                Map pMap = MakeMap(fileNum(set.block ? 3 : 5) + "P_fit_2d", "P_{fit}, unbinned fit 1 + A_{eff} P cos#phi, A_{eff} fixed", nSlices);
                 Map pctMap = MakeMap(fileNum(set.block ? 4 : 6) + "P_pct_error_2d", "|100 (P_{fit} - PPValue) / PPValue| (%)", nSlices);
                 pctMap.h.SetMinimum(0); pctMap.h.SetMaximum(100); // linear color scale 0 to 100 %, larger errors draw in the top color
                 FILE* out = fopen((dir + pMap.file + "_" + tag + ".csv").c_str(), "w");
@@ -239,7 +238,7 @@ void PlotFomPolarization(std::string energy = "fKEnergy"){ // energy: "fKEnergy"
                     }
                 }
             }
-            // the three types of each range on one plot: CE recon protons (red), all recon protons (blue), all recon particles (green), each with its own fit of the same color
+            // the three types of each range on one plot: CE recon protons (red), all recon protons (blue), all recon charged particles (green), each with its own fit of the same color
             for (const int range : {0, 1}){
                 if (!ovl[range][0].ok && !ovl[range][1].ok && !ovl[range][2].ok) continue;
                 const std::string dir = FomRoot() + "/" + set.dir + "/" + kFitDir;
@@ -259,7 +258,7 @@ void PlotFomPolarization(std::string energy = "fKEnergy"){ // energy: "fKEnergy"
                 for (int type = 0; type < 3; type++) if (ovl[range][type].ok){
                     TH1D* h = ovl[range][type].h;
                     h->SetMinimum(0); h->SetMaximum(1.1 * hMax);
-                    h->SetTitle((std::string("CE recon protons (only the ones with a recon track), all recon protons and all recon particles, ") + set.name + " angles" + (range == 0 ? ", phi fit over all theta, no cuts (no KE, residual or theta cut)" : ", phi fit over theta 0 to 1 deg (no KE or residual cut)") + ";Angle (degrees);Count").c_str());
+                    h->SetTitle((std::string("CE recon protons (only the ones with a recon track) and all recon charged particles, ") + set.name + " angles" + (range == 0 ? ", phi fit over all theta, no cuts (no KE, residual or theta cut)" : ", phi fit over theta 0 to 1 deg (no KE or residual cut)") + ";Angle (degrees);Count").c_str());
                     h->GetXaxis()->SetNdivisions(505);
                     h->Draw(first ? "hist" : "hist same"); first = false;
                 }
@@ -268,11 +267,11 @@ void PlotFomPolarization(std::string energy = "fKEnergy"){ // energy: "fKEnergy"
                     fd->SetParameters(ovl[range][type].nPhi / ovl[range][type].h->GetNbinsX(), pFit[type], ovl[range][type].aFix.Mean());
                     fd->SetLineColor(colors[type]); fd->SetLineStyle(2); fd->SetLineWidth(3); fd->Draw("same");
                 }
-                TLatex tx; tx.SetNDC(); tx.SetTextSize(0.03);
-                tx.DrawLatex(0.15, 0.90, "Unbinned fit  N(#phi) #propto 1 + P #upoint #LTA#GT cos#phi (every proton), dashed = fit");
+                TLatex tx; tx.SetNDC(); tx.SetTextSize(0.025); // small enough for the whole P = ... #pm ... of the longest line to stay on the page
+                tx.DrawLatex(0.15, 0.90, "Unbinned fit  N(#phi) #propto 1 + P #upoint A_{eff} cos#phi (every proton), dashed = fit");
                 for (int type = 0; type < 3; type++) if (ovl[range][type].ok){
                     tx.SetTextColor(colors[type]);
-                    tx.DrawLatex(0.15, 0.855 - 0.045 * type, Form("%s: %.0f entries, #LTA#GT = %.4f #pm %.4f (%s),  P = %.2f #pm %.2f", typeNames[type].c_str(), ovl[range][type].nPhi, ovl[range][type].aFix.Mean(), ovl[range][type].aFix.Err(), type == 0 ? "mean sim A" : "mean A from t(#theta)", pFit[type], pErr[type]));
+                    tx.DrawLatex(0.15, 0.855 - 0.045 * (type == 2 ? 1 : 0), Form("%s: %.0f entries, A_{eff} = %.4f #pm %.4f,  P = %.2f #pm %.2f", typeNames[type].c_str(), ovl[range][type].nPhi, ovl[range][type].aFix.Mean(), ovl[range][type].aFix.Err(), pFit[type], pErr[type]));
                 }
                 tx.SetTextColor(kBlack);
                 if (set.block) tx.DrawLatex(0.15, 0.72, BlockPhiNote());
@@ -287,8 +286,8 @@ void PlotFomPolarization(std::string energy = "fKEnergy"){ // energy: "fKEnergy"
                     TF1* fd = new TF1(Form("fPhiRangeCE%d", range), "[0] * (1 + [1] * [2] * cos(x * TMath::Pi() / 180))", 0, 360);
                     fd->SetParameters(ovl[range][0].nPhi / h->GetNbinsX(), pFit[0], ovl[range][0].aFix.Mean()); fd->SetLineColor(kBlack); fd->SetLineWidth(3); fd->Draw("same");
                     TLatex txc; txc.SetNDC(); txc.SetTextSize(0.03);
-                    txc.DrawLatex(0.15, 0.90, "Unbinned fit  N(#phi) #propto 1 + P #upoint #LTA#GT cos#phi (every proton)");
-                    txc.DrawLatex(0.15, 0.855, Form("%.0f entries, #LTA#GT = %.4f #pm %.4f (mean sim A),  P = %.2f #pm %.2f", ovl[range][0].nPhi, ovl[range][0].aFix.Mean(), ovl[range][0].aFix.Err(), pFit[0], pErr[0]));
+                    txc.DrawLatex(0.15, 0.90, "Unbinned fit  N(#phi) #propto 1 + P #upoint A_{eff} cos#phi (every proton)");
+                    txc.DrawLatex(0.15, 0.855, Form("%.0f entries, A_{eff} = %.4f #pm %.4f (mean sim A),  P = %.2f #pm %.2f", ovl[range][0].nPhi, ovl[range][0].aFix.Mean(), ovl[range][0].aFix.Err(), pFit[0], pErr[0]));
                     if (set.block) txc.DrawLatex(0.15, 0.81, BlockPhiNote());
                     c.Modified(); c.Update();
                     c.SaveAs((dir + std::to_string(2 * ((range == 0 ? (set.block ? 7 : 9) : (set.block ? 8 : 10)) - 1) + 2) + "_" + (range == 0 ? "phi_fit_all_theta" : "phi_fit_theta_0_to_1") + "_CE.pdf").c_str());

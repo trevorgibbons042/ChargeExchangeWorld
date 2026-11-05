@@ -25,7 +25,7 @@
 // Picks the thresholds in QualityCut.h. Reads AnglesRaw (every fitted proton, before the quality cut, ReconAngleAll.cpp) and compares the
 // CE protons (isFromCE == 1) with all recon protons for the four quality variables (residual and impact, true and block position).
 // The four cuts are set at one common percentile of the CE distribution, chosen so that the four together keep 95% of the CE protons.
-// Writes plots/6_cuts/3_ResCuts/: one CE vs recon protons plot per variable with its threshold, and thresholds.csv. Prints the numbers to paste into QualityCut.h.
+// Writes plots/6_cuts/3_ResCuts/thresholds.csv (no pdf of the residual). Prints the numbers to paste into QualityCut.h.
 static double Quantile(std::vector<double> v, double q){
     if (v.empty()) return NAN;
     std::sort(v.begin(), v.end());
@@ -36,7 +36,10 @@ void QualityStudy(double keepCE = 0.95){
     FastJit();
     ROOT::EnableImplicitMT(NThreads()); // implicit MT for the file reads (NThreads: ANA_NTHREADS, FitCore.h)
     gStyle->SetPalette(kViridis);
-    TFile* f = TFile::Open("cuts/cut_angles_all.root", "READ");
+    // cuts/cut_base.root (CutPlots.cpp samples) holds only the rows of the theta baseline, which is all this macro uses; used when it is newer than cut_angles_all.root, else every fitted proton is read
+    Long_t idB, flagsB, mtBase = 0, mtAll = 1; Long64_t sizeB;
+    const bool haveBase = !gSystem->GetPathInfo("cuts/cut_base.root", &idB, &sizeB, &flagsB, &mtBase) && !gSystem->GetPathInfo("cuts/cut_angles_all.root", &idB, &sizeB, &flagsB, &mtAll) && mtBase >= mtAll;
+    TFile* f = TFile::Open(haveBase ? "cuts/cut_base.root" : "cuts/cut_angles_all.root", "READ");
     TTree* t = f ? (TTree*)f->Get("AnglesRaw") : nullptr;
     if (!t){printf("QualityStudy: AnglesRaw missing in cut_angles_all.root (run ReconAngleAll.cpp first)\n"); return;}
 
@@ -110,34 +113,6 @@ void QualityStudy(double keepCE = 0.95){
         printf("  %-8s <= %.4g mm   alone keeps %.1f%% CE, %.1f%% recon\n", names[i].c_str(), th[i], cePct, reconPct);
         if (out) fprintf(out, "%s,%.6g,%.3f,%.3f\n", names[i].c_str(), th[i], cePct, reconPct);
 
-        const double xMax = std::max(1e-6, 1.2 * std::max(th[i], Quantile(recon[i], 0.99)));
-        TH1D hCE("hQCE", "", 100, 0, xMax), hRecon("hQRecon", "", 100, 0, xMax);
-        for (double x : ce[i]) hCE.Fill(x);
-        for (double x : recon[i]) hRecon.Fill(x);
-        hCE.SetLineColor(kBlue); hRecon.SetLineColor(kRed); hCE.SetLineWidth(2); hRecon.SetLineWidth(2);
-        hRecon.SetTitle((labels[i] + ", CE recon protons vs all recon protons, recon theta and recon block theta 0-1 deg, no KE cut;" + labels[i] + ";Count").c_str());
-        hRecon.SetStats(0); hCE.SetStats(0);
-        hRecon.SetMinimum(0.5);
-        hRecon.SetMaximum(2.0 * std::max(hRecon.GetMaximum(), hCE.GetMaximum()));
-        hRecon.DrawCopy(); hCE.DrawCopy("same");
-        TLegend leg(0.725, 0.80, 0.99, 0.90); leg.SetTextSize(0.014); // no cut line: the thresholds are in thresholds.csv
-        leg.AddEntry(&hCE, Form("CE recon protons (%zu)", nCE), "l");
-        leg.AddEntry(&hRecon, Form("all recon protons (%zu)", nRecon), "l");
-        leg.Draw();
-        // definition of the variable (ReconAngleAll.cpp), fitted line x = x_{0} + b_{x} z, y = y_{0} + b_{y} z
-        TPaveText eq(0.725, 0.48, 0.99, 0.72, "NDC");
-        eq.SetBorderSize(1); eq.SetFillColor(0); eq.SetTextAlign(12); eq.SetTextSize(0.016);
-        eq.AddText(i % 2 ? "line fit to block hits:" : "line fit to hits:");
-        eq.AddText("#hat{x} = x_{0} + b_{x}z, #hat{y} = y_{0} + b_{y}z");
-        if (i < 2){
-            eq.AddText("SS_{res} = #Sigma_{i} (x_{i} - #hat{x}_{i})^{2} + (y_{i} - #hat{y}_{i})^{2}");
-            eq.AddText("residual = #sqrt{SS_{res} / n}");
-        } else {
-            eq.AddText("impact = |x_{0} b_{y} - y_{0} b_{x}|");
-            eq.AddText("         / #sqrt{b_{x}^{2} + b_{y}^{2}}");
-        }
-        eq.Draw();
-        c.SaveAs((dir + std::to_string(i + 1) + "_" + names[i] + ".pdf").c_str());
     }
 
     // residual_cut_efficiency.csv: study only, no plot applies a residual cut. CE and recon protons kept at three block residual thresholds,

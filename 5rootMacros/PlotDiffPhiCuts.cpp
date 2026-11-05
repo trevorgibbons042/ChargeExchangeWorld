@@ -138,7 +138,7 @@ void PlotDiffPhiCuts(double absLo = 50, double absHi = 180, std::string energy =
     gPad->SetLeftMargin(0.14); gPad->SetBottomMargin(0.13);
 
     const std::string cutLabel = Form("CE recon protons, block phi diff -%g to -%g and %g to %g deg, no other cut, N = %lld", absHi, absLo, absLo, absHi, nSel);
-    const std::string overlayWhat = Form("all recon particles, all recon protons and CE recon protons, block phi diff -%g to -%g and %g to %g deg", absHi, absLo, absLo, absHi); // the title of the log y overlays
+    const std::string overlayWhat = Form("all recon charged particles, all recon protons and CE recon protons, block phi diff -%g to -%g and %g to %g deg", absHi, absLo, absLo, absHi); // the title of the log y overlays
     std::set<std::string> numbersStarted;
     auto save = [&](TH1* h, const std::string& title, const std::string& file, const char* opt, bool squares = false){
         h->SetTitle(PlotTitle(file, title).c_str());
@@ -155,7 +155,7 @@ void PlotDiffPhiCuts(double absLo = 50, double absHi = 180, std::string energy =
                                             nSel + (Long64_t)reconKeys.size());
     save(&hBlockAll, "Position at ZDC BLOCK, " + reconLabel + ", 1 square per ZDC cell" + xy, "2_xy_block_recon.pdf", "colz", true);
 
-    // Recon histograms on log y: all recon particles (green, every row of AnglesRaw), all recon protons (blue, pdg 2212) and the CE recon protons in the phi diff window (red)
+    // Recon histograms on log y: all recon charged particles (green, every row of AnglesRaw), all recon protons (blue, pdg 2212) and the CE recon protons in the phi diff window (red)
     auto drawOverlay = [&](TH1D& hRecon, TH1D& hProt, TH1D& hCE, TH1D* hWin, const std::string& label, const std::string& what, const std::string& file,
                            const std::vector<std::string>& eqLines){
         hRecon.SetLineColor(kGreen + 2); hProt.SetLineColor(kBlue); hCE.SetLineColor(kRed);
@@ -169,7 +169,7 @@ void PlotDiffPhiCuts(double absLo = 50, double absHi = 180, std::string energy =
         canvas->SetLogy(1);
         hRecon.Draw(); hProt.Draw("same"); hCE.Draw("same"); if (hWin) hWin->Draw("same");
         TLegend leg(0.745, 0.72, 0.99, 0.88); leg.SetTextSize(0.014);
-        leg.AddEntry(&hRecon, Form("all recon particles, no cuts (%.0f)", hRecon.GetEntries()), "l");
+        leg.AddEntry(&hRecon, Form("all recon charged particles, no cuts (%.0f)", hRecon.GetEntries()), "l");
         leg.AddEntry(&hProt, Form("all recon protons, no cuts (%.0f)", hProt.GetEntries()), "l");
         leg.AddEntry(&hCE, Form("CE recon protons in window (%.0f, %.2f%%)", hCE.GetEntries(), hRecon.GetEntries() > 0 ? 100.0 * hCE.GetEntries() / hRecon.GetEntries() : 0.0), "l");
         if (hWin) leg.AddEntry(hWin, Form("phi diff window (%.0f)", hWin->GetEntries()), "l");
