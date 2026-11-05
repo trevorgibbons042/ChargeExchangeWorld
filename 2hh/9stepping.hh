@@ -25,7 +25,6 @@ public:
 
 private:
     MyEventAction *fEventAction;
-    std::set<G4int> labeledTracks;
 
     //ZDC energy resolution: sigma/E = sqrt((a/sqrt(E[GeV]))^2 + b^2)
     G4GenericMessenger *fMessenger;
