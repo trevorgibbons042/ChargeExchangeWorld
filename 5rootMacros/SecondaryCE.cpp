@@ -45,17 +45,24 @@ void SecondaryCE(){
     // carbon-block CE only, like the other CE plots (CarbonCeCut in FitCore.h)
     // ce is read once, multithreaded, into one vector per column (Columns, TreeColumns.h; CECreator is a char leaf, read as a std::string), every row of the cache in entry order
     const bool hasVz = ce.GetBranch("CEVertexZ");
-    std::vector<std::string> ceExprs = {"fEvent", "TrackID", "CEPolY", "LastAP", "LastPhiLab", "fX", "fY"};
+    std::vector<std::string> ceExprs = {"fEvent", "TrackID", "CEPolY", "LastAP", "CEPhiNeu(LastTheta, LastPhiLab, CENDirX, CENDirY, CENDirZ)", "fX", "fY"};
     if (hasVz) ceExprs.push_back("CEVertexZ");
     const auto ceCol = Columns(&ce, ceExprs);
     const auto& ceEvent = ceCol[0], &ceTrack = ceCol[1], &cePolY = ceCol[2], &ceAP = ceCol[3], &cePhiLab = ceCol[4], &ceX = ceCol[5], &ceYv = ceCol[6];
-    const auto ceTheta = Columns(&ce, {"LastTheta * 180 / TMath::Pi()"})[0]; // true CE theta (degrees), rows in the order of ceCol: the A_eff of the phi fits comes from its 0.05 degree bins (AEffOfTheta)
+    const auto ceTheta = Columns(&ce, {"CEThetaNeu(LastTheta, LastPhiLab, CENDirX, CENDirY, CENDirZ) * 180 / TMath::Pi()"})[0]; // CETHETA_NEUFRAME (degrees), rows in the order of ceCol: the A_eff of the phi fits comes from its 0.05 degree bins (AEffOfTheta)
+    // the CE recon protons in the estimated neutron frame, for 5_phi_cosfit: (fEvent, CE neutron TrackID = ParentID) -> RECONPHI_ESTNEU, RECONTHETA_ESTNEU (deg; thetaRelN is NAN without a tube, so those protons are left out)
+    std::map<std::pair<int, int>, std::pair<double, double>> reconEst;
+    if (TTree* raw = OpenCut("cuts/cut_angles_all.root", "AnglesRaw")){
+        const auto rr = Columns(raw, {"fEvent", "ParentID", "phiRelN * 180 / TMath::Pi()", "thetaRelN * 180 / TMath::Pi()"}, "isFromCE == 1 && PDG == 2212 && thetaRelN >= 0");
+        for (size_t i = 0; i < rr[0].size(); i++) reconEst[{(int)rr[0][i], (int)rr[1][i]}] = {rr[2][i], rr[3][i]};
+        gROOT->cd();
+    } else {Error("SecondaryCE", "no cuts/cut_angles_all.root (run ReconAngleAll.cpp)"); return;}
     const double apScaleCE = ReadSettings().at("APScale");
     const auto ceCreator = Columns<std::string>(&ce, {"std::string(CECreator.data())"})[0];
     const Long64_t nCE = ceEvent.size();
     const auto creatorGroup = [](const std::string& c){return c == "primary" ? 0 : c == "neutronInelastic" ? 1 : c == "protonInelastic" ? 2 : 3;};
     std::map<std::pair<int, int>, int> groupOf; // (fEvent, CE neutron TrackID) -> 0 beam neutron, 1 neutronInelastic, 2 protonInelastic, 3 every other creator
-    double sA[2] = {0, 0}, sCos[2] = {0, 0}; // model A and cos(lab phi) sums of the beam neutron CE (0) and the secondary CE (1), for the P estimate
+    double sA[2] = {0, 0}, sCos[2] = {0, 0}; // model A (from CETHETA_NEUFRAME) and cos(CEPHI_NEUFRAME) sums of the beam neutron CE (0) and the secondary CE (1), for the P estimate
     TH1D hYprim("hYprim", "", 42, -1.05, 1.05), hYsec("hYsec", "", 42, -1.05, 1.05); // CEPolY of the beam neutron and of the secondary neutrons
     std::map<std::string, long long> byCreator;
     long long nPrim = 0, nSec = 0;
@@ -66,7 +73,7 @@ void SecondaryCE(){
         const int fEvent = (int)ceEvent[k], trackID = (int)ceTrack[k];
         const int g = trackID == 1 ? 0 : 1;
         (g == 0 ? hYprim : hYsec).Fill(cePolY[k]);
-        sA[g] += ceAP[k]; sCos[g] += std::cos(cePhiLab[k]);
+        sA[g] += AEffOfTheta(ceTheta[k], apScaleCE); sCos[g] += std::cos(cePhiLab[k]);
         if (g == 0) nPrim++; else nSec++;
         byCreator[ceCreator[k]]++;
         const int creator = creatorGroup(ceCreator[k]);
@@ -146,7 +153,7 @@ void SecondaryCE(){
     hP.SetLineColor(kBlack); hP.SetLineWidth(2); hP.SetStats(0);
     hP.SetMinimum(0); hP.SetMaximum(1.0);
     hP.GetXaxis()->SetLabelSize(0.022); hP.GetXaxis()->SetTitleOffset(1.6);
-    hP.SetTitle(PlotTitle(pFile, "Fitted polarization P of the CE protons, now and if the neutronInelastic and protonInelastic neutrons were polarized like the beam neutron, no cuts;;P").c_str());
+    hP.SetTitle(PlotTitle(pFile, "Fitted polarization P of the CE protons, CEPHI_NEUFRAME (true neutron frame), now and if the neutronInelastic and protonInelastic neutrons were polarized like the beam neutron, no cuts;;P").c_str());
     canvas.Clear(); canvas.SetLogy(0);
     hP.Draw("hist");
     TLine pRef(0, ReadSettings().at("PPValue"), 5, ReadSettings().at("PPValue")); pRef.SetLineStyle(3); pRef.SetLineWidth(2); pRef.SetLineColor(kRed); pRef.Draw(); // input PPValue
@@ -241,17 +248,18 @@ void SecondaryCE(){
     legXc.Draw();
     WritePlotNumbers(&hXc[0], outDir + xCutFile, numbersStarted);
     canvas.SaveAs((outDir + xCutFile).c_str());
-    // 18_phiCE_cosfit_beam_vs_all.pdf: the cos phi fit of 3_ReconCalcVals/1_phiCE_cosfit.pdf (N(phi) = N0 (1 + P <A> cos phi), N0 = entries / bins and <A> fixed, only P fitted, 50 bins of the CE
-    // proton lab phi) for the CE of the beam neutron only (TrackID 1, red) and for every carbon-block CE (black)
+    // 18_phiRe_cosfit_beam_vs_all.pdf: the cos phi fit of 3_ReconCalcVals/1_phiCE_cosfit.pdf (N(phi) = N0 (1 + P <A> cos phi), N0 = entries / bins and <A> fixed, only P fitted, 50 bins of the CE
+    // proton RECONPHI_ESTNEU, A_eff from RECONTHETA_ESTNEU) for the CE of the beam neutron only (TrackID 1, red) and for every carbon-block CE (black)
     // keep(k) picks the CE rows (it reads the vectors of the ce entry k), what is added to the title; 19_ is the same plot for the CE protons that hit the first tracker inside a square
     const auto phiFitPlot = [&](const std::string& phiFile, const std::string& what, const std::function<bool(Long64_t)>& keep){
         TH1D hPhi[2] = {TH1D("hPhiAll", "", 50, 0, 360), TH1D("hPhiBeam", "", 50, 0, 360)};
-        AMean sAng[2]; long long nPhi[2] = {0, 0}; // sAng: A_eff of each set (the 0.05 degree theta bins of its protons), its mean and error are the fixed A of the fit
+        AMean sAng[2]; long long nPhi[2] = {0, 0}; // sAng: A_eff of each set (AEffOfTheta at the own theta of each proton), its mean and error are the fixed A of the fit
         std::vector<double> phiV[2]; // phi of every CE proton of each set: the unbinned fit below uses them, the histogram only shows them
         for (Long64_t k = 0; k < nCE; k++){
             if (!keep(k)) continue;
-            const double phiRad = cePhiLab[k], aEff = AEffOfTheta(ceTheta[k], apScaleCE); const int trackID = (int)ceTrack[k];
-            const double phiDeg = (phiRad < 0 ? phiRad + TMath::TwoPi() : phiRad) * 180 / TMath::Pi();
+            const auto est = reconEst.find({(int)ceEvent[k], (int)ceTrack[k]}); // the recon proton of this CE, in the estimated neutron frame
+            if (est == reconEst.end()) continue;
+            const double phiDeg = est->second.first, aEff = AEffOfTheta(est->second.second, apScaleCE); const int trackID = (int)ceTrack[k];
             for (int g = 0; g < 2; g++){
                 if (g == 1 && trackID != 1) continue;
                 hPhi[g].Fill(phiDeg); phiV[g].push_back(phiDeg); sAng[g].Add(aEff); nPhi[g]++;
@@ -272,7 +280,7 @@ void SecondaryCE(){
             phiMax = std::max(phiMax, hPhi[g].GetMaximum());
         }
         hPhi[0].SetMinimum(0); hPhi[0].SetMaximum(1.5 * phiMax); // headroom for the fit text
-        hPhi[0].SetTitle(PlotTitle(phiFile, "CE proton lab phi, unbinned cos fit N(#phi) #propto 1 + P A_{eff} cos#phi with A_{eff} fixed, beam neutron CE vs all CE" + what + ";Angle (degrees);Count").c_str());
+        hPhi[0].SetTitle(PlotTitle(phiFile, "CE recon protons, RECONPHI_ESTNEU (estimated neutron frame), unbinned cos fit N(#phi) #propto 1 + P A_{eff} cos#phi with A_{eff} fixed, beam neutron CE vs all CE" + what + ";Angle (degrees);Count").c_str());
         canvas.Clear(); canvas.SetLogy(0);
         hPhi[0].Draw("hist"); hPhi[1].Draw("hist same");
         phiFit[0].DrawCopy("same"); phiFit[1].DrawCopy("same");
@@ -288,9 +296,9 @@ void SecondaryCE(){
         WritePlotNumbers(&hPhi[0], outDir + phiFile, numbersStarted);
         canvas.SaveAs((outDir + phiFile).c_str());
     };
-    phiFitPlot("5_phi_cosfit/18_phiCE_cosfit_beam_vs_all.pdf", ", no cuts", [](Long64_t){return true;});
-    // 19_phiCE_cosfit_beam_vs_all_vertex1mm.pdf: plot 18 for the CE whose vertex (fX, fY, the neutron position at the CE) is inside the 1 mm square, a neutron that scattered before the CE has moved off the beam axis
-    phiFitPlot("5_phi_cosfit/19_phiCE_cosfit_beam_vs_all_vertex1mm.pdf", ", CE vertex within |x|,|y| #leq 1 mm", [&](Long64_t k){return std::fabs(ceX[k]) <= 1 && std::fabs(ceYv[k]) <= 1;});
+    phiFitPlot("5_phi_cosfit/18_phiRe_cosfit_beam_vs_all.pdf", ", no cuts", [](Long64_t){return true;});
+    // 19_phiRe_cosfit_beam_vs_all_vertex1mm.pdf: plot 18 for the CE whose vertex (fX, fY, the neutron position at the CE) is inside the 1 mm square, a neutron that scattered before the CE has moved off the beam axis
+    phiFitPlot("5_phi_cosfit/19_phiRe_cosfit_beam_vs_all_vertex1mm.pdf", ", CE vertex within |x|,|y| #leq 1 mm", [&](Long64_t k){return std::fabs(ceX[k]) <= 1 && std::fabs(ceYv[k]) <= 1;});
     // 16_CE_neutron_vertex_z_by_creator.pdf and 17_..._cut80_by_creator.pdf: z where the CE neutron was made (CEVertexZ, mm), by the process that made it; 17 keeps the CE whose proton is above the 80% KE cut.
     // Needs CEVertexZ in ChargeExchange_values (sim of 28 Oct 2026 or later).
     if (hasVz){

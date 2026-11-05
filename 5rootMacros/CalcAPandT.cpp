@@ -33,7 +33,7 @@ namespace
 }
 
 using Key = std::pair<int, int>;
-struct Angles {double LastPhi, LastTheta, LastMomentum, LastT, LastAP; int PDG; double FinalKE; ULong64_t entry = 0; double resDRms = 0; double FinalKED = 0;}; // FinalKED: the detector KE, for the _DE trees
+struct Angles {double LastPhi, LastTheta, LastMomentum, LastT, LastAP; int PDG; double FinalKE; ULong64_t entry = 0; double resDRms = 0; double FinalKED = 0; double LabPhi = 0, LabTheta = 0;}; // FinalKED: the detector KE, for the _DE trees; LabPhi, LabTheta: recon angles about the lab z axis (rad), no neutron estimate
 
 struct Track {std::vector<Angles> points;};
 
@@ -83,28 +83,29 @@ static void CalcAPandTBoth(bool both){ // both: the true-KE trees and the detect
 
     std::vector<TrackMap> slotTracksCE(dfCEV.GetNSlots());
     dfCEV.ForeachSlot([&](unsigned slot,
-    int eventID, int trackID, double LastPhi, double LastTheta, double LastMomentum, double LastT, double LastAP, double z, ULong64_t entry){
+    int eventID, int trackID, double LastPhiLab, double LastThetaLab, double LastMomentum, double LastT, double LastAP, double z, ULong64_t entry, double dx, double dy, double dz){
         auto &t = slotTracksCE[slot][{eventID, trackID, 0}];
-        // the CE phi is the lab phi of the proton (LastPhiLab, same secondary as LastTheta), wrapped to 0 to 2 pi like the recon phi
-        t.points.push_back({LastPhi < 0 ? LastPhi + 2.0 * M_PI : LastPhi, LastTheta, LastMomentum, LastT, LastAP, 2112, 0.0, entry});
-    },{"fEvent", "TrackID", "LastPhiLab", "LastTheta", "LastMomentum", "LastT", "LastAP", "fZ", "entryNo"});
+        // the CE angles are the lab angles of the proton (LastPhiLab, same secondary as LastTheta) relative to the TRUE neutron direction (CENDirX/Y/Z): CETHETA_NEUFRAME, CEPHI_NEUFRAME (rad, phi 0 to 2 pi)
+        const double LastTheta = CEThetaNeu(LastThetaLab, LastPhiLab, dx, dy, dz), LastPhi = CEPhiNeu(LastThetaLab, LastPhiLab, dx, dy, dz);
+        t.points.push_back({LastPhi, LastTheta, LastMomentum, LastT, LastAP, 2112, 0.0, entry});
+    },{"fEvent", "TrackID", "LastPhiLab", "LastTheta", "LastMomentum", "LastT", "LastAP", "fZ", "entryNo", "CENDirX", "CENDirY", "CENDirZ"});
     std::vector<TrackMap> tracksCE = mergeSlots(slotTracksCE);
 
 
     std::vector<TrackMap> slotTracksAngles(dfAngles.GetNSlots());
     dfAngles.ForeachSlot([&](unsigned slot,
-    int eventID, int ParentID, double outTheta, double outPhi, double outDTheta, double outDPhi, double finalKE, int pdg, ULong64_t entry, double resDRms, double finalKED){
+    int eventID, int ParentID, double thetaRelN, double phiRelN, double thetaRelND, double phiRelND, double finalKE, int pdg, ULong64_t entry, double resDRms, double finalKED, double labPhi, double labTheta, double labPhiD, double labThetaD){
         if (pdg != 2212) {return;}
 
         auto &tRecon = slotTracksAngles[slot][{eventID, ParentID, 1}];
 
 
-        tRecon.points.push_back({outPhi, outTheta, 0.0, 0.0, 0.0, pdg, finalKE, entry, 0.0, finalKED});
+        tRecon.points.push_back({phiRelN, thetaRelN, 0.0, 0.0, 0.0, pdg, finalKE, entry, 0.0, finalKED, labPhi, labTheta});
 
         auto &tReconBlock = slotTracksAngles[slot][{eventID, ParentID, 2}];
 
-        tReconBlock.points.push_back({outDPhi, outDTheta, 0.0, 0.0, 0.0, pdg, finalKE, entry, resDRms, finalKED});
-        },{"fEvent", "ParentID","outTheta", "outPhi", "outDTheta", "outDPhi", KeVar(""), "PDG","entryNo", "resDRms", KeVar("_DE")});
+        tReconBlock.points.push_back({phiRelND, thetaRelND, 0.0, 0.0, 0.0, pdg, finalKE, entry, resDRms, finalKED, labPhiD, labThetaD});
+        },{"fEvent", "ParentID","thetaRelN", "phiRelN", "thetaRelND", "phiRelND", KeVar(""), "PDG","entryNo", "resDRms", KeVar("_DE"), "outPhi", "outTheta", "outDPhi", "outDTheta"});
     std::vector<TrackMap> tracksAngles = mergeSlots(slotTracksAngles);
     
 
@@ -139,6 +140,7 @@ static void CalcAPandTBoth(bool both){ // both: the true-KE trees and the detect
         double outThetaCE, outPhiCE, outMomCE, outTCE, outAPCE;
         double outThetaRe, outPhiRe, outMomRe, outTRe, outAPRe;
         double outThetaReD, outPhiReD, outMomReD, outTReD, outAPReD;
+        double outThetaReLab, outPhiReLab, outThetaReDLab, outPhiReDLab; // recon angles about the lab z axis (degrees), no neutron estimate
         double outThetaReDIFF, outPhiReDIFF, outTReDIFF, outAPReDIFF;
         double outThetaReDDIFF, outPhiReDDIFF, outTReDDIFF, outAPReDDIFF;
 
@@ -172,12 +174,16 @@ static void CalcAPandTBoth(bool both){ // both: the true-KE trees and the detect
         outTree2->Branch("tRe", &outTRe);
         outTree2->Branch("apRe", &outAPRe);
         outTree2->Branch("momRe",  &outMomRe);
+        outTree2->Branch("thetaReLab", &outThetaReLab);
+        outTree2->Branch("phiReLab", &outPhiReLab);
 
         outTree3->Branch("thetaReD", &outThetaReD);
         outTree3->Branch("phiReD", &outPhiReD);
         outTree3->Branch("tReD", &outTReD);
         outTree3->Branch("apReD", &outAPReD);
         outTree3->Branch("momReD", &outMomReD);
+        outTree3->Branch("thetaReDLab", &outThetaReDLab);
+        outTree3->Branch("phiReDLab", &outPhiReDLab);
 
         outTree4->Branch("thetaReD", &outThetaReDIFF);
         outTree4->Branch("phiReD", &outPhiReDIFF);
@@ -220,8 +226,9 @@ static void CalcAPandTBoth(bool both){ // both: the true-KE trees and the detect
                 outPhiCE   = ce.LastPhi*180/TMath::Pi();
                 outThetaCE = ce.LastTheta*180/TMath::Pi();
                 outMomCE   = ce.LastMomentum;
-                outTCE     = ce.LastT;
-                outAPCE    = ce.LastAP;
+                // CE t and AP from the CETHETA_NEUFRAME and the lab beam momentum, the same formula as the recon ones below (the sim LastT, LastAP are about the lab z axis)
+                outTCE     = TFromAngle(pBeam, ce.LastTheta);
+                outAPCE    = APFromT(pBeam, outTCE, apScale);
 
                 outPhiRe   = re.LastPhi*180/TMath::Pi();
                 outThetaRe = re.LastTheta*180/TMath::Pi();
@@ -229,6 +236,8 @@ static void CalcAPandTBoth(bool both){ // both: the true-KE trees and the detect
                 outMomRe   = pBeam;
                 outTRe     = TFromAngle(pBeam, re.LastTheta);
                 outAPRe    = APFromT(pBeam, outTRe, apScale);
+                outPhiReLab = re.LabPhi*180/TMath::Pi(); outThetaReLab = re.LabTheta*180/TMath::Pi();
+                outPhiReDLab = reD.LabPhi*180/TMath::Pi(); outThetaReDLab = reD.LabTheta*180/TMath::Pi();
 
                 outPhiReD   = reD.LastPhi*180/TMath::Pi();
                 outThetaReD = reD.LastTheta*180/TMath::Pi();

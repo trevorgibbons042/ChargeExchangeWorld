@@ -30,6 +30,7 @@
 #include "CutOpen.h"
 #include "CutFiles.h"
 #include "TreeColumns.h"
+#include "PhiCosFit.h"
 
 
 // One output file: tree, draw expression, title text, axis titles, whether to fit the core, file name.
@@ -45,7 +46,7 @@ struct ThetaCut {std::string dir, op, label; double min;}; // op: the theta cut 
 
 // Draws every plot in specs once per KE cut without a theta cut, in <groupDir>/<ke.dir>/<spec file> (a spec file may carry its own subfolder,
 // 1_theta/1_thetaCE.pdf), and once per theta cut where cutPath(spec file, theta cut folder) gives a path; it returns "" for specs that get no
-// theta cuts (only the phi plots do). thetaExpr is the recon theta in degrees for the tree being drawn.
+// theta cuts (only the phi plots do). thetaExpr is the RECONTHETA_ESTNEU in degrees for the tree being drawn.
 // Per KE cut and tree one Columns call (TreeColumns.h) reads the draw expressions of all the specs of that tree and its theta; the histograms are filled from those columns
 // in entry order, so a plot is the one TTree::Draw made, the theta cut is a mask over the rows.
 using CutPath = std::function<std::string(const std::string& file, const std::string& thDir)>;
@@ -165,7 +166,7 @@ static std::vector<double> ThetaEdges(double maxTheta, double binWidth)
 
 // N_particles: every fitted track of any pdg in the bin (N is the pdg 2212 ones).
 // FOM table, csv only, one file per KE cut: <groupDir>/1_csv/<ke.dir>.csv. t is the tree with the recon values (sfx: "Re" true position, "ReD" block position);
-// all is the tree of every proton from every event (AnglesRaw of cut_angles_all.root; the cut list "Angles" + allSfx keeps those that pass the KE cut), allThetaExpr its recon theta in degrees for the same position type.
+// all is the tree of every proton from every event (AnglesRaw of cut_angles_all.root; the cut list "Angles" + allSfx keeps those that pass the KE cut), allThetaExpr its RECONTHETA_ESTNEU in degrees for the same position type.
 // Per theta bin: N = reconstructed protons in the bin (the Angles tree only holds tracks with a fit), N_CE = CE protons in the bin (the ones with AP), eff = N / total neutrons, mean AP of the CE protons,
 // eff*|<AP>| (the FOM) and eff*<AP>^2 (the F^2 term). The last row is the sum over all bins.
 static void WriteFomCsv(const std::string& groupDir, const std::vector<KeCut>& kes, TTree* t, const std::string& sfx, TTree* all, const std::string& allSfx, const std::string& allThetaExpr, const std::vector<double>& thetaEdges)
@@ -223,42 +224,6 @@ static void WriteFomCsv(const std::string& groupDir, const std::vector<KeCut>& k
     }
 }
 
-// phi histogram (50 bins) of t with the polarization fit N(phi) = N0 (1 + P A_eff cos(phi)): N0 = entries / bins (the protons that pass cut) and A_eff = sum_i N_i AP(theta_i) / N0 are fixed, only P is fitted.
-// theta_i are the 0.05 degree theta bins of those protons (AEffOfTheta, FitCore.h); thetaBranch is the theta of the plot in degrees, the CE theta for a CE phi and the recon theta for a recon phi.
-static void PhiCosFit(TCanvas* canvas, TTree* t, const std::string& phiBranch, const std::string& thetaBranch, const std::string& cut, const std::string& name, const std::string& title, const std::string& path){
-    const int nBins = 50;
-    canvas->Clear(); canvas->SetRightMargin(0.25); canvas->SetTopMargin(0.17);
-    TH1* h = MakeHist(name + "(" + std::to_string(nBins) + ",0,360)");
-    std::vector<double> phiAll;
-    AMean aMean; // A_eff of the protons of the fit, with its error
-    if (h){
-        const auto cols = Columns(t, {phiBranch, thetaBranch}, cut); // phi, theta (degrees)
-        phiAll = cols[0];
-        const double apScale = ReadSettings().at("APScale"); // settings.csv from the sim, read once
-        for (size_t k = 0; k < phiAll.size(); k++){h->Fill(phiAll[k]); aMean.Add(AEffOfTheta(cols[1][k], apScale));}
-        h->Draw();
-    }
-    if (!h || h->GetEntries() < 10){canvas->SetRightMargin(0.30); canvas->SetTopMargin(0.1); return;}
-    const double nFit = h->GetEntries();
-    h->SetTitle((title + Form(", %d phi bins of %.1f deg", nBins, 360.0 / nBins) + ";Angle (degrees);Count").c_str());
-    h->SetLineColor(kRed); // CE protons are red
-    const bool block = phiBranch == "phiReD"; // the block phi fit leaves out the spike at 0 (kBlockPhiLo to kBlockPhiHi), the likelihood is normalised over that range
-    const PFit uf = UnbinnedP(phiAll, aMean, block ? kBlockPhiLo : 0, block ? kBlockPhiHi : 360); // unbinned fit of every proton's phi (FitCore.h), A fixed to A_eff
-    TF1& fit = *AddUnbinnedFit(h, "fPhiCos", uf, aMean.Mean(), aMean.Err(), true);
-    fit.SetParameter(0, nFit / nBins);
-    fit.SetLineColor(kBlack);
-    h->SetMinimum(0); h->SetMaximum(1.1 * h->GetMaximum());
-    h->SetName("Fit results"); // the first line of the stats box is the histogram name
-    canvas->Update();
-    if (auto* st = (TPaveStats*)h->FindObject("stats")){st->SetX1NDC(0.76); st->SetX2NDC(0.995); st->SetY1NDC(0.55); st->SetY2NDC(0.83);}
-    TLatex tx; tx.SetNDC(); tx.SetTextSize(0.028);
-    tx.DrawLatex(0.13, 0.90, "Unbinned fit  N(#phi) #propto N_{0} (1 + P #upoint A_{eff} cos#phi) (every proton, no bins), N_{0} = protons / bins, fixed");
-    tx.DrawLatex(0.13, 0.865, Form("A_{eff} = #Sigma N_{i} AP(#theta_{i}) / N_{0} = %.4f #pm %.4f (fixed, 0.05 deg theta bins),   P = %.2f #pm %.2f", aMean.Mean(), aMean.Err(), uf.p, uf.err));
-    canvas->Modified(); canvas->Update();
-    canvas->SaveAs(path.c_str());
-    canvas->SetRightMargin(0.30); canvas->SetTopMargin(0.1);
-}
-
 void PlotAngle(std::string energy = "fKEnergy"){ // energy: "fKEnergy" (true KE) or "fDEnergy" (detector energy), picks the input files and plot folder
     FastJit();
     ROOT::EnableImplicitMT(NThreads()); // implicit MT for the file reads (NThreads: ANA_NTHREADS, FitCore.h)
@@ -276,12 +241,12 @@ void PlotAngle(std::string energy = "fKEnergy"){ // energy: "fKEnergy" (true KE)
     TTree *events4 = (TTree*)File->Get(("CalcValsReDIFF" + suffix).c_str());
     TTree *events5 = (TTree*)File->Get(("CalcValsReDDIFF" + suffix).c_str());
 
-    // All five trees are filled in the same loop (CalcAPandT.cpp), so entries line up and the recon theta can
+    // All five trees are filled in the same loop (CalcAPandT.cpp), so entries line up and the RECONTHETA_ESTNEU can
     // be used to cut every tree.
     for (TTree* t : {events, events3, events4, events5}) t->AddFriend(events2);
     // the diff trees also need the CE value (diff = recon - CE) for the percent error plots
     for (TTree* t : {events4, events5}) t->AddFriend(events);
-    events3->AddFriend(events); // the block recon vs CE theta 2D plot (5_thetaBlockDiff.pdf) needs the CE value next to the block value
+    events3->AddFriend(events); // the block recon vs CETHETA_NEUFRAME 2D plot (5_thetaBlockDiff.pdf) needs the CE value next to the block value
 
     TCanvas* canvas = new TCanvas("canvas", "Plots", 1500, 1200);
     gPad->SetRightMargin(0.30);
@@ -293,8 +258,6 @@ void PlotAngle(std::string energy = "fKEnergy"){ // energy: "fKEnergy" (true KE)
     const std::string ang = "Angle (degrees);Count";
     const std::string diff = "Angle Difference (degrees);Count";
     const std::string pct = "Percent Error (%);Count";
-    const std::string thetaAP = "Theta (degrees);AP";
-    const std::string phiAP = "Phi (degrees);AP";
     auto pctErr = [&](const std::string& diffBranch, const std::string& ceBranch, const std::string& hist){
         // 100 * (a / b), bracketed: TTree::Draw divides first, and a * 100 / b would put values at exactly -100% a rounding step off
         return "100*(" + diffBranch + "/CE" + suffix + "." + ceBranch + ")>>" + hist + "(100,-100,100)";
@@ -307,55 +270,55 @@ void PlotAngle(std::string energy = "fKEnergy"){ // energy: "fKEnergy" (true KE)
     auto reDiff = [&](const std::string& re, const std::string& block){return "(CalcValsRe" + suffix + "." + re + "-" + block + ")";}; // recon minus recon block
     auto wrap360 = [](const std::string& d){return "(" + d + "-360*(" + d + ">180)+360*(" + d + "<-180))";}; // phi difference into -180..180
     std::vector<PlotSpec> specsCE = {
-        {events,  "thetaCE" + thetaHist("hThetaCE"),  "Reconstructed CE protons, CE theta Distribution", ang, false, "1_theta/1_thetaCE.pdf"},
-        {events2, "thetaRe" + thetaHist("hThetaRe"),  "Reconstructed CE protons, recon theta Distribution", ang, false, "1_theta/2_thetaRe.pdf"},
-        // theta matrices, x is the truth (CE theta) and y the reconstructed value; the file names keep the old Diff names
-        {events4, Form("CalcValsRe%s.thetaRe:CE%s.thetaCE>>hThetaDiff(100,0,%g,100,0,%g)", suffix.c_str(), suffix.c_str(), ThetaAxisMax(), ThetaAxisMax()), "Reconstructed CE protons, recon theta vs CE theta", "CE theta (degrees);Recon theta (degrees)", false, "1_theta/4_thetaDiff.pdf", "colz"},
-        {events3, "thetaReD" + thetaHist("hThetaBlock"), "Reconstructed CE protons, recon block theta Distribution", ang, false, "1_theta/3_thetaBlock.pdf"},
-        {events3, Form("thetaReD:CE%s.thetaCE>>hThetaBlockDiff(100,0,%g,100,0,%g)", suffix.c_str(), ThetaAxisMax(), ThetaAxisMax()), "Reconstructed CE protons, recon block theta vs CE theta", "CE theta (degrees);Recon block theta (degrees)", false, "1_theta/5_thetaBlockDiff.pdf", "colz"},
-        {events,  "phiCE>>hPhiCE(100,0,360)",    "Reconstructed CE protons, CE phi Distribution", ang, false, "2_phi/1_phiCE.pdf"},
-        {events2, "phiRe>>hPhiRe(100,0,360)",    "Reconstructed CE protons, recon phi Distribution", ang, false, "2_phi/2_phiRe.pdf"},
-        {events4, "phiReD>>hPhiDiff(100,-180,180)",   "Reconstructed CE protons, difference between CE and Recon Phi", diff, true, "2_phi/4_phiDiff.pdf"},
-        {events3, "phiReD>>hPhiBlock(100,0,360)",   "Reconstructed CE protons, recon block phi Distribution", ang, false, "2_phi/3_phiBlock.pdf"},
-        {events5, "phiReD>>hPhiBlockDiff(100,-180,180)",   "Reconstructed CE protons, difference between CE and Recon Block Phi", diff, true, "2_phi/5_phiBlockDiff.pdf"},
-        {events,  "tCE>>hTCE(100,0,0.05)", "Reconstructed CE protons, CE t Distribution", "t;Count", false, "3_t/1_tCE.pdf"},
-        {events2, "tRe>>hTRe(100,0,0.05)", "Reconstructed CE protons, recon t Distribution", "t;Count", false, "3_t/2_tRe.pdf"},
-        {events4, "tReD>>hTDiff(100,-0.05,0.05)", "Reconstructed CE protons, difference between CE and Recon t", "t Difference;Count", true, "3_t/4_tDiff.pdf"},
-        {events3, "tReD>>hTBlock(100,0,0.05)", "Recon block t Distribution", "t;Count", false, "3_t/3_tBlock.pdf"},
-        {events5, "tReD>>hTBlockDiff(100,-0.05,0.05)", "Difference between CE and Recon Block t", "t Difference;Count", true, "3_t/5_tBlockDiff.pdf"},
-        {events,  "apCE>>hAPCE(100,-1,0)",     "Reconstructed CE protons, CE AP Distribution", "AP;Count", false, "4_ap/1_apCE.pdf"},
-        {events2, "apRe>>hAPRe(100,-1,0)",     "Recon AP Distribution", "AP;Count", false, "4_ap/2_apRe.pdf"},
-        {events4, "apReD>>hAPDiff(100,-0.15,0.1)",    "Difference between CE and Recon AP", "AP Difference;Count", true, "4_ap/4_apDiff.pdf"},
-        {events3, "apReD>>hAPBlock(100,-1,0)",    "Recon block AP Distribution", "AP;Count", false, "4_ap/3_apBlock.pdf"},
-        {events5, "apReD>>hAPBlockDiff(100,-0.15,0.1)",    "Difference between CE and Recon Block AP", "AP Difference;Count", true, "4_ap/5_apBlockDiff.pdf"},
+        {events,  "thetaCE" + thetaHist("hThetaCE"),  "Reconstructed CE protons, CETHETA_NEUFRAME Distribution", ang, false, "1_theta/1_thetaCE.pdf"},
+        {events2, "thetaRe" + thetaHist("hThetaRe"),  "Reconstructed CE protons, RECONTHETA_ESTNEU Distribution", ang, false, "1_theta/2_thetaRe.pdf"},
+        // theta matrices, x is the truth (CETHETA_NEUFRAME) and y the reconstructed value; the file names keep the old Diff names
+        {events4, Form("CalcValsRe%s.thetaRe:CE%s.thetaCE>>hThetaDiff(100,0,%g,100,0,%g)", suffix.c_str(), suffix.c_str(), ThetaAxisMax(), ThetaAxisMax()), "Reconstructed CE protons, RECONTHETA_ESTNEU vs CETHETA_NEUFRAME", "CETHETA_NEUFRAME (degrees);RECONTHETA_ESTNEU (degrees)", false, "1_theta/4_thetaDiff.pdf", "colz"},
+        {events3, "thetaReD" + thetaHist("hThetaBlock"), "Reconstructed CE protons, RECONTHETABL_ESTNEU Distribution", ang, false, "1_theta/3_thetaBlock.pdf"},
+        {events3, Form("thetaReD:CE%s.thetaCE>>hThetaBlockDiff(100,0,%g,100,0,%g)", suffix.c_str(), ThetaAxisMax(), ThetaAxisMax()), "Reconstructed CE protons, RECONTHETABL_ESTNEU vs CETHETA_NEUFRAME", "CETHETA_NEUFRAME (degrees);RECONTHETABL_ESTNEU (degrees)", false, "1_theta/5_thetaBlockDiff.pdf", "colz"},
+        {events,  "phiCE>>hPhiCE(100,0,360)",    "Reconstructed CE protons, CEPHI_NEUFRAME Distribution", ang, false, "2_phi/1_phiCE.pdf"},
+        {events2, "phiRe>>hPhiRe(100,0,360)",    "Reconstructed CE protons, RECONPHI_ESTNEU Distribution", ang, false, "2_phi/2_phiRe.pdf"},
+        {events4, "phiReD>>hPhiDiff(100,-180,180)",   "Reconstructed CE protons, difference between CEPHI_NEUFRAME and RECONPHI_ESTNEU", diff, true, "2_phi/4_phiDiff.pdf"},
+        {events3, "phiReD>>hPhiBlock(100,0,360)",   "Reconstructed CE protons, RECONPHIBL_ESTNEU Distribution", ang, false, "2_phi/3_phiBlock.pdf"},
+        {events5, "phiReD>>hPhiBlockDiff(100,-180,180)",   "Reconstructed CE protons, difference between CEPHI_NEUFRAME and RECONPHIBL_ESTNEU", diff, true, "2_phi/5_phiBlockDiff.pdf"},
+        {events,  "tCE>>hTCE(100,0,0.05)", "Reconstructed CE protons, t from CETHETA_NEUFRAME Distribution", "t;Count", false, "3_t/1_tCE.pdf"},
+        {events2, "tRe>>hTRe(100,0,0.05)", "Reconstructed CE protons, t from RECONTHETA_ESTNEU Distribution", "t;Count", false, "3_t/2_tRe.pdf"},
+        {events4, "tReD>>hTDiff(100,-0.05,0.05)", "Reconstructed CE protons, difference between t from CETHETA_NEUFRAME and t from RECONTHETA_ESTNEU", "t Difference;Count", true, "3_t/4_tDiff.pdf"},
+        {events3, "tReD>>hTBlock(100,0,0.05)", "t from RECONTHETABL_ESTNEU Distribution", "t;Count", false, "3_t/3_tBlock.pdf"},
+        {events5, "tReD>>hTBlockDiff(100,-0.05,0.05)", "Difference between t from CETHETA_NEUFRAME and t from RECONTHETABL_ESTNEU", "t Difference;Count", true, "3_t/5_tBlockDiff.pdf"},
+        {events,  "apCE>>hAPCE(100,-1,0)",     "Reconstructed CE protons, AP from CETHETA_NEUFRAME Distribution", "AP;Count", false, "4_ap/1_apCE.pdf"},
+        {events2, "apRe>>hAPRe(100,-1,0)",     "AP from RECONTHETA_ESTNEU Distribution", "AP;Count", false, "4_ap/2_apRe.pdf"},
+        {events4, "apReD>>hAPDiff(100,-0.15,0.1)",    "Difference between AP from CETHETA_NEUFRAME and AP from RECONTHETA_ESTNEU", "AP Difference;Count", true, "4_ap/4_apDiff.pdf"},
+        {events3, "apReD>>hAPBlock(100,-1,0)",    "AP from RECONTHETABL_ESTNEU Distribution", "AP;Count", false, "4_ap/3_apBlock.pdf"},
+        {events5, "apReD>>hAPBlockDiff(100,-0.15,0.1)",    "Difference between AP from CETHETA_NEUFRAME and AP from RECONTHETABL_ESTNEU", "AP Difference;Count", true, "4_ap/5_apBlockDiff.pdf"},
         // recon minus recon block (events3 has the recon tree events2 as friend, same entries)
-        {events3, Form("thetaReD:CalcValsRe%s.thetaRe>>hThetaReBlockDiff(100,0,%g,100,0,%g)", suffix.c_str(), ThetaAxisMax(), ThetaAxisMax()), "Reconstructed CE protons, recon block theta vs recon theta", "Recon theta (degrees);Recon block theta (degrees)", false, "1_theta/7_thetaReBlockDiff.pdf", "colz"},
-        {events3, wrap360(reDiff("phiRe", "phiReD")) + ">>hPhiReBlockDiff(72,-180,180)", "Reconstructed CE protons, difference between Recon and Recon Block Phi", diff, true, "2_phi/8_phiReBlockDiff.pdf"},
-        {events3, reDiff("tRe", "tReD") + ">>hTReBlockDiff(100,-0.05,0.05)", "Difference between Recon and Recon Block t", "t Difference;Count", true, "3_t/8_tReBlockDiff.pdf"},
-        {events3, reDiff("apRe", "apReD") + ">>hAPReBlockDiff(100,-0.15,0.1)", "Difference between Recon and Recon Block AP", "AP Difference;Count", true, "4_ap/8_apReBlockDiff.pdf"},
+        {events3, Form("thetaReD:CalcValsRe%s.thetaRe>>hThetaReBlockDiff(100,0,%g,100,0,%g)", suffix.c_str(), ThetaAxisMax(), ThetaAxisMax()), "Reconstructed CE protons, RECONTHETABL_ESTNEU vs RECONTHETA_ESTNEU", "RECONTHETA_ESTNEU (degrees);RECONTHETABL_ESTNEU (degrees)", false, "1_theta/7_thetaReBlockDiff.pdf", "colz"},
+        {events3, wrap360(reDiff("phiRe", "phiReD")) + ">>hPhiReBlockDiff(72,-180,180)", "Reconstructed CE protons, difference between RECONPHI_ESTNEU and RECONPHIBL_ESTNEU", diff, true, "2_phi/8_phiReBlockDiff.pdf"},
+        {events3, reDiff("tRe", "tReD") + ">>hTReBlockDiff(100,-0.05,0.05)", "Difference between t from RECONTHETA_ESTNEU and t from RECONTHETABL_ESTNEU", "t Difference;Count", true, "3_t/8_tReBlockDiff.pdf"},
+        {events3, reDiff("apRe", "apReD") + ">>hAPReBlockDiff(100,-0.15,0.1)", "Difference between AP from RECONTHETA_ESTNEU and AP from RECONTHETABL_ESTNEU", "AP Difference;Count", true, "4_ap/8_apReBlockDiff.pdf"},
         // percent error = 100 * (recon - CE) / CE, CE value from the friend CE tree; clipped to +-100%
-        {events4, pctErr("thetaReD", "thetaCE", "hPctTheta"), "Percent Error of Recon Theta vs CE", pct, true, "1_theta/6_thetaPct.pdf"},
-        {events5, pctErr("thetaReD", "thetaCE", "hPctThetaB"), "Percent Error of Recon Block Theta vs CE", pct, true, "1_theta/6_thetaBlockPct.pdf"},
-        {events4, pctErr("phiReD", "phiCE", "hPctPhi"), "Percent Error of Recon Phi vs CE", pct, true, "2_phi/6_phiPct.pdf"},
-        {events5, pctErr("phiReD", "phiCE", "hPctPhiB"), "Percent Error of Recon Block Phi vs CE", pct, true, "2_phi/7_phiBlockPct.pdf"},
-        {events4, pctErr("tReD", "tCE", "hPctT"), "Percent Error of Recon t vs CE", pct, true, "3_t/6_tPct.pdf"},
-        {events5, pctErr("tReD", "tCE", "hPctTB"), "Percent Error of Recon Block t vs CE", pct, true, "3_t/7_tBlockPct.pdf"},
-        {events4, pctErr("apReD", "apCE", "hPctAP"), "Percent Error of Recon AP vs CE", pct, true, "4_ap/6_apPct.pdf"},
-        {events5, pctErr("apReD", "apCE", "hPctAPB"), "Percent Error of Recon Block AP vs CE", pct, true, "4_ap/7_apBlockPct.pdf"},
+        {events4, pctErr("thetaReD", "thetaCE", "hPctTheta"), "Percent Error of RECONTHETA_ESTNEU vs CETHETA_NEUFRAME", pct, true, "1_theta/6_thetaPct.pdf"},
+        {events5, pctErr("thetaReD", "thetaCE", "hPctThetaB"), "Percent Error of RECONTHETABL_ESTNEU vs CETHETA_NEUFRAME", pct, true, "1_theta/6_thetaBlockPct.pdf"},
+        {events4, pctErr("phiReD", "phiCE", "hPctPhi"), "Percent Error of RECONPHI_ESTNEU vs CEPHI_NEUFRAME", pct, true, "2_phi/6_phiPct.pdf"},
+        {events5, pctErr("phiReD", "phiCE", "hPctPhiB"), "Percent Error of RECONPHIBL_ESTNEU vs CEPHI_NEUFRAME", pct, true, "2_phi/7_phiBlockPct.pdf"},
+        {events4, pctErr("tReD", "tCE", "hPctT"), "Percent Error of t from RECONTHETA_ESTNEU vs CE t from CETHETA_NEUFRAME", pct, true, "3_t/6_tPct.pdf"},
+        {events5, pctErr("tReD", "tCE", "hPctTB"), "Percent Error of t from RECONTHETABL_ESTNEU vs CE t from CETHETA_NEUFRAME", pct, true, "3_t/7_tBlockPct.pdf"},
+        {events4, pctErr("apReD", "apCE", "hPctAP"), "Percent Error of AP from RECONTHETA_ESTNEU vs CE AP from CETHETA_NEUFRAME", pct, true, "4_ap/6_apPct.pdf"},
+        {events5, pctErr("apReD", "apCE", "hPctAPB"), "Percent Error of AP from RECONTHETABL_ESTNEU vs CE AP from CETHETA_NEUFRAME", pct, true, "4_ap/7_apBlockPct.pdf"},
         // angle (degrees) vs AP; x is AP, y is the angle
-        {events,  Form("apCE:thetaCE>>hThetaAPCE(100,0,%g,100,-1,0)", ThetaAxisMax()),    "Reconstructed CE protons, CE theta vs AP",          thetaAP, false, "5_angle_vs_ap/1_thetaVsAP/1_thetaVsApCE.pdf", "colz"},
-        {events2, Form("apRe:thetaRe>>hThetaAPRe(100,0,%g,100,-1,0)", ThetaAxisMax()),    "Recon theta vs AP",       thetaAP, false, "5_angle_vs_ap/1_thetaVsAP/2_thetaVsApRe.pdf", "colz"},
-        {events3, Form("apReD:thetaReD>>hThetaAPBlock(100,0,%g,100,-1,0)", ThetaAxisMax()), "Recon block theta vs AP", thetaAP, false, "5_angle_vs_ap/1_thetaVsAP/3_thetaVsApBlock.pdf", "colz"},
-        {events,  "apCE:phiCE>>hPhiAPCE(100,0,360,100,-1,0)",        "Reconstructed CE protons, CE phi vs AP",            phiAP, false, "5_angle_vs_ap/2_phiVsAP/1_phiVsApCE.pdf", "colz"},
-        {events2, "apRe:phiRe>>hPhiAPRe(100,0,360,100,-1,0)",        "Recon phi vs AP",         phiAP, false, "5_angle_vs_ap/2_phiVsAP/2_phiVsApRe.pdf", "colz"},
-        {events3, "apReD:phiReD>>hPhiAPBlock(100,0,360,100,-1,0)",   "Recon block phi vs AP",   phiAP, false, "5_angle_vs_ap/2_phiVsAP/3_phiVsApBlock.pdf", "colz"}};
+        {events,  Form("apCE:thetaCE>>hThetaAPCE(100,0,%g,100,-1,0)", ThetaAxisMax()),    "Reconstructed CE protons, CETHETA_NEUFRAME vs AP",          std::string("CETHETA_NEUFRAME (degrees);AP"), false, "5_angle_vs_ap/1_thetaVsAP/1_thetaVsApCE.pdf", "colz"},
+        {events2, Form("apRe:thetaRe>>hThetaAPRe(100,0,%g,100,-1,0)", ThetaAxisMax()),    "RECONTHETA_ESTNEU vs AP",       std::string("RECONTHETA_ESTNEU (degrees);AP"), false, "5_angle_vs_ap/1_thetaVsAP/2_thetaVsApRe.pdf", "colz"},
+        {events3, Form("apReD:thetaReD>>hThetaAPBlock(100,0,%g,100,-1,0)", ThetaAxisMax()), "RECONTHETABL_ESTNEU vs AP", std::string("RECONTHETABL_ESTNEU (degrees);AP"), false, "5_angle_vs_ap/1_thetaVsAP/3_thetaVsApBlock.pdf", "colz"},
+        {events,  "apCE:phiCE>>hPhiAPCE(100,0,360,100,-1,0)",        "Reconstructed CE protons, CEPHI_NEUFRAME vs AP",            std::string("CEPHI_NEUFRAME (degrees);AP"), false, "5_angle_vs_ap/2_phiVsAP/1_phiVsApCE.pdf", "colz"},
+        {events2, "apRe:phiRe>>hPhiAPRe(100,0,360,100,-1,0)",        "RECONPHI_ESTNEU vs AP",         std::string("RECONPHI_ESTNEU (degrees);AP"), false, "5_angle_vs_ap/2_phiVsAP/2_phiVsApRe.pdf", "colz"},
+        {events3, "apReD:phiReD>>hPhiAPBlock(100,0,360,100,-1,0)",   "RECONPHIBL_ESTNEU vs AP",   std::string("RECONPHIBL_ESTNEU (degrees);AP"), false, "5_angle_vs_ap/2_phiVsAP/3_phiVsApBlock.pdf", "colz"}};
 
     // AP difference (recon - CE) and its percent error against the CE angle, for the true position recon (events4) and the block recon (events5)
     {
         struct DiffSet {TTree* tree; std::string ap, name, what;};
-        const std::vector<DiffSet> dsets = {{events4, "apReD", "Re", "Recon"}, {events5, "apReD", "Block", "Recon block"}};
+        const std::vector<DiffSet> dsets = {{events4, "apReD", "Re", "AP from RECONTHETA_ESTNEU"}, {events5, "apReD", "Block", "AP from RECONTHETABL_ESTNEU"}};
         struct AngleAxis {std::string ce, dir, name, label, xrange;};
-        const std::vector<AngleAxis> axesSets = {{"thetaCE", "1_thetaVsAP", "theta", "Theta (degrees)", Form("0,%g", ThetaAxisMax())}, {"phiCE", "2_phiVsAP", "phi", "Phi (degrees)", "0,360"}};
+        const std::vector<AngleAxis> axesSets = {{"thetaCE", "1_thetaVsAP", "theta", "CETHETA_NEUFRAME (degrees)", Form("0,%g", ThetaAxisMax())}, {"phiCE", "2_phiVsAP", "phi", "CEPHI_NEUFRAME (degrees)", "0,360"}};
         for (const auto& ax : axesSets) {
             // after the three 2D plots already in the folder: AP differences first (4-5), then percent errors (6-7)
             for (size_t i = 0; i < dsets.size(); i++) {
@@ -364,10 +327,10 @@ void PlotAngle(std::string energy = "fKEnergy"){ // energy: "fKEnergy" (true KE)
                 const std::string apCE = "CE" + suffix + ".apCE";
                 const std::string base = "5_angle_vs_ap/" + ax.dir + "/";
                 specsCE.push_back({d.tree, d.ap + ":" + x + ">>h" + ax.name + "ApDiff" + d.name + "(100," + ax.xrange + ",100,-0.15,0.1)",
-                                   "AP difference (" + d.what + " - CE) vs CE " + ax.name, ax.label + ";AP Difference", false,
+                                   "AP difference (" + d.what + " - CE AP) vs " + (ax.name == "theta" ? "CETHETA_NEUFRAME" : "CEPHI_NEUFRAME"), ax.label + ";AP Difference", false,
                                    base + std::to_string(4 + i) + "_" + ax.name + "ApDiff" + d.name + ".pdf", "colz"});
                 specsCE.push_back({d.tree, "100*(" + d.ap + "/" + apCE + "):" + x + ">>h" + ax.name + "ApPct" + d.name + "(100," + ax.xrange + ",100,-100,100)",
-                                   "AP percent error (" + d.what + " vs CE) vs CE " + ax.name, ax.label + ";AP Percent Error (%)", false,
+                                   "AP percent error (" + d.what + " vs CE AP) vs " + (ax.name == "theta" ? "CETHETA_NEUFRAME" : "CEPHI_NEUFRAME"), ax.label + ";AP Percent Error (%)", false,
                                    base + std::to_string(6 + i) + "_" + ax.name + "ApPct" + d.name + ".pdf", "colz"});
             }
         }
@@ -381,20 +344,20 @@ void PlotAngle(std::string energy = "fKEnergy"){ // energy: "fKEnergy" (true KE)
     if (!all){Error("PlotAngle", "AnglesRaw missing in cuts/cut_angles_all.root (rerun ReconAngleAll.cpp)"); return;}
 
     printf("[PlotAngle] FOM setup %s\n", TDatime().AsSQLString()); fflush(stdout);
-    // up to the largest recon theta of any reconstructed proton (true or block), so every one lands in a bin
+    // up to the largest RECONTHETA_ESTNEU of any reconstructed proton (true or block), so every one lands in a bin
     ROOT::RDataFrame dfAll(*all);
-    auto maxT = dfAll.Max<double>("outTheta"), maxDT = dfAll.Max<double>("outDTheta");
+    auto maxT = dfAll.Max<double>("thetaRelN"), maxDT = dfAll.Max<double>("thetaRelND");
     const double maxTheta = std::max(*maxT, *maxDT) * 180.0 / TMath::Pi() + 1e-6;
     const std::vector<double> thetaEdges = ThetaEdges(maxTheta, 0.001);
 
     printf("[PlotAngle] %zu theta bins, writing FOM csv %s\n", thetaEdges.size() - 1, TDatime().AsSQLString()); fflush(stdout);
     // FOM tables: reconstructed protons from all events (N) and the CE protons with AP (N_CE) per theta bin
     const std::vector<KeCut> keFom = {keCE.front()}; // the FOM tables have no KE and no residual cuts
-    WriteFomCsv(fomDir + "1_reconTheta", keFom, events2, "Re", all, suffix, "outTheta*180/TMath::Pi()", thetaEdges);
-    WriteFomCsv(fomDir + "2_reconBlockTheta", keFom, events3, "ReD", all, suffix, "outDTheta*180/TMath::Pi()", thetaEdges);
+    WriteFomCsv(fomDir + "1_reconTheta_estneu", keFom, events2, "Re", all, suffix, "thetaRelN*180/TMath::Pi()", thetaEdges);
+    WriteFomCsv(fomDir + "2_reconBlockTheta_estneu", keFom, events3, "ReD", all, suffix, "thetaRelND*180/TMath::Pi()", thetaEdges);
 
     printf("[PlotAngle] FOM csv done %s\n", TDatime().AsSQLString()); fflush(stdout);
-    // every recon proton, no theta acceptance cut, so the theta plots run up to the largest recon theta
+    // every recon proton, no theta acceptance cut, so the theta plots run up to the largest RECONTHETA_ESTNEU
     const std::string deg = "*180/TMath::Pi()";
 
     // 3_ReconCalcVals only holds detector energy plots, so the true KE pass stops after its FOM tables
@@ -413,12 +376,16 @@ void PlotAngle(std::string energy = "fKEnergy"){ // energy: "fKEnergy" (true KE)
         TTree* rawCE = OpenCut("cuts/cut_CE.root", "ChargeExchange_values");
         gROOT->cd();
         const std::string ceCut = "";
-        // A_eff of each fit is built inside PhiCosFit from the 0.05 degree theta bins of the protons of that fit: the true CE theta (LastTheta, rad) for the CE phi, the recon theta for the recon phi
-        PhiCosFit(canvas, rawCE, "(LastPhiLab < 0 ? LastPhiLab + 2 * TMath::Pi() : LastPhiLab) * 180 / TMath::Pi()", "LastTheta * 180 / TMath::Pi()", ceCut, "hPhiCEfit", "All CE protons (every carbon-block CE), CE phi Distribution, no cuts", phiDir + "1_phiCE_cosfit.pdf");
+        // A_eff of each fit is built inside PhiCosFit from the own theta of each proton of that fit (no theta bins): the CETHETA_NEUFRAME (LastTheta, rad) for the CEPHI_NEUFRAME, the RECONTHETA_ESTNEU for the RECONPHI_ESTNEU
+        PhiCosFit(canvas, rawCE, "CEPhiNeu(LastTheta, LastPhiLab, CENDirX, CENDirY, CENDirZ) * 180 / TMath::Pi()", "CEThetaNeu(LastTheta, LastPhiLab, CENDirX, CENDirY, CENDirZ) * 180 / TMath::Pi()", ceCut, "hPhiCEfit", "All CE protons (every carbon-block CE), CEPHI_NEUFRAME Distribution, no cuts", phiDir + "1_phiCE_cosfit.pdf");
         // the same events at the recon angles (CE protons with a recon track)
-        PhiCosFit(canvas, events, "phiRe", "thetaRe", "", "hPhiRefit", "Reconstructed CE protons, recon phi Distribution, no cuts", phiDir + "2_phiRe_cosfit.pdf");
-        // the same fit at the block position recon phi (phiReD) and block theta (thetaReD)
-        PhiCosFit(canvas, events3, "phiReD", "thetaReD", Form("phiReD >= %g && phiReD <= %g", kBlockPhiLo, kBlockPhiHi), "hPhiReDfit", std::string("Reconstructed CE protons, recon block phi Distribution, fit phi ") + "0.5 to 359.5 deg (spike at 0 left out), no other cuts", phiDir + "5_phiReD_cosfit.pdf");
+        PhiCosFit(canvas, events, "phiRe", "thetaRe", "", "hPhiRefit", "Reconstructed CE protons, RECONPHI_ESTNEU Distribution, no cuts", phiDir + "2_phiRe_cosfit.pdf");
+        // the same fit at the block position RECONPHI_ESTNEU (phiReD) and block theta (thetaReD)
+        PhiCosFit(canvas, events3, "phiReD", "thetaReD", Form("phiReD >= %g && phiReD <= %g", kBlockPhiLo, kBlockPhiHi), "hPhiReDfit", std::string("Reconstructed CE protons, RECONPHIBL_ESTNEU Distribution, fit phi ") + "0.5 to 359.5 deg (spike at 0 left out), no other cuts", phiDir + "5_phiReD_cosfit.pdf");
+        // the same three fits with the angles about the lab z axis, no neutron frame and no neutron estimate (CE: LastPhiLab, LastTheta; recon: outPhi/outTheta, outDPhi/outDTheta of ReconAngleAll)
+        PhiCosFit(canvas, rawCE, "std::fmod(LastPhiLab * 180 / TMath::Pi() + 360.0, 360.0)", "LastTheta * 180 / TMath::Pi()", ceCut, "hPhiCELabfit", "All CE protons (every carbon-block CE), CE phi about the lab z axis (no neutron frame), no cuts", phiDir + "1_phiCELab_cosfit.pdf");
+        PhiCosFit(canvas, events2, "phiReLab", "thetaReLab", "", "hPhiReLabfit", "Reconstructed CE protons, recon phi about the lab z axis (no neutron estimate), no cuts", phiDir + "2_phiReLab_cosfit.pdf");
+        PhiCosFit(canvas, events3, "phiReDLab", "thetaReDLab", Form("phiReDLab >= %g && phiReDLab <= %g", kBlockPhiLo, kBlockPhiHi), "hPhiReDLabfit", std::string("Reconstructed CE protons, block recon phi about the lab z axis (no neutron estimate), fit phi ") + "0.5 to 359.5 deg (spike at 0 left out), no other cuts", phiDir + "5_phiReDLab_cosfit.pdf");
     }
     printf("[PlotAngle] CE plots done %s\n", TDatime().AsSQLString()); fflush(stdout);
 }

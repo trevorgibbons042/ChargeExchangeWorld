@@ -22,7 +22,7 @@
 #include "FitCore.h"
 #include "CutFiles.h"
 
-// Protons whose recon block phi is off from the CE phi by absLo to absHi degrees either way, -absHi to -absLo or absLo to absHi (CalcValsReDDIFF.phiReD in cut_APandT.root).
+// Protons whose RECONPHIBL_ESTNEU is off from the CEPHI_NEUFRAME by absLo to absHi degrees either way, -absHi to -absLo or absLo to absHi (CalcValsReDDIFF.phiReD in cut_APandT.root).
 // The block phi diff window is the only cut: no KE cut, no block residual cut. The xy plots need a ZDC position, so they hold the ZDC hits only.
 // Their ZDC positions come from cut_ParentZdc.root, matched on (fEvent, ParentID).
 // energy: "fKEnergy" (true KE) or "fDEnergy" (detector energy), picks the input trees like PlotAngle.cpp. Next to each window plot the same for every recon
@@ -52,9 +52,9 @@ void PlotDiffPhiCuts(double absLo = 50, double absHi = 180, std::string energy =
     TTree* ang = fAng ? (TTree*)fAng->Get(kAngleTree) : nullptr;
     if (!ang || !ang->GetBranch("r2D")){Error("PlotDiffPhiCuts", "AnglesRaw with r2D missing in cut_angles_all.root (rerun ReconAngleAll.cpp)"); return;}
     const std::string angSel = AngleSelection("Angles"); // the same rows for both column sets, so they line up
-    auto cAng = plan.C(ang, {"fEvent", "TrackID", KeVar(suffix), "isFromCE", "resDRms", "outPhi", "outDPhi", "ParentID", "PDG"}, angSel);
+    auto cAng = plan.C(ang, {"fEvent", "TrackID", KeVar(suffix), "isFromCE", "resDRms", "phiRelN", "phiRelND", "ParentID", "PDG"}, angSel);
     DrawPlan::Cols cEx;
-    if (ang->GetBranch("nProtonsEv")) cEx = plan.C(ang, {"resRms", "nProtonsEv", "resHalfRatioD", "outTheta*180/TMath::Pi()", "outDTheta*180/TMath::Pi()", "nHits"}, angSel);
+    if (ang->GetBranch("nProtonsEv")) cEx = plan.C(ang, {"resRms", "nProtonsEv", "resHalfRatioD", "thetaRelN*180/TMath::Pi()", "thetaRelND*180/TMath::Pi()", "nHits"}, angSel);
     // ZDC protons of the CE children (pos) and of every event (allEv), the cut files: every row passes the ZDC proton cut
     TTree* allEv = OpenCut("cuts/cut_AllEvProtons.root", "ParticleInfo");
     if (!allEv){Error("PlotDiffPhiCuts", "cuts/cut_AllEvProtons.root missing (run CutEvents.cpp)"); return;}
@@ -81,8 +81,8 @@ void PlotDiffPhiCuts(double absLo = 50, double absHi = 180, std::string energy =
     const Long64_t nAng = cAng.N();
     std::vector<const double*> angCols(9); // views of the DrawPlan columns, no copy
     for (int c = 0; c < 9; c++) angCols[c] = cAng.V(c);
-    // every recon proton (all events, CE ones included) in the same block phi diff window: the CE protons keep their block phi - CE phi
-    // window above, the non-CE ones have no CE phi so their diff is recon block phi - recon tracker phi (outPhi), wrapped to -180 to 180
+    // every recon proton (all events, CE ones included) in the same block phi diff window: the CE protons keep their block phi - CEPHI_NEUFRAME
+    // window above, the non-CE ones have no CEPHI_NEUFRAME so their diff is RECONPHIBL_ESTNEU - recon tracker phi (phiRelN), wrapped to -180 to 180
     // like CalcAPandT.cpp. ceWinKeys: the window CE protons as (fEvent, proton TrackID), the Angles tree key: AnglesRaw rows from a CE neutron in keys (ParentID)
     KeySet reconKeys, ceWinKeys;
     struct AngKeys {std::vector<uint64_t> ce, recon;};
@@ -137,8 +137,8 @@ void PlotDiffPhiCuts(double absLo = 50, double absHi = 180, std::string energy =
     gPad->SetRightMargin(0.30);
     gPad->SetLeftMargin(0.14); gPad->SetBottomMargin(0.13);
 
-    const std::string cutLabel = Form("CE recon protons, block phi diff -%g to -%g and %g to %g deg, no other cut, N = %lld", absHi, absLo, absLo, absHi, nSel);
-    const std::string overlayWhat = Form("all recon charged particles, all recon protons and CE recon protons, block phi diff -%g to -%g and %g to %g deg", absHi, absLo, absLo, absHi); // the title of the log y overlays
+    const std::string cutLabel = Form("CE recon protons, RECONPHIBL_ESTNEU - CEPHI_NEUFRAME -%g to -%g and %g to %g deg, no other cut, N = %lld", absHi, absLo, absLo, absHi, nSel);
+    const std::string overlayWhat = Form("all recon charged particles, all recon protons and CE recon protons, RECONPHIBL_ESTNEU - CEPHI_NEUFRAME -%g to -%g and %g to %g deg", absHi, absLo, absLo, absHi); // the title of the log y overlays
     std::set<std::string> numbersStarted;
     auto save = [&](TH1* h, const std::string& title, const std::string& file, const char* opt, bool squares = false){
         h->SetTitle(PlotTitle(file, title).c_str());
@@ -151,7 +151,7 @@ void PlotDiffPhiCuts(double absLo = 50, double absHi = 180, std::string energy =
     };
     const std::string xy = ";X Position (mm);Y Position (mm)";
     save(&hBlock, "Position at ZDC BLOCK, " + cutLabel + ", hit ZDC (position), 1 square per ZDC cell" + xy, "1_xy_block.pdf", "colz", true);
-    const std::string reconLabel = Form("all recon protons, block phi diff -%g to -%g and %g to %g deg (CE: block - CE, non-CE: block - tracker), no other cut, N = %lld", absHi, absLo, absLo, absHi,
+    const std::string reconLabel = Form("all recon protons, RECONPHIBL_ESTNEU - CEPHI_NEUFRAME -%g to -%g and %g to %g deg (CE: RECONPHIBL_ESTNEU - CEPHI_NEUFRAME, non-CE: RECONPHIBL_ESTNEU - RECONPHI_ESTNEU), no other cut, N = %lld", absHi, absLo, absLo, absHi,
                                             nSel + (Long64_t)reconKeys.size());
     save(&hBlockAll, "Position at ZDC BLOCK, " + reconLabel + ", 1 square per ZDC cell" + xy, "2_xy_block_recon.pdf", "colz", true);
 
@@ -172,7 +172,7 @@ void PlotDiffPhiCuts(double absLo = 50, double absHi = 180, std::string energy =
         leg.AddEntry(&hRecon, Form("all recon charged particles, no cuts (%.0f)", hRecon.GetEntries()), "l");
         leg.AddEntry(&hProt, Form("all recon protons, no cuts (%.0f)", hProt.GetEntries()), "l");
         leg.AddEntry(&hCE, Form("CE recon protons in window (%.0f, %.2f%%)", hCE.GetEntries(), hRecon.GetEntries() > 0 ? 100.0 * hCE.GetEntries() / hRecon.GetEntries() : 0.0), "l");
-        if (hWin) leg.AddEntry(hWin, Form("phi diff window (%.0f)", hWin->GetEntries()), "l");
+        if (hWin) leg.AddEntry(hWin, Form("RECONPHIBL_ESTNEU - CEPHI_NEUFRAME window (%.0f)", hWin->GetEntries()), "l");
         leg.Draw();
         TPaveText eq(0.745, 0.70 - 0.05 * (eqLines.size() + 1), 0.99, 0.70, "NDC");
         eq.SetBorderSize(1); eq.SetFillColor(0); eq.SetTextAlign(12); eq.SetTextSize(0.016);
@@ -232,7 +232,7 @@ void PlotDiffPhiCuts(double absLo = 50, double absHi = 180, std::string energy =
     }
 
     // The other cut candidates (6_cuts/3_ResCuts to 5_nHits), shown only, nothing is cut on them: the true position residual, protons per event,
-    // residual of the 2nd half over the 1st half of the tracker hits, recon theta, recon block theta and tracker hits. 9_ to 17_
+    // residual of the 2nd half over the 1st half of the tracker hits, RECONTHETA_ESTNEU, RECONTHETABL_ESTNEU and tracker hits. 9_ to 17_
     if (ang->GetBranch("nProtonsEv")){
         const Long64_t nEx = cEx.N();
         if (nEx != nAng){Error("PlotDiffPhiCuts", "extra columns have %lld rows, not %lld", nEx, nAng); return;}
@@ -242,8 +242,8 @@ void PlotDiffPhiCuts(double absLo = 50, double absHi = 180, std::string energy =
             {"residual, true position (mm)", "9_resRms.pdf", 0, 5, 100, {lineT, "residual = #sqrt{SS_{res} / n}"}},
             {"reconstructed particles in the event", "12_nParticles.pdf", -0.5, 19.5, 20, {}},
             {"block residual, hits after first 2 / first 2 hits (>2 hits)", "14_resHalf.pdf", 0, 10, 100, {}},
-            {"recon theta (degrees)", "15_theta.pdf", 0, ThetaAxisMax(), 100, {}}, // 2.3 deg at 25 GeV/c, scaled with 1 / p (FitCore.h)
-            {"recon block theta (degrees)", "16_thetaBlock.pdf", 0, ThetaAxisMax(), 100, {}},
+            {"RECONTHETA_ESTNEU (degrees)", "15_theta.pdf", 0, ThetaAxisMax(), 100, {}}, // 2.3 deg at 25 GeV/c, scaled with 1 / p (FitCore.h)
+            {"RECONTHETABL_ESTNEU (degrees)", "16_thetaBlock.pdf", 0, ThetaAxisMax(), 100, {}},
             {"tracker hits", "17_nHits.pdf", -0.5, MaxTrackerHits() + 2.5, MaxTrackerHits() + 3, {}}}; // one bin per count from 0 to 2 * nBlocks + 2
         std::vector<const double*> exCols(exVars.size());
         for (size_t c = 0; c < exVars.size(); c++) exCols[c] = cEx.V(c);

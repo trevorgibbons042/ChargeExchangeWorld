@@ -30,7 +30,7 @@ LEGEND_W = (100, 200) # pt, width of the legend frame (0.245 of the 567 pt wide 
 GAP = 12.0 # pt between the legend frame and the first line of the box
 KE80 = "cut and ZDC KE > 80%"
 BASELINES = {"1_hitZDC": "1_hitZDC (no cut)", "0_cuts": "0_cuts (no cut)"} # rank rows without a cut: key -> name in the box title
-FOM_CUTS = {"1_reconTheta": "1_hitZDC", "2_reconBlockTheta": "1_hitZDC"} # 5_fomCalc folder -> rank row cut of its sample
+FOM_CUTS = {"1_reconTheta_estneu": "1_hitZDC", "2_reconBlockTheta_estneu": "1_hitZDC"} # 5_fomCalc folder -> rank row cut of its sample
 
 
 def load_rows(cuts_dir):

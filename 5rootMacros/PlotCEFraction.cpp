@@ -31,7 +31,7 @@ void PlotCEFraction(){
     const auto &setName = SetNames();
     auto cutNote = [](const std::string&){return std::string("no KE cut");};
 
-    const double thetaMax = 15.0; // deg, fixed axis range for every plot (ReadThetaMax() ran to the largest recon theta)
+    const double thetaMax = 15.0; // deg, fixed axis range for every plot (ReadThetaMax() ran to the largest RECONTHETA_ESTNEU)
 
     auto readCsv = [](const std::string& path){
         std::vector<std::array<double, 5>> rows; // theta_lo, theta_hi, N (recon protons), N_CE, N_particles (every fitted track; = N for a csv without that column)
@@ -68,7 +68,7 @@ void PlotCEFraction(){
     for (const auto& set : sets){
         const std::string dir = "plots/5_fomCalc/" + set + "/";
         gSystem->mkdir((dir + "ke_gt80").c_str(), true);
-        const std::string xTitle = set == "2_reconBlockTheta" ? "recon block #theta" : "recon #theta";
+        const std::string xTitle = set == "2_reconBlockTheta_estneu" ? "RECONTHETABL_ESTNEU" : "RECONTHETA_ESTNEU";
         // clears the canvas, titles the graph (title; x axis; yTitle), styles it in color and draws it over 0 to thetaMax; the caller saves it
         const auto drawGraph = [&](TGraph& g, const std::string& title, const std::string& yTitle, int color){
             c.Clear();

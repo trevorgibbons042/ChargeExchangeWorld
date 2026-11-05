@@ -34,7 +34,7 @@ using ColumnAdder = std::function<ROOT::RDF::RNode(ROOT::RDF::RNode)>; // adds t
 // A std::map and three std::sets of the same rows took about 100 GB at 213M rows, the arrays 32 GB.
 // gP3Flags: kP3Reco the proton has a reconstructed track (cut_angles_all.root, Angles): the position plots only show these protons, the ones that can actually be drawn on the ZDC.
 // There is no residual flag: the block position plots use the same isReco as the true position ones.
-// gP3Vals: the cut candidates for the 1_additionalinfo plots of the KE cut folders. Index: see kInfoVars in Plot3D (14, 15: recon phi and recon block phi in degrees, 0 to 360); 16: recon vertex z (mm), from the block position line fit.
+// gP3Vals: the cut candidates for the 1_additionalinfo plots of the KE cut folders. Index: see kInfoVars in Plot3D (14, 15: RECONPHI_ESTNEU and RECONPHIBL_ESTNEU in degrees, 0 to 360); 16: recon vertex z (mm), from the block position line fit.
 // Slots 17 and 18 are nTrackerHitsEv (tracker entries of every charged particle in the event) and nTrackerTracksEv (charged tracks hitting 2+ planes), NaN without them.
 // Slot 7 is nZdcCharged, the charged particles at the ZDC in the event (EventSummary of the sim, via ReconAngleAll.cpp), NaN without it.
 // Empty when AnglesRaw has no nProtonsEv column. rawOk is the Draw cut that keeps the protons that have a finite value.
@@ -103,7 +103,7 @@ inline bool LoadPlot3DMaps(){
             v[14] = (phiRad < 0 ? phiRad + twoPi : phiRad) * rad; v[15] = (phiBlockRad < 0 ? phiBlockRad + twoPi : phiBlockRad) * rad; v[16] = zRecon; v[17] = nTH >= 0 ? nTH : NAN; v[18] = nTT >= 0 ? nTT : NAN; v[19] = nMP >= 0 ? nMP : NAN;
             parts[slot].push_back(it);
         }, {"fEvent", "TrackID", "resRms", "resDRms", "impact", "impactD", "r2", "r2D", "nProtonsEv", "nZdcCharged", "nHits",
-            "outPhi", "outDPhi", "firstXD", "firstYD", "z_bx_reconVertexOut", "resHalfRatioD", "outTheta", "outDTheta", "nTrackerHitsEv", "nTrackerTracksEv", "nMaxChargedPerPlaneEv"});
+            "phiRelN", "phiRelND", "firstXD", "firstYD", "z_bx_reconVertexOut", "resHalfRatioD", "thetaRelN", "thetaRelND", "nTrackerHitsEv", "nTrackerTracksEv", "nMaxChargedPerPlaneEv"});
     } else {
         df.ForeachSlot([&](unsigned slot, int ev, int tid, double resDRms){
             P3Item it; it.key = {ev, tid}; it.flags = kReco; it.a.fill(0); it.a[1] = resDRms;
@@ -187,8 +187,8 @@ inline std::string P3(const std::string& s){
 // The same names on AnglesRaw, as TTree aliases of its own branches (no extra columns in the file): a row of AnglesRaw is one fitted proton, so every row is a reco proton (isReco = 1),
 // raw_k its k-th value of gP3Vals (LoadPlot3DMaps) and ok_k whether that value is finite. P3() rewrites the Draw strings to these names for every tree.
 inline void Plot3DRawAliases(TTree* raw){
-    const char* val[kP3Slots] = {"resRms", "resDRms", "impact", "impactD", "r2", "r2D", "nProtonsEv", "nZdcCharged", "resHalfRatioD", "outTheta*TMath::RadToDeg()", "nHits",
-                           "outDTheta*TMath::RadToDeg()", "firstXD", "firstYD", "outPhi*TMath::RadToDeg()", "outDPhi*TMath::RadToDeg()", "z_bx_reconVertexOut", "nTrackerHitsEv", "nTrackerTracksEv", "nMaxChargedPerPlaneEv"}; // phi in 0 to 360 (ReconAngleAll.cpp)
+    const char* val[kP3Slots] = {"resRms", "resDRms", "impact", "impactD", "r2", "r2D", "nProtonsEv", "nZdcCharged", "resHalfRatioD", "thetaRelN*TMath::RadToDeg()", "nHits",
+                           "thetaRelND*TMath::RadToDeg()", "firstXD", "firstYD", "phiRelN*TMath::RadToDeg()", "phiRelND*TMath::RadToDeg()", "z_bx_reconVertexOut", "nTrackerHitsEv", "nTrackerTracksEv", "nMaxChargedPerPlaneEv"}; // phi in 0 to 360 (ReconAngleAll.cpp)
     for (int k = 0; k < kP3Slots; k++){
         raw->SetAlias(Form("raw_%d", k), val[k]);
         raw->SetAlias(Form("ok_%d", k), Form("TMath::Finite(raw_%d)", k));
@@ -198,22 +198,17 @@ inline void Plot3DRawAliases(TTree* raw){
 
 // The start-theta scan of Plot3D.cpp part 4 in one pass over a sample instead of one pass per start value. th, phi (deg) are the recon (block) theta and phi of the protons of a sample, apScale the
 // APScale of settings.csv. For the start values b * 0.01 deg (b 0 to 99) it returns the phi histogram of the protons with start <= theta <= 1 deg (kScanBins bins: 0 and kScanBins - 1 are the under
-// and overflow of a TH1D(50, 0, 360), the others its bins) and the sum of their model A (the one at the center of their 0.05 deg theta bin), and aMeanAll, the mean A over every proton of the sample.
+// and overflow of a TH1D(50, 0, 360), the others its bins) and the sum of their model A (AEffOfTheta, the one at their own theta), and aMeanAll, the mean A over every proton of the sample.
 // Row ranges run on all threads (MapRows, FitCore.h) and are added in range order; the bin counts are exact, the A sums can differ from a serial sum in the last digits.
 inline constexpr int kScanStarts = 100, kScanBins = 52;
 // fit[b]: the unbinned P (UnbinnedPFromCos, FitCore.h) of the protons of start b, A fixed to their mean model A (aSum[b] / count), phi normalised over loDeg to hiDeg; ok is false below 10 protons.
 struct StartScan {std::vector<std::array<double, kScanBins>> phi = std::vector<std::array<double, kScanBins>>(kScanStarts); std::vector<double> aSum = std::vector<double>(kScanStarts, 0.0), aSum2 = std::vector<double>(kScanStarts, 0.0); AMean aAll; std::vector<PFit> fit = std::vector<PFit>(kScanStarts);};
 inline StartScan ScanStartTheta(const std::vector<double>& th, const std::vector<double>& ph, double apScale, double loDeg = 0, double hiDeg = 360, double thHi = 1.0){ // thHi: the upper theta of the protons that count (deg), 1 unless the folder has no upper limit
-    constexpr int kTable = 400; // 0.05 deg bins up to 20 deg; further out the model is evaluated per proton
-    auto aOfBin = [&](long k){return APFromT(kBeamMomentum, TFromAngle(kBeamMomentum, (k + 0.5) * 0.05 * TMath::Pi() / 180), apScale);};
-    std::vector<double> table(kTable);
-    for (int k = 0; k < kTable; k++) table[k] = aOfBin(k);
     const auto parts = MapRows((Long64_t)th.size(), [&](Long64_t lo, Long64_t hi){
         StartScan p;
         for (auto& a : p.phi) a.fill(0.0);
         for (Long64_t i = lo; i < hi; i++){
-            const long k = (long)std::floor(th[i] / 0.05);
-            const double a = (k >= 0 && k < kTable) ? table[k] : aOfBin(k);
+            const double a = AEffOfTheta(th[i], apScale);
             p.aAll.Add(a);
             if (th[i] < 0 || th[i] > thHi) continue;
             int b = std::min(kScanStarts - 1, (int)std::floor(th[i] / 0.01)); // the last start value with b * 0.01 <= theta, as the comparison of the plain loop
