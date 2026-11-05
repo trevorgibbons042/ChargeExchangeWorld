@@ -8,7 +8,6 @@
 
 G4double MyPrimaryGenerator::PPValue = 0;
 G4double MyPrimaryGenerator::PPSigma = 0;
-
 namespace {
     //sums over every primary of every worker thread: n, momentum, momentum^2, KE, KE^2 (MeV/c, MeV)
     std::mutex beamMutex;
@@ -38,13 +37,11 @@ MyPrimaryGenerator::MyPrimaryGenerator()
     fRandMessenger->DeclareProperty("randPos", randPos, "Is random position on?");
     fRandMessenger->DeclareProperty("Energy", beamEnergy, "Neutron kinetic energy, GeV");
     fRandMessenger->DeclareProperty("EnergySD", EnergySD, "Gaussian sigma on the neutron kinetic energy, GeV (0 for none)");
-
     //number of particles per event (can do 1 run with bunch of events tho)
     fParticleGun = new G4ParticleGun(1);
 
     //type of particle
     G4ParticleTable *particleTable = G4ParticleTable::GetParticleTable();
-    G4String particleName = "neutron";
     G4ParticleDefinition *particle = particleTable->FindParticle("neutron");
     fParticleGun->SetParticleDefinition(particle);
 };

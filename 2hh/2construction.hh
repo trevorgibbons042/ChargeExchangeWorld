@@ -51,7 +51,6 @@ public:
     ~MyDetectorConstruction();
 
     virtual G4VPhysicalVolume *Construct();
-    G4ThreeVector GetDetectorPosition() const{return detectorPosition;}
     const G4LogicalVolume *GetTrackVolume() const {return logicTrack;} //read per call, geometry rebuilds change the pointer
 
     //geometry values for settings.csv, names match the /detector/ commands
@@ -66,9 +65,6 @@ public:
                 {"stackSpread", 1}};   //1: blocks evenly spread from z = 0 to the ZDC face, trackers either side and one in front of the ZDC, dz being the edge to edge gap (a settings.csv without it is the old layout, centred at z = 4 m)
     }
 
-    ////Needs to be accessed by 9stepping.cc
-    //G4LogicalVolume *GetScoringVolume() const {return fScoringVolume;}
-
 private:
     ////Put variables in here for when you want it to change
     virtual void ConstructSDandField(); //sensiive detector mangetic field
@@ -81,19 +77,14 @@ private:
     ////Defining World
     G4NistManager *nist;
     G4Material *worldMat, *CMat, *DMat;
-    G4MaterialPropertiesTable *mptWorld;
     
     G4Box *solidWorld, *solidMat, *solidDetector, *solidTrack;
     G4LogicalVolume *logicWorld, *logicMat, *logicDetector, *logicTrack;
     G4VPhysicalVolume *physWorld, *physMat, *physDetector, *physTrack;
-    G4ThreeVector detectorPosition;
 
     G4int randPosDetector = -1;
     G4double randPosScaling = 1;
     G4double CarbonThickness, dz;
-
-    ////Detector Defining
-    G4LogicalVolume *fScoringVolume;
 
     void DefineMaterial();
 };

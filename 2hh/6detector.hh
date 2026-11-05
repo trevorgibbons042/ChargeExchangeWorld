@@ -5,7 +5,6 @@
 #include "G4VSensitiveDetector.hh"
 #include "G4RunManager.hh"
 #include "G4SystemOfUnits.hh"
-#include "G4PhysicsOrderedFreeVector.hh" //detector efficency stuff
 
 //root stuff
 #include "G4AnalysisManager.hh"
@@ -42,9 +41,11 @@ inline thread_local G4int gEventTrackerTracks = 0;
 
 //boundaryType: 0 tracker entry, 1 tracker exit, 2 ZDC, 3 track start
 //the row is only buffered here, FlushParticleInfo (MyTrackingAction::PostUserTrackingAction) decides if the track is saved
-inline void FillParticleInfo(const G4Track *, G4int boundaryType, const G4ThreeVector &pos, G4double KE,
+//only charged particles are recorded: a neutral track gets no row and no tracker hit count, whatever the call site
+inline void FillParticleInfo(const G4Track *track, G4int boundaryType, const G4ThreeVector &pos, G4double KE,
                              const G4ThreeVector &detectorCenter, G4double measuredKE)
 {
+    if (track->GetParticleDefinition()->GetPDGCharge() == 0.){return;}
     gTrackRows.push_back({boundaryType, pos, KE, detectorCenter, measuredKE});
     if (boundaryType == 0){gEventTrackerHits++;}
 }
@@ -81,7 +82,6 @@ inline void FlushParticleInfo(const G4Track *track)
             man->FillNtupleDColumn(0, 10, row.detectorCenter.y());
             man->FillNtupleDColumn(0, 11, row.detectorCenter.z());
             man->FillNtupleDColumn(0, 12, row.measuredKE);
-            man->FillNtupleSColumn(0, 13, creator ? creator->GetProcessName() : "primary");
             man->AddNtupleRow(0);
         }
     }
@@ -97,9 +97,6 @@ public:
 private:
     const G4LogicalVolume *trackLV = nullptr;
     virtual G4bool ProcessHits(G4Step *, G4TouchableHistory *) override;
-
-    //adding in detector efficency
-    G4PhysicsOrderedFreeVector *quEff;
 };
 
 #endif
