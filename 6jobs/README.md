@@ -84,19 +84,16 @@ An unknown folder is refused before anything is deleted. The new steps `plot3d` 
 ## Whole chain in a single job
 
 ```
-rsync -a --exclude __pycache__ ../5rootMacros/ ../build/root/<run>/
 qsub -v RUN=<run> Analysis.pbs
 ```
 
-Runs `run.sh` on one 128-cpu node. Copy the macros in first, as above.
+Runs `run.sh` on one 128-cpu node; the job copies the macros in itself.
 
 Without ReconAngleAll (reuses `cuts/cut_angles_all.root`):
 
 ```
-qsub -v RUN=<run> AnalysisNoRecon.pbs
+qsub -v RUN=<run>,SCRIPT=run_norecon.sh Analysis.pbs
 ```
-
-This one copies the macros itself.
 
 ## One step by hand
 
@@ -105,6 +102,19 @@ qsub -v RUN=<run>,STEP=<step>,NCPUS=16 Plot.pbs
 ```
 
 Steps: `cutevents`, `recon`, `convert`, `calc`, `countce`, `cuttrees`, `cuts`, `fom`, `ceblock`, `secce`, `pdfs`. Copy the macros into the run folder first.
+
+## 6_cuts only
+
+```
+bash Submit6Cuts.sh <run> [CutPlots | Plots]
+```
+
+Rebuilds `plots/6_cuts` only, from the sim output, without the rest of the chain. Jobs: Analysis6 (CutEvents, ReconAngleAll, CalcAPandT true KE only, CutPlots zdc and samples), then the Plot3D parts of `6_cuts` and QualityStudy (side by side, both after Analysis6), then Pdfs. It skips CountCE, the detector-KE pass of CalcAPandT, the CutPlots `trees` part, and every plot lane outside `6_cuts`. Other folders of `plots/` stay as they are; `plots/6_cuts` is deleted first.
+
+- `CutPlots`: skips CutEvents, ReconAngleAll and CalcAPandT (their `cuts/` files must be there, including `cut_APandT.root`) and starts at CutPlots.
+- `Plots`: no analysis at all, only the 6_cuts plot jobs (all the `cuts/` files must be there).
+
+A `cut_APandT.root` written by `Analysis6` has no `_DE` trees, so the Fom lane needs a full `calc` step before it runs.
 
 ## Options
 
@@ -120,7 +130,3 @@ qdel <jobid>
 ```
 
 Logs land in this folder as `<jobname>.o<jobid>`.
-
-## Notes
-
-`CutEvent.pbs` only loads ROOT and prints host info. It runs no macro.

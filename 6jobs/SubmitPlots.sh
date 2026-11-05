@@ -20,11 +20,11 @@ case " $ORDER " in *" $FROM "*) ;; *) echo "unknown first job $FROM (one of: $OR
 cd "$(dirname "$0")" || exit 1
 source ./submit_lib.sh
 
-# cut_indexes <folder under 6_cuts, empty for all>: the P3_CUT numbers of Plot3D.cpp (0: 0_cuts, 1_hitZDC and 2_KECUT80, then sampleCuts in order). Keep in step with Plot3D.cpp and Plot.pbs.
+# cut_indexes <folder under 6_cuts, empty for all>: the P3_CUT numbers of Plot3D.cpp (0: 0_cuts, 1_hitZDC and 2_KECUT, then sampleCuts in order). Keep in step with Plot3D.cpp and Plot.pbs.
 cut_indexes() {
     case $1 in
-        "") echo 0 1 2 3 4 5 6 7 8 ;;
-        0_cuts|0_cuts/*|1_hitZDC|1_hitZDC/*|2_KECUT80|2_KECUT80/*) echo 0 ;;
+        "") echo 0 1 2 3 4 5 6 7 8 9 10 ;;
+        0_cuts|0_cuts/*|1_hitZDC|1_hitZDC/*|2_KECUT|2_KECUT/*) echo 0 ;;
         3_ResCuts|3_ResCuts/*) echo 1 ;;
         4_nParticles) echo 2 3 ;;
         4_nParticles/1_*) echo 2 ;;
@@ -34,6 +34,9 @@ cut_indexes() {
         7_megaCut2|7_megaCut2/1_*) echo 6 ;;
         8_nZdcParticles|8_nZdcParticles/*) echo 7 ;;
         9_megaCut3|9_megaCut3/1_*) echo 8 ;;
+        10_nChargedTrackerHits) echo 9 10 ;;
+        10_nChargedTrackerHits/1_*) echo 9 ;;
+        10_nChargedTrackerHits/2_*) echo 10 ;;
         *) return 1 ;;
     esac
 }
@@ -48,11 +51,11 @@ if [ -n "$TARGET" ]; then
         6_cuts)
             idx=$(cut_indexes "$rest") || { echo "unknown cut folder: 6_cuts/$rest"; exit 1; }
             for i in $idx; do
-                if [ "$i" = 0 ]; then PARTS+="2:0+3:0:0+3:0:1:0+3:0:1:1+3:0:1:2+3:0:1:3+3:0:1:4+3:0:1:5+3:0:2+3:0:3+4:0:0+4:0:1+4:0:2:0+4:0:2:1+4:0:3+" # cut 0 holds four folders (P3_SUB), a process each; the slow noCuts ones (3:0:1, 4:0:2) split further (P3_SEC, Plot3D.cpp)
-                else PARTS+="2:$i+3:$i+4:$i+"; fi
+                if [ "$i" = 0 ]; then PARTS+="2:0+3:0:0+3:0:1:0+3:0:1:1+3:0:1:2+3:0:1:3+3:0:1:4+3:0:1:5+3:0:2+3:0:3+" # cut 0 holds four folders (P3_SUB), a process each; the slow noCuts ones (3:0:1, 4:0:2) split further (P3_SEC, Plot3D.cpp)
+                else PARTS+="2:$i+3:$i+"; case $i in 5|6|8) PARTS+="4:$i+" ;; esac; fi
             done
-            [ -z "$rest" ] && PARTS+="4:9+4:10+4:11+4:12+4:13+4:14+" # all of 6_cuts: also the KE scan sets of Plot3D.cpp part 4 (cuts 9 to 14)
-            case " $idx " in *" 0 "*) PARTS+="1::3+" ;; esac # 1_hitZDC, 0_cuts and 2_KECUT80 also hold plots of part 1
+            [ -z "$rest" ] && PARTS+="4:11+4:12+4:13+4:14+4:15+4:16+" # all of 6_cuts: also the KE scan sets of Plot3D.cpp part 4 (cuts 11 to 16)
+            case " $idx " in *" 0 "*) PARTS+="1::3+" ;; esac # 1_hitZDC, 0_cuts and 2_KECUT also hold plots of part 1
             PARTS=${PARTS%+}
             case $rest in ""|3_ResCuts*|4_nParticles*|5_nHits*) QS=1 ;; esac ;;
         3_ReconCalcVals|5_fomCalc) LANE=fom ;;
@@ -73,7 +76,7 @@ fi
 if [ -n "$TARGET" ]; then # one folder: its jobs only (the cuts/ files are already there), then the python steps
     ids=
     [ -n "$PARTS" ] && { p3=$(PARTS=$PARTS submit Redo plot3d "$2" 128); ids=$p3; }
-    [ -n "$QS" ] && ids="$ids $(PARTS= DEPKIND=afterany submit RedoQS quality "$p3" 16)" # PARTS only goes to the plot3d job
+    [ -n "$QS" ] && ids="$ids $(PARTS= submit RedoQS quality "$2" 128)" # PARTS only goes to the plot3d job. QualityStudy waits for the same jobs as Plot3D, not for Plot3D: they write different files (thresholds.csv, csv/cut_efficiency.csv, 1_<branch>.pdf vs cut_ratios.csv, cuts.txt, the Plot3D pdfs)
     [ -n "$LANE" ] && ids=$(PARTS= submit Redo $LANE "$2")
     if [ -n "$PDFS" ]; then PARTS= DEPKIND=afterany submit Pdfs pdfs "$(echo $ids | tr ' ' ':')"; fi
     exit

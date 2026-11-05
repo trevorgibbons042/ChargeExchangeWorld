@@ -3,7 +3,7 @@
 #PBS -A eic
 #PBS -N Plot
 
-#PBS -l select=1:ncpus=16
+#PBS -l select=1:ncpus=128
 #PBS -l walltime=12:00:00
 #PBS -j oe
 
@@ -19,7 +19,7 @@ module load root
 export LD_LIBRARY_PATH=/lcrc/project/eic/tgibbons/xxhash-install/lib:$LD_LIBRARY_PATH
 export ACLIC=${ACLIC-+O} # compiled with ACLiC. The macros and headers hold no global with a runtime initializer, which made ROOT 6.32 fail to load a compiled macro (runStaticInitializersOnce, 5rootMacros/CLAUDE.md). Submit with -v ACLIC= to run interpreted.
 
-export ANA_NTHREADS=${NCPUS:-16} PLOT_PIPELINE=1 # threads for NThreads() (FitCore.h); the macros skip BoxAndCropPlots, the pdfs step runs the python scripts
+export ANA_NTHREADS=${NCPUS:-128} PLOT_PIPELINE=1 # threads for NThreads() (FitCore.h); the macros skip BoxAndCropPlots, the pdfs step runs the python scripts
 
 echo Jobid: $PBS_JOBID
 echo Running on host `hostname`
@@ -30,8 +30,10 @@ case $STEP in
     cutevents) macros=('CutEvents.cpp') ;; # SubmitEvents.sh: the analysis chain of run.sh
     analysis) macros=('CutEvents.cpp' 'ReconAngleAll.cpp' 'CalcAPandT.cpp' 'CountCE.cpp' 'CutPlots.cpp') ;; # SubmitEvents.sh: the five analysis steps in one job, one after the other, all the cores each
     analysisconvert) macros=('CutEvents.cpp' 'ConvertAngles.cpp' 'CalcAPandT.cpp' 'CountCE.cpp' 'CutPlots.cpp') ;; # the same with ConvertAngles.cpp instead of the refit (cutdone)
+    analysis6) macros=('CutEvents.cpp' 'ReconAngleAll.cpp' 'CalcAPandT.cpp("true")' 'CutPlots.cpp') ;; # Submit6Cuts.sh: only what plots/6_cuts reads: no CountCE, CalcAPandT true KE only, CutPlots without the trees part
+    cutplots6) macros=('CutPlots.cpp') ;; # Submit6Cuts.sh CutPlots: the same CutPlots, for a run whose recon is done
     recon)    macros=('ReconAngleAll.cpp') ;;
-    convert)  macros=('ConvertAngles.cpp') ;; # the cut_angles_all.root of an old ReconAngleAll.cpp into the one-tree format, no refit
+    convert) macros=('ConvertAngles.cpp') ;; # the cut_angles_all.root of an old ReconAngleAll.cpp into the one-tree format, no refit
     calc)     macros=('CalcAPandT.cpp') ;; # true KE, then detector KE
     countce)  macros=('CountCE.cpp') ;;
     cuttrees) macros=('CutPlots.cpp') ;; # the KE cut lists, cut_ZdcCE.root and cut_ZdcAllEv.root, and one cut file per cut of 6_cuts, all read by the plot lanes
@@ -54,12 +56,12 @@ for m in "${macros[@]}"; do
     echo "=== $m $(date +%H:%M:%S)"
     if [ "$m" = CutPlots.cpp ] && [ -z "$CUT_ONLY" ]; then
         # trees, zdc and the sample files without a ZDC KE cut side by side, then the sample files that read cut_ZdcAllEv.root (megacut2, megacut3, the KE scan 85 90 95, hitZDC) as five processes (CUT_ONLY, CutPlots.cpp)
-        nc=${NCPUS:-16}
+        nc=${NCPUS:-128}
         t_trees=$(( nc / 32 > 0 ? nc / 32 : 1 )); t_half=$(( nc / 2 > 0 ? nc / 2 : 1 )); t_five=$(( nc / 5 > 0 ? nc / 5 : 1 ))
         cp_run(){ # name threads part CUT_ONLY
             ( ANA_NTHREADS=$2 CUT_ONLY=$4 root -l -b -q "${m/.cpp/.cpp${ACLIC-+O}}(\"$3\")" > CutPlots_$1.log 2>&1; echo "CutPlots $1 exit $?" ) &
         }
-        cp_run trees $t_trees trees ""
+        case $STEP in analysis6|cutplots6) ;; *) cp_run trees $t_trees trees "" ;; esac # the KE cut lists feed the Fom lane only, not 6_cuts
         cp_run zdc $t_half zdc ""
         cp_run samplesA $t_half samples "ResCuts,nParticles,nZdc1,nHits,cut_megacut_"
         wait
@@ -73,29 +75,32 @@ for m in "${macros[@]}"; do
         continue
     fi
     if [ "$m" = Plot3D.cpp ]; then
-        # the independent parts of Plot3D (P3_PART, P3_CUT, Plot3D.cpp) side by side, one process each: part 1, and parts 2, 3 and 4 once per cut (0 to 8; part 4 also 9 to 14, the KE scan sets of 7_megaCut2 and 9_megaCut3; parts 3 and 4 of cut 0 once per folder, 0:0 to 0:3, P3_SUB), then part 5 ranks the cuts. One process per cut keeps part 3 (the 1_additionalinfo plots) from running all cuts one after the other
+        # the independent parts of Plot3D (P3_PART, P3_CUT, Plot3D.cpp) side by side, one process each: part 1, and parts 2, 3 and 4 once per cut (0 to 10; part 4 also 11 to 16, the KE scan sets of 7_megaCut2 and 9_megaCut3; parts 3 and 4 of cut 0 once per folder, 0:0 to 0:3, P3_SUB), then part 5 ranks the cuts. One process per cut keeps part 3 (the 1_additionalinfo plots) from running all cuts one after the other
         # the cores are split evenly over the processes (128 cpus: 46 processes of 2 threads), part 5 and QualityStudy then take all of them
         # PARTS (joined with +) picks some of them, for SubmitPlots.sh redoing one folder
-        parts=(1::0 1::1 1::2 1::3 3:0:0 3:0:1:0 3:0:1:1 3:0:1:2 3:0:1:3 3:0:1:4 3:0:1:5 3:0:2 3:0:3 3:1 3:2 3:3 3:4 3:5 3:6 3:7 3:8 4:0:0 4:0:1 4:0:2:0 4:0:2:1 4:0:3 4:1 4:2 4:3 4:4 4:5 4:6 4:7 4:8 4:9 4:10 4:11 4:12 4:13 4:14 2:0 2:1 2:2 2:3 2:4 2:5 2:6 2:7 2:8)
+        parts=(1::0 1::1 1::2 1::3 3:0:0 3:0:1:0 3:0:1:1 3:0:1:2 3:0:1:3 3:0:1:4 3:0:1:5 3:0:2 3:0:3 3:1 3:2 3:3 3:4 3:5 3:6 3:7 3:8 3:9 3:10 4:5 4:6 4:8 4:11 4:12 4:13 4:14 4:15 4:16 2:0 2:1 2:2 2:3 2:4 2:5 2:6 2:7 2:8 2:9 2:10)
         [ -n "$PARTS" ] && parts=(${PARTS//+/ })
-        # threads per process (all of PARTS unset), from the walls of the 137.5 GeV 9block run at 2 threads: a process of w s gets about 2w/300 threads, so each should land near 5 minutes. The table adds up to 116 of 128; a part not listed gets 1
+        # threads per process (all of PARTS unset), from the walls of the 137.5 GeV 9block run at 2 threads: a process of w s gets about 2w/300 threads, so each should land near 5 minutes. The table adds up to 119 of 128, the phi scans of 6/7/9_megaCut (4:5, 4:6, 4:8: 4 threads) and their KE scans (4:11 to 4:16: 2) the new weights, not timed yet; a part not listed gets 1
         thr_for(){
             local t
             case "$1" in
-                3:0:1:[0-3]) t=3 ;; 3:0:1:[45]) t=2 ;; 4:0:2:*) t=5 ;; 3:0:0|3:0:2|3:0:3) t=4 ;; 3:1) t=2 ;;
-                2:[1-8]) t=4 ;; 1::0) t=3 ;; 1::[123]) t=4 ;; 4:0:0|4:0:1|4:0:3|4:1) t=2 ;; *) t=1 ;;
+                3:0:1:[0-3]) t=3 ;; 3:0:1:[45]) t=2 ;; 3:0:0|3:0:2|3:0:3) t=4 ;; 3:1) t=2 ;;
+                2:[1-9]|2:10) t=4 ;; 1::0) t=3 ;; 1::[123]) t=4 ;; 4:[568]) t=4 ;; 4:1[1-6]) t=2 ;; *) t=1 ;;
             esac
-            echo $(( t * ${NCPUS:-16} / 128 > 0 ? t * ${NCPUS:-16} / 128 : 1 ))
+            echo $(( t * ${NCPUS:-128} / 128 > 0 ? t * ${NCPUS:-128} / 128 : 1 ))
         }
-        export ANA_NTHREADS=$(( ${NCPUS:-16} / ${#parts[@]} > 0 ? ${NCPUS:-16} / ${#parts[@]} : 1 )) # PARTS set (a redo): the cores split evenly
-        ANA_NTHREADS=${NCPUS:-16} P3_PART=0 P3_CUT= P3_SUB= root -l -b -q "${m/.cpp/.cpp${ACLIC-+O}}" > Plot3D_part0.log 2>&1 # cuts/plot3d_totals.csv, once with all the threads (Plot3D.cpp RawTotals)
+        export ANA_NTHREADS=$(( ${NCPUS:-128} / ${#parts[@]} > 0 ? ${NCPUS:-128} / ${#parts[@]} : 1 )) # PARTS set (a redo): the cores split evenly
+        ANA_NTHREADS=${NCPUS:-128} P3_PART=0 P3_CUT= P3_SUB= root -l -b -q "${m/.cpp/.cpp${ACLIC-+O}}" > Plot3D_part0.log 2>&1 # cuts/plot3d_totals.csv, once with all the threads (Plot3D.cpp RawTotals)
         for run in "${parts[@]}"; do
             ( cut=; sub=; sec=; [[ $run == *:* ]] && cut=${run#*:}; [[ $cut == *:* ]] && { sub=${cut#*:}; cut=${cut%%:*}; }; [[ $sub == *:* ]] && { sec=${sub#*:}; sub=${sub%%:*}; }; [ -z "$PARTS" ] && export ANA_NTHREADS=$(thr_for "$run"); P3_PART=${run%%:*} P3_CUT=$cut P3_SUB=$sub P3_SEC=$sec root -l -b -q "${m/.cpp/.cpp${ACLIC-+O}}" > Plot3D_part${run//:/_}.log 2>&1; echo "part $run exit $?" ) &
         done
         wait
-        export ANA_NTHREADS=${NCPUS:-16}
+        export ANA_NTHREADS=${NCPUS:-128}
         if [ -z "$PARTS" ] || [[ $PARTS == *2:* ]]; then # the rank csv files, from the rows of the part 2 processes (cuts/rank_rows_<i>.tsv, the ones of the cuts not redone stay)
             P3_PART=5 P3_CUT= root -l -b -q "${m/.cpp/.cpp${ACLIC-+O}}" > Plot3D_part5.log 2>&1
+        fi
+        if [ -z "$PARTS" ] || [[ $PARTS == *4:* ]]; then # the KE overlays of the megaCut folders (6_cuts/<megaCut>/KE_overlay), from the csv files of part 4, before tidy_plots.py moves them
+            root -l -b -q "PlotKEOverlay.cpp${ACLIC-+O}" > PlotKEOverlay.log 2>&1
         fi
         tail -n 3 Plot3D_part*.log
         continue
@@ -104,7 +109,6 @@ for m in "${macros[@]}"; do
 done
 
 if [ "$STEP" = pdfs ]; then
-    root -l -b -q "PlotKEOverlay.cpp${ACLIC-+O}" # the KE overlays, from the csv files of the folders, before tidy_plots.py moves them
     python3 tidy_plots.py plots
     python3 cut_side_box.py plots
     python3 crop_pdfs.py plots
