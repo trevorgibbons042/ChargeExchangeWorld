@@ -137,7 +137,8 @@ void MyRunAction::EndOfRunAction(const G4Run* run)
         G4double meanMomentum, sdMomentum, meanKE, sdKE;
         MyPrimaryGenerator::GetBeamStats(meanMomentum, sdMomentum, meanKE, sdKE);
         values.push_back({"BeamMomentum", meanMomentum}); values.push_back({"BeamMomentumSD", sdMomentum});
-        values.push_back({"BeamKE", meanKE}); values.push_back({"BeamKESD", sdKE});        values.push_back({"MinTrackerPlanesSaved", kMinTrackerPlanesSaved}); //ParticleInfo only holds tracks with this many tracker planes hit, or CE protons (6detector.hh)
+        values.push_back({"BeamKE", meanKE}); values.push_back({"BeamKESD", sdKE});
+        values.push_back({"MinTrackerPlanesSaved", kMinTrackerPlanesSaved}); //ParticleInfo only holds tracks with this many tracker planes hit, or CE protons (6detector.hh)
         //the nophysics macros inactivate neutronInelastic with the rest of the hadronic physics
         auto* neutronInelastic = G4ProcessTable::GetProcessTable()->FindProcess("neutronInelastic", "neutron");
         values.push_back({"NoPhysics", neutronInelastic != nullptr && !G4Neutron::Neutron()->GetProcessManager()->GetProcessActivation(neutronInelastic)});

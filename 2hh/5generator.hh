@@ -19,7 +19,8 @@ public:
     void SetPPValue(G4double value);
     void SetPPSigma(G4double sigma);
     static G4double GetPPValue() {return PPValue;}
-    static G4double GetPPSigma() {return PPSigma;}    //mean and standard deviation of the incident neutron momentum (MeV/c) and kinetic energy (MeV) over every primary of every worker thread, for settings.csv
+    static G4double GetPPSigma() {return PPSigma;}
+    //mean and standard deviation of the incident neutron momentum (MeV/c) and kinetic energy (MeV) over every primary of every worker thread, for settings.csv
     static void GetBeamStats(G4double& meanMomentum, G4double& sdMomentum, G4double& meanKE, G4double& sdKE);
 
 private:
@@ -54,7 +55,8 @@ private:
     G4int PolarizationIndex = -1;
     G4bool PPOn = false;
     static G4double PPValue; //static so the master can write it to settings.csv
-    static G4double PPSigma;    G4int randPos = -1;
+    static G4double PPSigma;
+    G4int randPos = -1;
     G4int randPAngle = -1;
     G4double beamEnergy = 24.078084; //neutron kinetic energy in GeV, default is the old 25 GeV/c beam
     G4double EnergySD = 0;           //Gaussian sigma on the kinetic energy in GeV, 0 for none
