@@ -48,27 +48,40 @@ struct Track {
     }
 };
 
-// Least-squares line x = x0 + bx z, y = y0 + by z through the points of t: all of them, or with block the detector block points (zD != 0) at their block positions.
+// Weight of a point in every line fit, relative to the 2 points with the lowest z (weight 1): the points near the vertex have scattered the least, the later ones more.
+static constexpr double kWeightFar = 0.25;
+
+// Weighted least-squares line x = x0 + bx z, y = y0 + by z through the points of t: all of them, or with block the detector block points (zD != 0) at their block positions.
+// The 2 points with the lowest z of the set have weight 1, every other point kWeightFar.
 // Leaves the four outputs alone (NAN from the caller) with fewer than 2 points or no spread in z.
 static void LineFit(const Track& t, bool block, double& x0, double& y0, double& bx, double& by){
     const std::vector<double>& X = block ? t.xD : t.x; const std::vector<double>& Y = block ? t.yD : t.y; const std::vector<double>& Z = block ? t.zD : t.z;
-    double meanX = 0.0, meanY = 0.0, meanZ = 0.0;
+    const std::size_t none = t.size();
+    std::size_t first = none, second = none; // the 2 points with the lowest z
     std::size_t N = 0;
     for (std::size_t i = 0; i < t.size(); i++) {
         if (block && t.zD[i] == 0.0) {continue;}
-        meanX += X[i]; meanY += Y[i]; meanZ += Z[i];
         N++;
+        if (first == none || Z[i] < Z[first]) {second = first; first = i;}
+        else if (second == none || Z[i] < Z[second]) {second = i;}
     }
     if (N < 2) {return;}
-    meanX /= N; meanY /= N; meanZ /= N;
+    const auto weight = [&](std::size_t i){return (i == first || i == second) ? 1.0 : kWeightFar;};
+    double sw = 0.0, meanX = 0.0, meanY = 0.0, meanZ = 0.0;
+    for (std::size_t i = 0; i < t.size(); i++) {
+        if (block && t.zD[i] == 0.0) {continue;}
+        const double w = weight(i);
+        sw += w; meanX += w * X[i]; meanY += w * Y[i]; meanZ += w * Z[i];
+    }
+    meanX /= sw; meanY /= sw; meanZ /= sw;
 
     double Szz = 0.0, Szx = 0.0, Szy = 0.0;
     for (std::size_t i = 0; i < t.size(); i++) {
         if (block && t.zD[i] == 0.0) {continue;}
-        const double dz = Z[i] - meanZ;
-        Szz += dz * dz;
-        Szx += dz * (X[i] - meanX);
-        Szy += dz * (Y[i] - meanY);
+        const double w = weight(i), dz = Z[i] - meanZ;
+        Szz += w * dz * dz;
+        Szx += w * dz * (X[i] - meanX);
+        Szy += w * dz * (Y[i] - meanY);
     }
     if (std::abs(Szz) >= 1e-20) {
         bx = Szx / Szz; by = Szy / Szz;
@@ -130,6 +143,13 @@ void ReconAngleAll(){
     auto secs = [](Clock::time_point a, Clock::time_point b){return std::chrono::duration<double>(b - a).count();};
     ROOT::EnableImplicitMT(NThreads());
     ROOT::TTreeProcessorMT::SetTasksPerWorkerHint(4); // a raw file is split into 4 tasks per thread, so one file keeps all the threads busy
+
+    // Carbon block centres (z, mm, ascending) and half thickness: the vertex tube of a track is its fitted line across the block just upstream of its first tracker hit.
+    const auto settings = ReadSettings();
+    const std::vector<double> blockZ = StackZ(settings).blockZ;
+    const double halfBlockMm = settings.at("CarbonThickness") * 1000.0 / 2.0;
+    // Position error of one tracker hit (mm): the tracker is 400 mm over nCols_blocks cells (2construction.cc), a hit sits at a cell centre, so the error is pitch / sqrt(12).
+    const double hitSigmaMm = 400.0 / settings.at("nCols_blocks") / std::sqrt(12.0);
 
     // CE neutrons (same selection as CutEvents.cpp): event -> CE track IDs.
     // the carbon-block CE come from cuts/cut_CE.root (CarbonCeCut, CutOpen.h): every row passes, no filter
@@ -219,6 +239,9 @@ void ReconAngleAll(){
             double theta, phi, dTheta, dPhi, x0, y0, bx, by, x0D, y0D, bxD, byD, finalKE, finalKED;
             double xVertex, yVertex, zVertex, zBxRecon, zByRecon, zBxReconDIFF, zByReconDIFF;
             double resRms, resDRms, impact, impactD, r2, r2D, firstXD, firstYD, resHalfRatioD;
+            int tubeBlock, inTubeZ;
+            double tubeZ0, tubeZ1, tubeDist, tubeDistD, tubeRadius, tubeX0, tubeY0, tubeX1, tubeY1, thetaNMin, thetaNMax, phiNMid, phiNHalf;
+            double thetaRelN, thetaRelNMin, thetaRelNMax, phiRelN, phiRelNHalf, thetaRelND, thetaRelNDMin, thetaRelNDMax, phiRelND, phiRelNDHalf; // proton angles in the frame of the estimated neutron
         };
         std::vector<std::vector<Row>> shardRows(nShards);
         const auto tFit0 = Clock::now(); // the event loop above is the read
@@ -364,6 +387,90 @@ void ReconAngleAll(){
                         if (r1 > 0) {r.resHalfRatioD = r2h / r1;}
                     }
                 }
+                // Vertex tube: the fitted lines (true and block-position) extended back across the carbon block just upstream of the first tracker hit.
+                // tubeBlock -1 (all tube values NAN, inTubeZ 0) with no tracker hit or a first hit upstream of every block.
+                r.tubeBlock = -1; r.inTubeZ = 0;
+                r.tubeZ0 = r.tubeZ1 = r.tubeDist = r.tubeDistD = r.tubeRadius = NAN;
+                r.thetaNMin = r.thetaNMax = r.phiNMid = r.phiNHalf = r.tubeX0 = r.tubeY0 = r.tubeX1 = r.tubeY1 = NAN;
+                r.thetaRelN = r.thetaRelNMin = r.thetaRelNMax = r.phiRelN = r.phiRelNHalf = NAN;
+                r.thetaRelND = r.thetaRelNDMin = r.thetaRelNDMax = r.phiRelND = r.phiRelNDHalf = NAN;
+                if (r.nHits > 0) {
+                    const double zFirst = t.zD[blockHits.front()];
+                    const int idx = int(std::upper_bound(blockZ.begin(), blockZ.end(), zFirst) - blockZ.begin()) - 1;
+                    if (idx >= 0) {
+                        r.tubeBlock = idx;
+                        r.tubeZ0 = blockZ[idx] - halfBlockMm; r.tubeZ1 = blockZ[idx] + halfBlockMm;
+                        r.inTubeZ = (r.zVertex >= r.tubeZ0 && r.zVertex <= r.tubeZ1) ? 1 : 0;
+                        r.tubeDist  = std::hypot(r.xVertex - (fit.x0 + fit.bx * r.zVertex),   r.yVertex - (fit.y0 + fit.by * r.zVertex));
+                        // The tube line is the weighted block-position fit itself (x0D, bxD, y0D, byD, LineFit): the 2 hits right after the CE block (the first 2 in z, the first hit is already
+                        // behind the block) have weight 1, every later hit kWeightFar, since the later hits have scattered more. A hit of weight w has error hitSigmaMm / sqrt(w), so
+                        // sigma^2 = s^2 (1/W + (z - zMean)^2 / Sxx) with W = sum w, Sxx = sum w (z - zMean)^2, taken at the block centre. NAN with fewer than 2 hits or no spread in zD.
+                        double sw = 0.0, zMean = 0.0;
+                        for (std::size_t k = 0; k < blockHits.size(); k++) {
+                            const double w = k < 2 ? 1.0 : kWeightFar;
+                            sw += w; zMean += w * t.zD[blockHits[k]];
+                        }
+                        zMean /= sw;
+                        double sxx = 0.0;
+                        for (std::size_t k = 0; k < blockHits.size(); k++) {
+                            const double w = k < 2 ? 1.0 : kWeightFar, dzh = t.zD[blockHits[k]] - zMean;
+                            sxx += w * dzh * dzh;
+                        }
+                        if (blockHits.size() >= 2 && sxx > 0.0) {
+                            const auto lineX = [&](double zz){return fit.x0D + fit.bxD * zz;};
+                            const auto lineY = [&](double zz){return fit.y0D + fit.byD * zz;};
+                            const double dz = blockZ[idx] - zMean;
+                            constexpr double kTubeSigmas = 2.0; // holds 92% of the CE vertices of the 801x801 run (1.5: 67%, 2.25: 98%, 2.45: 99%); PlotTubeDebug.cpp repeats this number
+                            r.tubeRadius = kTubeSigmas * hitSigmaMm * std::sqrt(1.0 / sw + dz * dz / sxx);
+                            r.tubeDistD = std::hypot(r.xVertex - lineX(r.zVertex), r.yVertex - lineY(r.zVertex));
+                            r.tubeX0 = lineX(r.tubeZ0); r.tubeY0 = lineY(r.tubeZ0);
+                            r.tubeX1 = lineX(r.tubeZ1); r.tubeY1 = lineY(r.tubeZ1);
+                            // Initial neutron direction range: the neutron flies straight from the beam origin (0, 0, 0) to its CE vertex, so every point of the tube (the weighted line over the block
+                            // z range, radius tubeRadius) gives a direction. Sampled along the line: at a sample (x, y, z) with rho = hypot(x, y), theta runs from atan((rho - R) / z) (0 when rho < R) to
+                            // atan((rho + R) / z), phi covers phiCentre +- asin(R / rho), all of 2 pi when rho < R. thetaNMin / thetaNMax in rad, phiNMid / phiNHalf: centre in [0, 2 pi) and half width of the phi range.
+                            const double R = r.tubeRadius, phiRef = std::atan2(lineY(blockZ[idx]), lineX(blockZ[idx]));
+                            constexpr int kTubeSamples = 41;
+                            // The neutron does not always start at the origin: with randPos the gun draws its start from a gaussian (5generator.cc: sigma x 0.0055 mm, y 0.003 mm, z 15 mm), not stored
+                            // per event. The start counts as an error like the tube: kTubeSigmas sigma of the beam spot widens the tube radius in x, y (rBeam) and moves the start by +-zBeam along z.
+                            constexpr double kBeamSigmaX = 0.0055, kBeamSigmaY = 0.003, kBeamSigmaZ = 15.0;
+                            const double rBeam = kTubeSigmas * std::hypot(kBeamSigmaX, kBeamSigmaY), zBeam = kTubeSigmas * kBeamSigmaZ, Rn = R + rBeam;
+                            double thLo = INFINITY, thHi = 0.0, phLo = INFINITY, phHi = -INFINITY;
+                            for (int s = 0; s < kTubeSamples; s++) {
+                                const double zs = r.tubeZ0 + (r.tubeZ1 - r.tubeZ0) * s / (kTubeSamples - 1);
+                                const double xs = lineX(zs), ys = lineY(zs), rho = std::hypot(xs, ys);
+                                thLo = std::min(thLo, std::atan2(std::max(0.0, rho - Rn), zs + zBeam)); // the start behind the sample is the longest flight, the smallest angle
+                                thHi = std::max(thHi, std::atan2(rho + Rn, zs - zBeam));
+                                const double half = rho > Rn ? std::asin(Rn / rho) : M_PI;
+                                const double d = std::remainder(std::atan2(ys, xs) - phiRef, 2.0 * M_PI); // phi of the sample relative to the centre of the tube, in (-pi, pi]
+                                phLo = std::min(phLo, d - half); phHi = std::max(phHi, d + half);
+                            }
+                            r.thetaNMin = thLo; r.thetaNMax = thHi;
+                            r.phiNHalf = std::min(M_PI, (phHi - phLo) / 2.0);
+                            r.phiNMid = std::fmod(phiRef + (phLo + phHi) / 2.0 + 4.0 * M_PI, 2.0 * M_PI);
+
+                            // The proton direction of each fit (true position: bx, by; block position: bxD, byD) in the frame where the estimated neutron points along z. The estimate is the direction
+                            // from the beam origin to the tube centre at the middle of the block; the Min / Max (theta) and Half (phi, the largest offset from the estimate) come from every neutron
+                            // the start and the tube allow: the start z at 0 and +-zBeam (the x, y spread of the start is inside Rn), the end at the block front, middle and back, each at the tube centre and
+                            // on a circle of radius Rn around it (8 points).
+                            const double pTrue[3] = {fit.bx, fit.by, 1.0}, pBlock[3] = {fit.bxD, fit.byD, 1.0};
+                            const double zMid = blockZ[idx], nCentre[3] = {lineX(zMid), lineY(zMid), zMid};
+                            double thC[2], phC[2], thMin[2], thMax[2], phHalf[2];
+                            RelToDir(pTrue, nCentre, thC[0], phC[0]); RelToDir(pBlock, nCentre, thC[1], phC[1]);
+                            for (int f = 0; f < 2; f++) {thMin[f] = thC[f]; thMax[f] = thC[f]; phHalf[f] = 0.0;}
+                            for (const double zStart : {-zBeam, 0.0, zBeam}) for (const double zEnd : {r.tubeZ0, zMid, r.tubeZ1}) for (int k = 0; k < 9; k++) {
+                                const double a = (k - 1) * M_PI / 4.0, ex = lineX(zEnd) + (k ? Rn * std::cos(a) : 0.0), ey = lineY(zEnd) + (k ? Rn * std::sin(a) : 0.0);
+                                const double nS[3] = {ex, ey, zEnd - zStart};
+                                for (int f = 0; f < 2; f++) {
+                                    double th, ph; RelToDir(f ? pBlock : pTrue, nS, th, ph);
+                                    thMin[f] = std::min(thMin[f], th); thMax[f] = std::max(thMax[f], th);
+                                    phHalf[f] = std::max(phHalf[f], std::fabs(std::remainder(ph - phC[f], 2.0 * M_PI)));
+                                }
+                            }
+                            r.thetaRelN = thC[0]; r.thetaRelNMin = thMin[0]; r.thetaRelNMax = thMax[0]; r.phiRelN = phC[0]; r.phiRelNHalf = phHalf[0];
+                            r.thetaRelND = thC[1]; r.thetaRelNDMin = thMin[1]; r.thetaRelNDMax = thMax[1]; r.phiRelND = phC[1]; r.phiRelNDHalf = phHalf[1];
+                        }
+                    }
+                }
                 rows.push_back(r);
             }
         }, ROOT::TSeqU(nShards));
@@ -422,6 +529,39 @@ void ReconAngleAll(){
             tree->Branch("firstXD", &cur.firstXD);
             tree->Branch("firstYD", &cur.firstYD);
             tree->Branch("resHalfRatioD", &cur.resHalfRatioD);
+            // vertex tube: tubeBlock the index of the carbon block just upstream of the first tracker hit (-1 none), tubeZ0 / tubeZ1 its front and back face (mm),
+            // inTubeZ the true vertex z lies in the block, tubeDist / tubeDistD the transverse distance (mm) of the true vertex from the true / D line at the vertex z;
+            // every line fit (x0Out.. and x0DOut..) is weighted: the 2 lowest-z points weight 1, the rest kWeightFar (0.25). The tube centre at a face is x0DOut + bxDOut * tubeZ (tubeX0.. hold it),
+            // tubeDist / tubeDistD the distance of the true vertex from the true / block fit, tubeRadius the 2 sigma fit error (mm) of the block fit at the block centre (tubeDistD <= tubeRadius: vertex inside the tube)
+            tree->Branch("tubeBlock", &cur.tubeBlock);
+            tree->Branch("inTubeZ", &cur.inTubeZ);
+            tree->Branch("tubeZ0", &cur.tubeZ0);
+            tree->Branch("tubeZ1", &cur.tubeZ1);
+            // initial neutron direction range of the tube, neutron from the beam origin (0, 0, 0): thetaNMin / thetaNMax (rad), phiNMid (centre, [0, 2 pi) rad) and phiNHalf (half width, pi = every phi, the tube covers the axis)
+            tree->Branch("thetaNMin", &cur.thetaNMin);
+            tree->Branch("thetaNMax", &cur.thetaNMax);
+            tree->Branch("phiNMid", &cur.phiNMid);
+            tree->Branch("phiNHalf", &cur.phiNHalf);
+            // tubeX0 / tubeY0 and tubeX1 / tubeY1: the centre of the tube (the weighted line) at the front and back face of the block (mm)
+            tree->Branch("tubeX0", &cur.tubeX0);
+            tree->Branch("tubeY0", &cur.tubeY0);
+            tree->Branch("tubeX1", &cur.tubeX1);
+            tree->Branch("tubeY1", &cur.tubeY1);
+            // proton angles (rad) in the frame of the estimated neutron (RelToDir): thetaRelN / phiRelN for the true-position fit (outTheta, outPhi), thetaRelND / phiRelND for the block fit (outDTheta, outDPhi),
+            // the neutron estimate is the direction from the beam origin to the tube centre at the block middle; Min / Max the theta range and Half the phi half width over every neutron the start spread and the tube allow
+            tree->Branch("thetaRelN", &cur.thetaRelN);
+            tree->Branch("thetaRelNMin", &cur.thetaRelNMin);
+            tree->Branch("thetaRelNMax", &cur.thetaRelNMax);
+            tree->Branch("phiRelN", &cur.phiRelN);
+            tree->Branch("phiRelNHalf", &cur.phiRelNHalf);
+            tree->Branch("thetaRelND", &cur.thetaRelND);
+            tree->Branch("thetaRelNDMin", &cur.thetaRelNDMin);
+            tree->Branch("thetaRelNDMax", &cur.thetaRelNDMax);
+            tree->Branch("phiRelND", &cur.phiRelND);
+            tree->Branch("phiRelNDHalf", &cur.phiRelNDHalf);
+            tree->Branch("tubeRadius", &cur.tubeRadius);
+            tree->Branch("tubeDist", &cur.tubeDist);
+            tree->Branch("tubeDistD", &cur.tubeDistD);
             for (const Row &r : shardRows[shard]) {
                 cur = r;
                 tree->Fill();

@@ -13,7 +13,7 @@
 
 #include "FitCore.h"
 
-// Unbinned fit of P to the recon block phi of the CE protons, the sample of 3_ReconCalcVals/5_phiReD_cosfit.pdf (PlotAngle.cpp): CalcValsReD of cuts/cut_APandT.root, phiReD from kBlockPhiLo to
+// Unbinned fit of P to the RECONPHIBL_ESTNEU of the CE protons, the sample of 3_ReconCalcVals/5_phiReD_cosfit.pdf (PlotAngle.cpp): CalcValsReD of cuts/cut_APandT.root, phiReD from kBlockPhiLo to
 // kBlockPhiHi, <A> fixed to the mean apCE of the CE tree. Each proton enters the likelihood with its own phi, no bins: density (1 + P <A> cos phi) / N(P) on [lo, hi],
 // N(P) = (hi - lo) + P <A> (sin hi - sin lo) (angles in rad). P is found with Newton's method and its error is 1 / sqrt(-d2lnL/dP2). No limit on P (the binned fit limits it to -1 to 1).
 // Writes UnbinnedPhiReD.pdf with the 50 bin histogram of the binned plot, the binned fit (dashed black) and the unbinned fit (blue). Run in a run folder: root -l -b -q UnbinnedPhiReD.cpp
@@ -24,7 +24,7 @@ void UnbinnedPhiReD(){
     auto phiTake = fitRows.Take<double>("phiReD");
     auto thetaTake = fitRows.Take<double>("thetaReD");
     const auto& phi = *phiTake;
-    // A_eff = sum_i N_i AP(theta_i) / N0 over the protons of the fit, theta_i the 0.05 degree theta bins of the block theta (AEffOfTheta, FitCore.h); its error goes into P
+    // A_eff = sum_i N_i AP(theta_i) / N0 over the protons of the fit, theta_i the own block theta of each proton, no theta bins (AEffOfTheta, FitCore.h); its error goes into P
     const double apScale = ReadSettings().at("APScale");
     AMean aM;
     for (double th : *thetaTake) aM.Add(AEffOfTheta(th, apScale));
@@ -47,7 +47,7 @@ void UnbinnedPhiReD(){
     cv.SetLeftMargin(0.14); cv.SetTopMargin(0.17); cv.SetRightMargin(0.04);
     h.SetStats(0); h.SetMinimum(0); h.SetMaximum(1.25 * h.GetMaximum());
     h.SetLineColor(kRed);
-    h.SetTitle("Reconstructed CE protons, recon block phi Distribution, fit phi 0.5 to 359.5 deg (spike at 0 left out), no other cuts;Angle (degrees);Count");
+    h.SetTitle("Reconstructed CE protons, RECONPHIBL_ESTNEU Distribution, fit phi 0.5 to 359.5 deg (spike at 0 left out), no other cuts;Angle (degrees);Count");
     h.Draw("hist");
     fb.SetLineColor(kBlack); fb.SetLineStyle(2); fb.SetLineWidth(3); fb.Draw("same");
     fu.SetLineColor(kBlue); fu.SetLineWidth(3); fu.Draw("same");

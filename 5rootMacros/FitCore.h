@@ -90,10 +90,10 @@ inline double APFromT(double pbeam, double t, double apScale){
     return std::max(-1.0, apScale * -kAPA * (1 - std::exp(-kAPk * pbeam / 1000.0)) * std::sqrt(std::max(t, 0.0)));
 }
 
-// AP at the center of the 0.05 degree theta bin of a proton (thetaDeg, its lab polar angle): the term AP(theta_i) of A_eff = sum_i N_i AP(theta_i) / N0 of the P fits,
+// AP at the own theta of a proton (thetaDeg, its lab polar angle, no theta bins): the term AP(theta_i) of A_eff = sum_i N_i AP(theta_i) / N0 of the P fits,
 // N(phi) = N0 (1 + P A_eff cos(phi)). Add it per proton to an AMean: Mean() is A_eff over the protons of the fit, N0 = their number.
 inline double AEffOfTheta(double thetaDeg, double apScale){
-    return APFromT(kBeamMomentum, TFromAngle(kBeamMomentum, (std::floor(thetaDeg / 0.05) + 0.5) * 0.05 * TMath::Pi() / 180), apScale);
+    return APFromT(kBeamMomentum, TFromAngle(kBeamMomentum, thetaDeg * TMath::Pi() / 180), apScale);
 }
 
 // Run settings the sim wrote to settings.csv (a row of names, a row of values), as name -> value (.at("APScale"), ...).
@@ -244,6 +244,33 @@ inline StackLayout StackZ(const std::map<std::string, double>& s){
     return st;
 }
 
+// theta and phi (rad, phi in [0, 2 pi)) of the direction p in the frame where the direction n points along z: the minimal rotation about n x z, the one of RelToNeutron in SmearMatrix.cpp.
+// p and n need no unit length. ReconAngleAll.cpp (the estimated neutron) uses it.
+inline void RelToDir(const double p[3], const double n[3], double& theta, double& phi){
+    const double pn = std::sqrt(p[0] * p[0] + p[1] * p[1] + p[2] * p[2]), nn = std::sqrt(n[0] * n[0] + n[1] * n[1] + n[2] * n[2]);
+    const double px = p[0] / pn, py = p[1] / pn, pz = p[2] / pn, nz = n[2] / nn, s = std::hypot(n[0], n[1]) / nn; // s = sin of the rotation angle, nz its cosine
+    double qx = px, qy = py, qz = pz;
+    if (s > 1e-12) {
+        const double kx = n[1] / nn / s, ky = -n[0] / nn / s; // unit axis (n x z) / |n x z|, no z component
+        const double kdotp = kx * px + ky * py;
+        qx = px * nz + (ky * pz) * s + kx * kdotp * (1.0 - nz);
+        qy = py * nz + (-kx * pz) * s + ky * kdotp * (1.0 - nz);
+        qz = pz * nz + (kx * py - ky * px) * s;
+    }
+    theta = std::atan2(std::hypot(qx, qy), qz);
+    phi = std::atan2(qy, qx); if (phi < 0) phi += 2.0 * M_PI;
+}
+
+// The CE proton (lab theta th, lab phi ph, rad) relative to the TRUE neutron direction (CENDirX/Y/Z): CETHETA_NEUFRAME and CEPHI_NEUFRAME (rad, phi in [0, 2 pi)).
+// Plain functions of the branch values, so they also work inside Draw strings and RDataFrame expressions (CalcAPandT.cpp, PlotAngle.cpp, SecondaryCE.cpp).
+inline double CEAngleNeu(double th, double ph, double nx, double ny, double nz, bool wantPhi){
+    const double p[3] = {std::sin(th) * std::cos(ph), std::sin(th) * std::sin(ph), std::cos(th)}, n[3] = {nx, ny, nz};
+    double t = 0, f = 0; RelToDir(p, n, t, f);
+    return wantPhi ? f : t;
+}
+inline double CEThetaNeu(double th, double ph, double nx, double ny, double nz){return CEAngleNeu(th, ph, nx, ny, nz, false);}
+inline double CEPhiNeu(double th, double ph, double nx, double ny, double nz){return CEAngleNeu(th, ph, nx, ny, nz, true);}
+
 // The charge exchange selection of every stage: a CE with its vertex inside one of the carbon blocks (CE in the tracker silicon is left out).
 // The block z positions mirror MyDetectorConstruction (2construction.cc): the blocks and planes as StackZ gives them. fZ < 7700 is the front face of the ZDC.
 inline std::string CarbonCeCut(){
@@ -369,7 +396,7 @@ inline void AddFitEquation(TH1* h, const std::vector<std::string>& lines){
 
 // Unbinned fit of the polarization P to the phi of the protons (degrees, from loDeg to hiDeg): every proton enters the likelihood with its own phi, no bins. The density of a proton is
 // (1 + P A cos phi) / N(P), N(P) = (hi - lo) + P A (sin hi - sin lo) (angles in rad), A the model A of the sample (fixed, aFix) or of the proton itself (aEach). P is found with Newton's method,
-// limited to -1 to 1 (a polarization), and its error is 1 / sqrt(-d2lnL/dP2) at that P. The fit that replaced the chi2 fit of a 50 bin histogram, which the 45 degree grid of the recon block phi
+// limited to -1 to 1 (a polarization), and its error is 1 / sqrt(-d2lnL/dP2) at that P. The fit that replaced the chi2 fit of a 50 bin histogram, which the 45 degree grid of the RECONPHIBL_ESTNEU
 // (spikes) pushed to the limit of P.
 // err is the error on P that every caller quotes: the likelihood error (errFit) and the error from A (errA = |P| * the relative error of A, see AMean) in quadrature.
 // A fixed to the mean of a sample has the error of that mean (the spread of A over the theta distribution of the sample, std(A) / sqrt(N)) and the beam spread (kBeamAFrac, see BeamAFrac); the A of
@@ -788,7 +815,7 @@ inline void FitCore(TH1* h, const std::vector<double>& x){
 
 // The first line of a stats box is the histogram's name: "Fit results" when h has a fit function, else what (or "Statistics").
 // Set it with h->SetName right before the canvas is painted and saved, and put the old name back after, so Draw ">>name" and gDirectory->Get still find h.
-// Recon block phi sits on the block grid: tracks along the x axis pile up at exactly 0 (a spike in the first phi bin). Every fit of the recon block phi
+// RECONPHIBL_ESTNEU sits on the block grid: tracks along the x axis pile up at exactly 0 (a spike in the first phi bin). Every fit of the RECONPHIBL_ESTNEU
 // (the thetaReconBlock sets) only uses the protons with phi from kBlockPhiLo to kBlockPhiHi degrees, and says so on its plot.
 constexpr double kBlockPhiLo = 0.5, kBlockPhiHi = 359.5;
 inline bool InBlockPhi(double phi){return phi >= kBlockPhiLo && phi <= kBlockPhiHi;}

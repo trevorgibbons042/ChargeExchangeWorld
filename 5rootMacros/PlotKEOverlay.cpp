@@ -1,4 +1,4 @@
-// KE cut overlays of the megaCut folders, in plots/6_cuts/<6_megaCut|7_megaCut2|9_megaCut3>/KE_overlay/ (the recon block phi fits of 1_1particlecut/2_phi_cosfit).
+// KE cut overlays of the megaCut folders, in plots/6_cuts/<6_megaCut|7_megaCut2|9_megaCut3>/KE_overlay/ (the RECONPHIBL_ESTNEU fits of 1_1particlecut/2_phi_cosfit).
 // One pdf per curve of Plot3D.cpp part 4 (P vs start theta, its percent error, the ratios 5 to 13), each with the ZDC KE cuts of the folder on top of each other:
 //   7_megaCut2, 9_megaCut3: 80% (the folder itself) and 85, 90, 95% (its _KE85, _KE90, _KE95 folders, cut_megacut2_p_ke85.root ... from CutPlots.cpp)
 //   6_megaCut: its own sample without a ZDC KE cut, then the 7_megaCut2 curves (6_megaCut plus ZDC KE > x is the megacut2 sample, so those folders hold its 80 to 95% curves)
@@ -94,7 +94,7 @@ void KeOverlayFolder(const std::string& family, const std::string& name){
     // description of the cuts every curve applies, for the plot (every cut a plot applies is written on it)
     std::vector<std::string> cutLines = {Form("%s/%s:", family.c_str(), name.c_str()),
         name[2] == '1' ? "at most 1 recon particle in the event" : "at most 2 recon particles in the event",
-        "even tracker hits, 2 to 2 x nBlocks", "at most 1 charged particle per tracker plane", "recon theta, block theta 0 to 1 deg"};
+        "even tracker hits, 2 to 2 x nBlocks", "at most 1 charged particle per tracker plane", "RECONTHETA_ESTNEU, block theta 0 to 1 deg"};
     if (family != "6_megaCut") cutLines.push_back("a recon ZDC proton, ZDC KE cut of the legend");
     if (family == "9_megaCut3"){cutLines.push_back("even charged tracker hits in the event, 2 to 2 x nBlocks"); cutLines.push_back("exactly 1 charged ZDC particle");}
     if (ke6) cutLines.push_back("the other curves also have the ZDC KE cut");
@@ -142,7 +142,7 @@ void KeOverlayFolder(const std::string& family, const std::string& name){
             const std::string what = (isP ? std::string(pct ? "P error (%)" : "P") + (ce ? ", CE recon protons" : ", " + sample) : quantity);
             auto* canvas = new TCanvas("cKEov", "", 800, 640);
             canvas->SetRightMargin(0.30); canvas->SetTopMargin(0.1);
-            mg->SetTitle((what + " vs start theta, ZDC KE cut overlay, " + family + "/" + name + ", recon block theta from the start value to 1 deg;Start theta (deg);" + what).c_str());
+            mg->SetTitle((what + " vs start theta, ZDC KE cut overlay, " + family + "/" + name + ", RECONTHETABL_ESTNEU from the start value to 1 deg;Start theta (deg);" + what).c_str());
             if (isP){ // P is between -1 and 1 (the percent error plots show the same range)
                 const double pTrue = KePTrue();
                 mg->SetMinimum(pct ? 100 * (-1.05 - pTrue) / pTrue : -1.05); mg->SetMaximum(pct ? 100 * (1.05 - pTrue) / pTrue : 1.05);

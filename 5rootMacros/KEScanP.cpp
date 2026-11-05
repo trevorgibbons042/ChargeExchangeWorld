@@ -11,7 +11,7 @@
 #include "FitCore.h"
 #include "Plot3DCols.h"
 
-// Unbinned P of the phi cos fit at recon block theta start 0.15 deg (2_phi_cosfit/2_phiReD_P_vs_start_theta of Plot3D.cpp part 4) for the 9_megaCut3/1_1particlecut sample with the ZDC KE cut at 80, 85, 90 and 95%,
+// Unbinned P of the phi cos fit at RECONTHETABL_ESTNEU start 0.15 deg (2_phi_cosfit/2_phiReD_P_vs_start_theta of Plot3D.cpp part 4) for the 9_megaCut3/1_1particlecut sample with the ZDC KE cut at 80, 85, 90 and 95%,
 // for all recon charged particles, all recon protons and CE recon protons, with the purity (CE recon protons / all recon protons (particles) in the cut) and the share of the CE recon protons
 // that stay (CE recon protons in the cut / CE recon protons of cut_angles_all.root with theta 0 to 1 deg). All three counts and the fit use the block theta 0.15 to 1 deg and block phi 0.5 to 359.5 deg,
 // like the plot. Cut files: cuts/cut_megacut3_1.root (80%), cuts/cut_megacut3_1_ke85/90/95.root (CutPlots.cpp (samples)). Writes cuts/ke_scan_P.csv. Run: root -l -b -q KEScanP.cpp
@@ -22,7 +22,7 @@ struct Rows {std::vector<double> th, ph;}; // block theta and phi (deg) of the r
 
 Rows Load(const std::string& file, const std::string& extra){
     ROOT::RDataFrame df("AnglesRaw", file);
-    auto d = df.Define("thR", "outTheta * TMath::RadToDeg()").Define("th", "outDTheta * TMath::RadToDeg()").Define("ph", "outDPhi * TMath::RadToDeg()")
+    auto d = df.Define("thR", "thetaRelN * TMath::RadToDeg()").Define("th", "thetaRelND * TMath::RadToDeg()").Define("ph", "phiRelND * TMath::RadToDeg()")
                .Filter("thR >= 0 && thR <= 1 && th >= 0.15 && th <= 1 && ph >= 0.5 && ph <= 359.5" + extra); // NaN fails every comparison
     auto th = d.Take<double>("th"), ph = d.Take<double>("ph");
     return {*th, *ph};

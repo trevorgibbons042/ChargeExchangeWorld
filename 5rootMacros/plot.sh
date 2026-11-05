@@ -41,7 +41,7 @@ export ANA_NTHREADS=$(( NCPU / 4 > 0 ? NCPU / 4 : 1 ))
     run 'PlotAngle.cpp("fDEnergy")'
     run 'PlotCEFraction.cpp'
     run 'PlotPolarization.cpp("fDEnergy")'
-    run 'SmearMatrix.cpp' # response matrices of recon block theta and phi vs the truth relative to the neutron, plots/8_smear
+    run 'SmearMatrix.cpp' # response matrices of RECONTHETABL_ESTNEU and phi vs the truth relative to the neutron, plots/8_smear
     run 'PlotFomPolarization.cpp("fDEnergy")'
 } &
 { # 4_CEblock

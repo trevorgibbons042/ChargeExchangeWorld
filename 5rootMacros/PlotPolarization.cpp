@@ -32,7 +32,7 @@
 // N0 * (1 + AP * P * cos(phi)), AP fixed to the mean AP of the CE protons in the slice and P free. Done for the CE protons and for all protons
 // (their phi is fit with the same AP, so the unpolarized non-CE protons pull P down), for true and block position and every KE cut.
 // Writes plots/5_fomCalc/<theta set: recon or recon block>/<ke>/: slices_<tag>.csv, 1_P_vs_theta_<tag>.pdf, 2_pct_error_vs_theta_<tag>.pdf (vs PPValue
-// in settings.csv), tag = <CE or recon> in <ke>/1_apCE/ and <ke>/2_apRecon/ (recon theta), apReconBlock_<CE or recon> directly in <ke>/ (recon block theta). Recon theta uses AP from CE and from recon; recon block theta only AP from recon block, with the block residual cut.
+// in settings.csv), tag = <CE or recon> in <ke>/1_apCE/ and <ke>/2_apRecon/ (RECONTHETA_ESTNEU), apReconBlock_<CE or recon> directly in <ke>/ (RECONTHETABL_ESTNEU). RECONTHETA_ESTNEU uses AP from CE and from recon; RECONTHETABL_ESTNEU only AP from recon block, with the block residual cut.
 // The fit of every slice is in <ke>/slices_<tag>.csv, not plotted. Reads cut_APandT.root and cut_angles_all.root.
 static double kThetaStep = 0.1; // deg, set per pass over the slice widths
 static const double kThetaMax = 5.0 * ThetaScale(); // deg, 5 deg at 25 GeV/c, scaled with 1 / p (FitCore.h); the 0.5 to 2 deg total fit window scales the same way
@@ -159,8 +159,8 @@ void PlotPolarization(std::string energy = "fKEnergy"){ // energy: "fKEnergy" (t
     // block: the block position set, which only takes the block AP; the recon set takes AP from CE and from recon
     struct PosSet {std::string dir, name, ceTree, theta, phi, ap, allTheta, allPhi; bool block;};
     const std::vector<PosSet> sets = {
-        {"1_reconTheta", "recon theta", "CalcValsRe", "thetaRe", "phiRe", "apRe", "outTheta", "outPhi", false},
-        {"2_reconBlockTheta", "recon block theta", "CalcValsReD", "thetaReD", "phiReD", "apReD", "outDTheta", "outDPhi", true}};
+        {"1_reconTheta_estneu", "RECONTHETA_ESTNEU", "CalcValsRe", "thetaRe", "phiRe", "apRe", "thetaRelN", "phiRelN", false},
+        {"2_reconBlockTheta_estneu", "RECONTHETABL_ESTNEU", "CalcValsReD", "thetaReD", "phiReD", "apReD", "thetaRelND", "phiRelND", true}};
     const std::vector<std::string> typeTags = {"CE", "recon"}, typeNames = {"CE recon protons", "all recon protons"}; // CE and recon files share a folder, the tag ends the file name
     const std::string deg = "*180/TMath::Pi()";
 
@@ -202,8 +202,9 @@ void PlotPolarization(std::string energy = "fKEnergy"){ // energy: "fKEnergy" (t
                 Gather(ce, set.theta + ":" + set.phi + ":" + (apInOwnTree ? "" : apSrc.tree + ".") + apSrc.branch, kes[k].dir, 3, ceCols);
                 Gather(all, set.allTheta + deg + ":" + set.allPhi + deg, kes[k].dir, 2, allCols, "Angles" + suffix);
 
-                std::vector<AMean> apA(nSlices); // A_eff of the CE protons of each slice: AEffOfTheta (0.05 degree theta bins, FitCore.h) of their theta
+                std::vector<AMean> apA(nSlices); // A_eff of the CE protons of each slice: AEffOfTheta (FitCore.h) at the own theta of each proton
                 std::vector<std::vector<double>> cePhi(nSlices), allPhi(nSlices);
+                std::vector<AMean> apAll(nSlices); // A_eff of the all recon protons of each slice, at their own theta (the A of their fit)
                 const double apScaleSim = ReadSettings().at("APScale"); // settings.csv from the sim, read once
                 for (size_t i = 0; i < ceCols[0].size(); i++){
                     const int b = SliceOf(ceCols[0][i]);
@@ -212,14 +213,15 @@ void PlotPolarization(std::string energy = "fKEnergy"){ // energy: "fKEnergy" (t
                 }
                 for (size_t i = 0; i < allCols[0].size(); i++){
                     const int b = SliceOf(allCols[0][i]);
-                    if (b >= 0) allPhi[b].push_back(allCols[1][i]);
+                    if (b >= 0){allPhi[b].push_back(allCols[1][i]); apAll[b].Add(AEffOfTheta(allCols[0][i], apScaleSim));}
                 }
 
                 FILE* out = fopen((base + kes[k].dir + "/" + apSrc.sub + "slices_" + tag + ".csv").c_str(), "w");
                 if (out) fprintf(out, "theta_lo,theta_hi,N,AP_mean,P,P_err,pct_err\n");
                 for (int b = 0; b < nSlices; b++){
-                    if (apA[b].n == 0) continue; // no AP without a CE proton in the slice
-                    Slice s{b * kThetaStep, (b + 1) * kThetaStep, 0, apA[b].Mean(), 0, 0, apA[b].n, -1, -1, apA[b]};
+                    const AMean& apFit = type == 0 ? apA[b] : apAll[b]; // A_eff of the protons the slice fit uses
+                    if (apFit.n == 0) continue; // no AP without a proton in the slice
+                    Slice s{b * kThetaStep, (b + 1) * kThetaStep, 0, apFit.Mean(), 0, 0, apA[b].n, -1, -1, apFit};
                     if (!FitSlice(type == 0 ? cePhi[b] : allPhi[b], s, false)) continue; // slice fits are not plotted, only the csv
                     fits[type][k].push_back(s);
                     if (out) fprintf(out, "%g,%g,%.0f,%.8g,%.8g,%.8g,%.8g\n", s.lo, s.hi, s.nPhi, s.ap, s.p, s.pErr, 100.0 * (s.p - pRef) / pRef);
@@ -232,24 +234,28 @@ void PlotPolarization(std::string energy = "fKEnergy"){ // energy: "fKEnergy" (t
 
                 // One fit over a whole theta range instead of slices: 0.5 to 2 deg and 0 to kThetaMax deg, AP = mean AP of the CE protons in the range.
                 // Independent of the slice width: 5_fomCalc/<theta set>/<ke>/<ap>/5, 6_phi_fit_0p5to2deg_<tag>.pdf and 7, 8_phi_fit_0to5deg_<tag>.pdf, numbers in total_fits.csv.
-                // Recon theta only, the block set has no total fits.
+                // RECONTHETA_ESTNEU only, the block set has no total fits.
                 if (!set.block){
                     for (const auto& range : std::vector<std::pair<double, double>>{{0.5 * ThetaScale(), 2.0 * ThetaScale()}, {0.0, kThetaMax}}){
                         // the file name carries the window in degrees (0p5to2deg and 0to5deg at 25 GeV/c)
                         const auto degTag = [](double v){std::string s = Form("%.3g", v); std::replace(s.begin(), s.end(), '.', 'p'); return s;};
                         const std::string totDir = base + kes[k].dir + "/" + apSrc.sub;
                         const std::string totHeader = "plot,theta_lo,theta_hi,N,AP_mean,P,P_err,pct_err";
-                        AMean apRange;
+                        AMean apRange, apCERange;
                         for (size_t i = 0; i < ceCols[0].size(); i++){
                             if (ceCols[0][i] < range.first || ceCols[0][i] >= range.second) continue;
-                            apRange.Add(AEffOfTheta(ceCols[0][i], apScaleSim));
+                            apCERange.Add(AEffOfTheta(ceCols[0][i], apScaleSim));
+                        }
+                        const auto& phiSrc = type == 0 ? ceCols : allCols; // theta and phi of the protons type of this plot
+                        for (size_t i = 0; i < phiSrc[0].size(); i++){ // A_eff of the protons of the fit, at their own theta
+                            if (phiSrc[0][i] < range.first || phiSrc[0][i] >= range.second) continue;
+                            apRange.Add(AEffOfTheta(phiSrc[0][i], apScaleSim));
                         }
                         if (apRange.n == 0) continue;
-                        const auto& phiSrc = type == 0 ? ceCols : allCols; // theta and phi of the protons type of this plot
                         std::vector<double> phis;
                         for (size_t i = 0; i < phiSrc[0].size(); i++)
                             if (phiSrc[0][i] >= range.first && phiSrc[0][i] < range.second) phis.push_back(phiSrc[1][i]);
-                        Slice t{range.first, range.second, 0, apRange.Mean(), 0, 0, apRange.n, (double)ce->GetEntries(), nReconAll, apRange};
+                        Slice t{range.first, range.second, 0, apRange.Mean(), 0, 0, apCERange.n, (double)ce->GetEntries(), nReconAll, apRange};
                         pageC.cd(); pageC.Clear();
                         const std::string totPdf = totDir + (range.first > 0 ? fileNum(3) : fileNum(4)) + "phi_fit_" + degTag(range.first) + "to" + degTag(range.second) + "deg_" + tag + ".pdf";
                         if (!FitSlice(phis, t, true, gSystem->BaseName(totPdf.c_str()), kes[k].label)) continue;
@@ -290,7 +296,7 @@ void PlotPolarization(std::string energy = "fKEnergy"){ // energy: "fKEnergy" (t
                     pageC.cd(); pageC.Clear();
                     const std::string title = std::string(pctPlot ? "Absolute percent error of fitted polarization vs PPValue, log scale" : "Fitted polarization P") + " vs #theta, " +
                                 typeNames[type] + ", " + apSrc.name + ", " + set.name + ", " + kes[k].label + ", theta < 5 deg" +
-                                ";" + std::string(set.block ? "recon block #theta" : "recon #theta") + " (deg);" + (pctPlot ? "|100 #times (P_{fit} - P_{true}) / P_{true}| (%)" : "P_{fit}");
+                                ";" + std::string(set.block ? "RECONTHETABL_ESTNEU" : "RECONTHETA_ESTNEU") + " (deg);" + (pctPlot ? "|100 #times (P_{fit} - P_{true}) / P_{true}| (%)" : "P_{fit}");
                     TH1F frame("framePol", PlotTitle(file, title).c_str(), 1, xLo, xHi); // axes and title only, the data is drawn on top
                     frame.SetStats(0);
                     frame.SetMinimum(yMin); frame.SetMaximum(yMax);

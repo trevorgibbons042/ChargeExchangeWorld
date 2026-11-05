@@ -51,11 +51,11 @@ void QualityStudy(double keepCE = 0.95){
     std::vector<std::string> want = {"resRms", "resDRms", "impact", "impactD", "isFromCE"}; // columns 0-3 the four variables, 4 isFromCE
     int iR2 = -1, iCand = -1;
     if (hasR2){iR2 = (int)want.size(); want.push_back("r2"); want.push_back("r2D");}
-    if (hasCand){iCand = (int)want.size(); for (const char* b : {"nProtonsEv", "nHits", "firstXD", "firstYD", "resHalfRatioD", "outTheta", "outDTheta"}) want.push_back(b);}
+    if (hasCand){iCand = (int)want.size(); for (const char* b : {"nProtonsEv", "nHits", "firstXD", "firstYD", "resHalfRatioD", "thetaRelN", "thetaRelND"}) want.push_back(b);}
     const std::vector<std::vector<double>> col = ColumnsUnordered(t, want); // row order does not matter here, and AnglesRaw (many clusters) is then read on all threads
     const size_t nRows = col[0].size();
     auto isCE = [&](size_t e){return col[4][e] != 0;};
-    auto inBase = [&](size_t e){ // baseline of 6_cuts: recon theta and recon block theta from 0 to 1 degree (NaN fails)
+    auto inBase = [&](size_t e){ // baseline of 6_cuts: RECONTHETA_ESTNEU and RECONTHETABL_ESTNEU from 0 to 1 degree (NaN fails)
         if (!hasCand) return true;
         const double deg = col[iCand + 5][e] * TMath::RadToDeg(), degBlock = col[iCand + 6][e] * TMath::RadToDeg();
         return deg >= 0 && deg <= 1 && degBlock >= 0 && degBlock <= 1;
@@ -140,7 +140,7 @@ void QualityStudy(double keepCE = 0.95){
         {"nHits", "5_nHits", "tracker hits", -0.5, MaxTrackerHits() + 2.5, MaxTrackerHits() + 3}};
     {
         if (hasCand){
-            // col[iCand + k]: 0 nProtonsEv, 1 nHits, 2 firstXD, 3 firstYD, 4 resHalfRatioD, 5 outTheta, 6 outDTheta
+            // col[iCand + k]: 0 nProtonsEv, 1 nHits, 2 firstXD, 3 firstYD, 4 resHalfRatioD, 5 thetaRelN, 6 thetaRelND
             std::vector<std::vector<double>> candCE(cands.size()), candRecon(cands.size());
             for (size_t e = 0; e < nRows; e++){
                 if (!inBase(e)) continue;
@@ -159,7 +159,7 @@ void QualityStudy(double keepCE = 0.95){
                 for (double x : candCE[i]) hCE.Fill(x);
                 for (double x : candRecon[i]) hRecon.Fill(x);
                 hCE.SetLineColor(kBlue); hRecon.SetLineColor(kRed); hCE.SetLineWidth(2); hRecon.SetLineWidth(2);
-                hRecon.SetTitle((cd.label + ", CE recon protons vs all recon protons, recon theta and recon block theta 0-1 deg, no KE cut;" + cd.label + ";Count").c_str());
+                hRecon.SetTitle((cd.label + ", CE recon protons vs all recon protons, RECONTHETA_ESTNEU and RECONTHETABL_ESTNEU 0-1 deg, no KE cut;" + cd.label + ";Count").c_str());
                 hRecon.SetStats(0); hCE.SetStats(0);
                 if (cd.branch == "nHits") for (int bin = 1; bin <= cd.nBins; bin++) hRecon.GetXaxis()->SetBinLabel(bin, bin % 2 == 1 && bin > 1 ? Form("%d", bin - 1) : ""); // labels at 2, 4, 6, 8 hits only
                 hRecon.SetMinimum(0.5);
