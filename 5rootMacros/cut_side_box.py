@@ -3,7 +3,7 @@
 
 The box lists the numbers of the plot's sample from 6_cuts/rank_FOM_theta.csv (written by Plot3D.cpp, every column of every cut folder is in it):
 the counts CE_recon_proton_in_cut, nonCE_recon_proton_in_cut, recon_proton_in_cut, CE_recon_before_cut, then CE_recon_proton_in_cut/recon_proton_in_cut, CE_recon_proton_in_cut/CE_recon_before_cut, nonCE_recon_proton_in_cut/recon_proton_in_cut, FOM_theta, FOM_thetaBlock.
-The page is widened to the right so the box never covers the plot. Plots of 0_KE_KECUT80_* and of 2_KECUT80 use the "cut and ZDC KE > 80%" row, the others the "cut" row.
+The page is widened to the right so the box never covers the plot. Plots of 0_KE_KECUT80_* and of 2_KECUT/KECUT80 use the "cut and ZDC KE > 80%" row, the others the "cut" row.
 A folder that holds two cuts (4_nParticles) gets no box on the plots that sit beside the cut folders, they belong to neither cut. pdfs already boxed get their box taken off and redone (unbox), so the box can change without rerunning the macros.
 """
 import csv
@@ -45,8 +45,10 @@ def load_rows(cuts_dir):
 def cut_of(rel_dir, rows):
     """The rank row key's cut for a pdf folder (relative to 6_cuts), or None when no single cut owns it."""
     parts = rel_dir.split("/")
-    if parts[0] in ("1_hitZDC", "2_KECUT80"):
+    if parts[0] == "1_hitZDC" or parts[:2] == ["2_KECUT", "KECUT80"]:
         return "1_hitZDC"
+    if parts[0] == "2_KECUT": # KECUT85, 90, 95: the rank csv only has the 80% KE cut row, so no box
+        return None
     if parts[:2] == ["0_cuts", "2_theta0_1"]: # the same sample as 1_hitZDC
         return "1_hitZDC"
     if parts[0] == "0_cuts" or parts == ["4_nParticles"]: # the general particle count of 4_nParticles is the 0_cuts sample
@@ -242,7 +244,13 @@ def main(plots):
             if not f.endswith(".pdf"):
                 continue
             cut = cut_of(rel, rows) if rel != "." else None
-            ke80 = f.startswith("0_KE_KECUT80_") or rel.split(os.sep)[0] == "2_KECUT80"
+            if "_vs_KE_cut" in f or "_vs_particle_cut" in f:
+                continue # Plot3D.cpp: one point per cut on these, no single cut owns them, no box
+            if f in ("5_nHits_nHits_noCut.pdf", "8_nZdcParticles_nZdcCharged.pdf") and rel in ("5_nHits", "8_nZdcParticles"):
+                cut = "0_cuts" # Plot3D.cpp: the general count with no cut, beside the cut version
+            if rel == "10_nChargedTrackerHits":
+                cut = "0_cuts" # Plot3D.cpp: the general count with no cut
+            ke80 = f.startswith("0_KE_KECUT80_") or rel.split(os.sep)[:2] == ["2_KECUT", "KECUT80"]
             row = rows.get((cut, KE80 if ke80 else "cut"))
             if row is None:
                 skipped += 1

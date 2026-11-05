@@ -1,11 +1,6 @@
 #source ~/.zshrc
 
-# runs one macro and prints how long it took, compiled with ACLiC (+O) unless ACLIC= (empty), see plot.sh
-run(){
-    local start=$SECONDS
-    root -l -b -q "${1/.cpp/.cpp${ACLIC-+O}}"
-    echo ">>> $1 took $((SECONDS - start)) s"
-}
+source ./run_lib.sh # run <macro>: times it, ACLiC or interpreted, retries in the other mode on Failed to materialize symbols
 
 NCPU=${NCPUS:-$(nproc 2>/dev/null || sysctl -n hw.ncpu)}
 

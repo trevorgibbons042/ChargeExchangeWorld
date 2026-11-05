@@ -49,6 +49,8 @@ void SecondaryCE(){
     if (hasVz) ceExprs.push_back("CEVertexZ");
     const auto ceCol = Columns(&ce, ceExprs);
     const auto& ceEvent = ceCol[0], &ceTrack = ceCol[1], &cePolY = ceCol[2], &ceAP = ceCol[3], &cePhiLab = ceCol[4], &ceX = ceCol[5], &ceYv = ceCol[6];
+    const auto ceTheta = Columns(&ce, {"LastTheta * 180 / TMath::Pi()"})[0]; // true CE theta (degrees), rows in the order of ceCol: the A_eff of the phi fits comes from its 0.05 degree bins (AEffOfTheta)
+    const double apScaleCE = ReadSettings().at("APScale");
     const auto ceCreator = Columns<std::string>(&ce, {"std::string(CECreator.data())"})[0];
     const Long64_t nCE = ceEvent.size();
     const auto creatorGroup = [](const std::string& c){return c == "primary" ? 0 : c == "neutronInelastic" ? 1 : c == "protonInelastic" ? 2 : 3;};
@@ -244,15 +246,15 @@ void SecondaryCE(){
     // keep(k) picks the CE rows (it reads the vectors of the ce entry k), what is added to the title; 19_ is the same plot for the CE protons that hit the first tracker inside a square
     const auto phiFitPlot = [&](const std::string& phiFile, const std::string& what, const std::function<bool(Long64_t)>& keep){
         TH1D hPhi[2] = {TH1D("hPhiAll", "", 50, 0, 360), TH1D("hPhiBeam", "", 50, 0, 360)};
-        AMean sAng[2]; long long nPhi[2] = {0, 0}; // sAng: the A (LastAP) of each set, its mean and error are the fixed A of the fit
+        AMean sAng[2]; long long nPhi[2] = {0, 0}; // sAng: A_eff of each set (the 0.05 degree theta bins of its protons), its mean and error are the fixed A of the fit
         std::vector<double> phiV[2]; // phi of every CE proton of each set: the unbinned fit below uses them, the histogram only shows them
         for (Long64_t k = 0; k < nCE; k++){
             if (!keep(k)) continue;
-            const double phiRad = cePhiLab[k], lastAP = ceAP[k]; const int trackID = (int)ceTrack[k];
+            const double phiRad = cePhiLab[k], aEff = AEffOfTheta(ceTheta[k], apScaleCE); const int trackID = (int)ceTrack[k];
             const double phiDeg = (phiRad < 0 ? phiRad + TMath::TwoPi() : phiRad) * 180 / TMath::Pi();
             for (int g = 0; g < 2; g++){
                 if (g == 1 && trackID != 1) continue;
-                hPhi[g].Fill(phiDeg); phiV[g].push_back(phiDeg); sAng[g].Add(lastAP); nPhi[g]++;
+                hPhi[g].Fill(phiDeg); phiV[g].push_back(phiDeg); sAng[g].Add(aEff); nPhi[g]++;
             }
         }
         const char* phiName[2] = {"all CE", "beam neutron CE (TrackID 1)"};
@@ -270,7 +272,7 @@ void SecondaryCE(){
             phiMax = std::max(phiMax, hPhi[g].GetMaximum());
         }
         hPhi[0].SetMinimum(0); hPhi[0].SetMaximum(1.5 * phiMax); // headroom for the fit text
-        hPhi[0].SetTitle(PlotTitle(phiFile, "CE proton lab phi, unbinned cos fit N(#phi) #propto 1 + P #LTA#GT cos#phi with #LTA#GT fixed, beam neutron CE vs all CE" + what + ";Angle (degrees);Count").c_str());
+        hPhi[0].SetTitle(PlotTitle(phiFile, "CE proton lab phi, unbinned cos fit N(#phi) #propto 1 + P A_{eff} cos#phi with A_{eff} fixed, beam neutron CE vs all CE" + what + ";Angle (degrees);Count").c_str());
         canvas.Clear(); canvas.SetLogy(0);
         hPhi[0].Draw("hist"); hPhi[1].Draw("hist same");
         phiFit[0].DrawCopy("same"); phiFit[1].DrawCopy("same");
@@ -282,7 +284,7 @@ void SecondaryCE(){
         for (int g = 0; g < 2; g++){ // two lines per curve, kept inside the plot area (the legend box sits lower in the right margin)
             txPhi.SetTextColor(phiColor[g]);
             txPhi.DrawLatex(0.13, 0.875 - 0.10 * g, Form("%s,   P = %.3f #pm %.3f", phiName[g], pFit[g], pFitErr[g]));
-            txPhi.DrawLatex(0.13, 0.845 - 0.10 * g, Form("#LTA#GT = %.4f #pm %.4f,   %lld CE protons", sAng[g].Mean(), sAng[g].Err(), nPhi[g]));        }
+            txPhi.DrawLatex(0.13, 0.845 - 0.10 * g, Form("A_{eff} = %.4f #pm %.4f,   %lld CE protons", sAng[g].Mean(), sAng[g].Err(), nPhi[g]));        }
         WritePlotNumbers(&hPhi[0], outDir + phiFile, numbersStarted);
         canvas.SaveAs((outDir + phiFile).c_str());
     };

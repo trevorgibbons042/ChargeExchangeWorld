@@ -12,6 +12,7 @@
 #include <ROOT/TThreadExecutor.hxx>
 
 #include <algorithm>
+#include <array>
 #include <memory>
 #include <sstream>
 #include <TStyle.h>
@@ -32,13 +33,13 @@ namespace
 }
 
 using Key = std::pair<int, int>;
-struct Angles {double LastPhi, LastTheta, LastMomentum, LastT, LastAP; int PDG; double FinalKE; ULong64_t entry = 0; double resDRms = 0;};
+struct Angles {double LastPhi, LastTheta, LastMomentum, LastT, LastAP; int PDG; double FinalKE; ULong64_t entry = 0; double resDRms = 0; double FinalKED = 0;}; // FinalKED: the detector KE, for the _DE trees
 
 struct Track {std::vector<Angles> points;};
 
-static void CalcAPandTOne(std::string energy){ // energy: "fKEnergy" (true KE) or "fDEnergy" (detector energy), picks the Angles tree
+static void CalcAPandTBoth(bool both){ // both: the true-KE trees and the detector-KE (_DE) trees from ONE read of the inputs (only finalKE differs between them); else the true-KE trees only
     const double apScale = ReadSettings().at("APScale"); // settings.csv from the sim
-    const std::string suffix = (energy == "fDEnergy") ? "_DE" : "";
+    const std::vector<std::string> suffixes = both ? std::vector<std::string>{"", "_DE"} : std::vector<std::string>{""};
     ROOT::EnableImplicitMT(NThreads());
     
     bool Verbose = false;
@@ -92,18 +93,18 @@ static void CalcAPandTOne(std::string energy){ // energy: "fKEnergy" (true KE) o
 
     std::vector<TrackMap> slotTracksAngles(dfAngles.GetNSlots());
     dfAngles.ForeachSlot([&](unsigned slot,
-    int eventID, int ParentID, double outTheta, double outPhi, double outDTheta, double outDPhi, double finalKE, int pdg, ULong64_t entry, double resDRms){
+    int eventID, int ParentID, double outTheta, double outPhi, double outDTheta, double outDPhi, double finalKE, int pdg, ULong64_t entry, double resDRms, double finalKED){
         if (pdg != 2212) {return;}
 
         auto &tRecon = slotTracksAngles[slot][{eventID, ParentID, 1}];
 
 
-        tRecon.points.push_back({outPhi, outTheta, 0.0, 0.0, 0.0, pdg, finalKE, entry});
+        tRecon.points.push_back({outPhi, outTheta, 0.0, 0.0, 0.0, pdg, finalKE, entry, 0.0, finalKED});
 
         auto &tReconBlock = slotTracksAngles[slot][{eventID, ParentID, 2}];
 
-        tReconBlock.points.push_back({outDPhi, outDTheta, 0.0, 0.0, 0.0, pdg, finalKE, entry, resDRms});
-        },{"fEvent", "ParentID","outTheta", "outPhi", "outDTheta", "outDPhi", KeVar(suffix), "PDG","entryNo", "resDRms"});
+        tReconBlock.points.push_back({outDPhi, outDTheta, 0.0, 0.0, 0.0, pdg, finalKE, entry, resDRms, finalKED});
+        },{"fEvent", "ParentID","outTheta", "outPhi", "outDTheta", "outDPhi", KeVar(""), "PDG","entryNo", "resDRms", KeVar("_DE")});
     std::vector<TrackMap> tracksAngles = mergeSlots(slotTracksAngles);
     
 
@@ -126,14 +127,14 @@ static void CalcAPandTOne(std::string energy){ // energy: "fKEnergy" (true KE) o
     // The five trees are filled in the same loop, so their entries line up (the plots use them as friends). TTree::Fill is not thread-safe: the CE tracks are cut into chunks, every chunk is
     // filled by one thread into five trees of its own in a file the TBufferMerger gives it, and a chunk's five trees reach the output file together, so the entries stay aligned.
     // The rows come in the order the chunks finish; nothing reads them by position.
-    ROOT::TBufferMerger merger("cuts/cut_APandT.root", energy == "fDEnergy" ? "UPDATE" : "RECREATE"); // detector-energy pass appends its _DE trees to the true-KE file
+    ROOT::TBufferMerger merger("cuts/cut_APandT.root", "RECREATE");
     std::vector<std::pair<const Key3*, const Track*>> ceTracks;
     for (auto &shardMap : tracksCE) for (auto &kt : shardMap) ceTracks.emplace_back(&kt.first, &kt.second);
     const std::size_t nChunks = std::min<std::size_t>(ceTracks.size(), nShards * 4);
     pool.Foreach([&](unsigned chunk){
         auto outFile = merger.GetFile();
         int outTrackID, outPDG, outEventID, outType;
-        double outFinalKE;
+        double outFinalKE[2] = {0, 0}; // [0] true KE, [1] detector KE (the _DE trees); every other value is the same in both
         double outResDRms; // block fit residual of the track, on every tree (no cut on it)
         double outThetaCE, outPhiCE, outMomCE, outTCE, outAPCE;
         double outThetaRe, outPhiRe, outMomRe, outTRe, outAPRe;
@@ -141,6 +142,8 @@ static void CalcAPandTOne(std::string energy){ // energy: "fKEnergy" (true KE) o
         double outThetaReDIFF, outPhiReDIFF, outTReDIFF, outAPReDIFF;
         double outThetaReDDIFF, outPhiReDDIFF, outTReDDIFF, outAPReDDIFF;
 
+        // the five trees of one energy (suffix "" true KE, "_DE" detector KE), finalKE bound to keVar
+        auto makeSet = [&](const std::string& suffix, double* keVar) -> std::array<TTree*, 5> {
         // the six branches every tree starts with
         auto makeTree = [&](const std::string& name, const char* title){
             TTree* t = new TTree((name + suffix).c_str(), title);
@@ -148,7 +151,7 @@ static void CalcAPandTOne(std::string energy){ // energy: "fKEnergy" (true KE) o
             t->Branch("PDG", &outPDG);
             t->Branch("fEvent", &outEventID);
             t->Branch("fType", &outType);
-            t->Branch("finalKE", &outFinalKE);
+            t->Branch("finalKE", keVar);
             t->Branch("resDRms", &outResDRms);
             return t;
         };
@@ -185,6 +188,10 @@ static void CalcAPandTOne(std::string energy){ // energy: "fKEnergy" (true KE) o
         outTree5->Branch("phiReD", &outPhiReDDIFF);
         outTree5->Branch("tReD", &outTReDDIFF);
         outTree5->Branch("apReD", &outAPReDDIFF);
+        return {outTree, outTree2, outTree3, outTree4, outTree5};
+        };
+        std::vector<std::array<TTree*, 5>> trees; // one set per energy, filled in the same row loop so the entries of a set line up
+        for (std::size_t s = 0; s < suffixes.size(); s++) trees.push_back(makeSet(suffixes[s], &outFinalKE[s]));
         for (std::size_t idx = chunk * ceTracks.size() / nChunks; idx < (chunk + 1) * ceTracks.size() / nChunks; idx++) {
             const Key3 &key = *ceTracks[idx].first;
             const Track &tCE = *ceTracks[idx].second;
@@ -230,7 +237,7 @@ static void CalcAPandTOne(std::string energy){ // energy: "fKEnergy" (true KE) o
                 outAPReD    = APFromT(pBeam, outTReD, apScale);
         
                 outPDG = re.PDG;
-                outFinalKE = re.FinalKE;
+                outFinalKE[0] = re.FinalKE; outFinalKE[1] = re.FinalKED;
         
                 outThetaReDIFF = outThetaRe - outThetaCE;
                 outPhiReDIFF = std::remainder(outPhiRe - outPhiCE, 360.0);
@@ -243,17 +250,13 @@ static void CalcAPandTOne(std::string energy){ // energy: "fKEnergy" (true KE) o
                 outAPReDDIFF = outAPReD - outAPCE;
         
 
-                outTree->Fill();
-                outTree2->Fill();
-                outTree3->Fill();
-                outTree4->Fill();
-                outTree5->Fill();
+                for (auto& set : trees) for (TTree* tr : set) tr->Fill();
         }
         outFile->Write();
     }, ROOT::TSeqU((unsigned)nChunks));
 }
 
-// Both energies in one run: the true-KE pass writes cut_APandT.root, the detector-KE pass appends its _DE trees (the merger of each pass is closed before the next one starts).
+// Both energies in one pass: the true-KE trees and the detector-KE _DE trees are written to cut_APandT.root together (the inputs are read and the tracks built once).
 // The beam spread (settings.csv BeamMomentumSD) as relative errors on t and A_P, the same for every event (FitCore.h BeamTFrac, BeamAFrac); the P errors of the plots include
 // the A_P one. Printed and written to beam_errors.csv in the run folder.
 static void WriteBeamErrors(){
@@ -264,8 +267,8 @@ static void WriteBeamErrors(){
     }
 }
 
-void CalcAPandT(){
+// pass "all" (default): both energies. pass "true": the true-KE pass only (cut_APandT.root without the _DE trees), enough for the 6_cuts plots (Submit6Cuts.sh), which read CalcValsReDDIFF only.
+void CalcAPandT(const char* pass = "all"){ // a const char*: a std::string macro argument fails on the Mac cling
     WriteBeamErrors();
-    CalcAPandTOne("fKEnergy");
-    CalcAPandTOne("fDEnergy");
+    CalcAPandTBoth(std::string(pass) != "true");
 }

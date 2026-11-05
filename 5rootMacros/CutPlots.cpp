@@ -21,7 +21,7 @@
 // Every cut file the plot macros read besides the ones CutEvents.cpp and ReconAngleAll.cpp write, in one macro (the order matters: the samples read what the zdc part writes):
 //   trees    cuts/ke_gt80.root, the KE cut entry lists of cut_APandT.root and cut_angles_all.root (CutTrees, CutFiles.h)
 //   zdc      cuts/cut_ZdcCE.root and cut_ZdcAllEv.root, the ZDC protons with the Plot3D columns (ZdcColumns, Plot3DCols.h)
-//   samples  one cut file per cut of 6_cuts and cut_hitZDC_AllEv.root (CutSamples)
+//   samples  one cut file per cut of 6_cuts, cut_base.root (the theta baseline sample every cut starts from, read by QualityStudy) and cut_hitZDC_AllEv.root (CutSamples)
 // CutPlots() runs all three; CutPlots("samples") only the last one (plot_cut.sh). Only the samples that have a ZDC KE cut (megacut2, megacut3, the KE scan, hitZDC) read the zdc files, so Plot.pbs runs trees, zdc and the other samples
 // side by side, then the ZDC KE samples as several processes (CUT_ONLY).
 
@@ -122,7 +122,7 @@ static void ZdcColumns(){
     const time_t t1 = time(nullptr); // the first addColumns call has loaded the maps
     printf(">>> CutPlots zdc maps took %.0f s\n", difftime(t1, t0)); fflush(stdout);
     handles.emplace_back(addColumns(dfAllEv).Snapshot("ParticleInfo", "cuts/cut_ZdcAllEv.root", "", lazy));
-    handles.emplace_back(addColumns(dfAllPart).Snapshot("ParticleInfo", "cuts/cut_ZdcAllPart.root", "", lazy)); // the same for every recorded particle, any pdg (the "all recon particles" plots)
+    handles.emplace_back(addColumns(dfAllPart).Snapshot("ParticleInfo", "cuts/cut_ZdcAllPart.root", "", lazy)); // the same for every recorded particle, any pdg (the "all recon charged particles" plots)
     ROOT::RDF::RunGraphs(handles);
     printf(">>> CutPlots zdc write took %.0f s\n", difftime(time(nullptr), t1)); fflush(stdout);
 }
@@ -131,8 +131,10 @@ static void ZdcColumns(){
 // AnglesRaw cuts (every fitted proton, no ZDC requirement, cut_angles_all.root) keep the branches Plot3D reads:
 //   cut_ResCuts       resDRms < 4 mm (3_ResCuts)
 //   cut_nParticles1/2 at most 1 / 2 reconstructed particles in the event
-//   cut_nZdc1         at most 1 charged particle at the ZDC in the event (8_nZdcParticles, EventSummary of the sim)
+//   cut_nZdc1         exactly 1 charged particle at the ZDC in the event (8_nZdcParticles, EventSummary of the sim)
 //   cut_nHits         the even tracker hit counts 2, 4, ... 2 * nBlocks (EvenHits, FitCore.h)
+//   cut_nChHits       the even charged tracker hit counts 2, 4, ... 2 * nBlocks in the event (nTrackerHitsEv, all particles added up; 10_nChargedTrackerHits/1_evenHits)
+//   cut_nChHits2      exactly 2 charged tracker hits in the event (10_nChargedTrackerHits/2_twoHits)
 //   cut_megacut_1     6_megaCut/1_1particlecut: at most 1 reconstructed particle in the event, the even tracker hits, at most 1 charged particle in every tracker plane of the event (nMaxChargedPerPlaneEv), recon theta and recon block theta 0 to 1 degree
 //   cut_megacut2_1    7_megaCut2/1_1particlecut: the same, and a reconstructed ZDC proton with ZDC KE > 80% of the beam KE
 //   cut_megacut3_1    9_megaCut3/1_1particlecut: the cut_megacut2 cuts, the even charged tracker hit counts in the event (nTrackerHitsEv, all particles added up) and exactly 1 charged particle at the ZDC (nZdcCharged)
@@ -162,11 +164,14 @@ static void CutSamples(){
     // baseline of every cut of 6_cuts: recon theta and recon block theta from 0 to 1 degree (NaN fails)
     auto base = raw.Filter([](double theta, double thetaBlock){const double deg = theta * TMath::RadToDeg(), degBlock = thetaBlock * TMath::RadToDeg(); return deg >= 0 && deg <= 1 && degBlock >= 0 && degBlock <= 1;}, {"outTheta", "outDTheta"});
     auto snap = [&](ROOT::RDF::RNode node, const char* file){if (CutWanted(file)) handles.emplace_back(node.Snapshot("AnglesRaw", file, rawCols, lazy));};
+    snap(base, "cuts/cut_base.root"); // the baseline sample itself (about 7% of AnglesRaw in a test run): QualityStudy reads it instead of every fitted proton
     snap(base.Filter([](double resD){return resD < kRes4Mm;}, {"resDRms"}), "cuts/cut_ResCuts.root");
     snap(base.Filter([](int n){return n <= 1;}, {"nProtonsEv"}), "cuts/cut_nParticles1.root");
     snap(base.Filter([](int n){return n <= 2;}, {"nProtonsEv"}), "cuts/cut_nParticles2.root");
-    snap(base.Filter([](int n){return n >= 0 && n <= 1;}, {"nZdcCharged"}), "cuts/cut_nZdc1.root"); // -1: no EventSummary, fails
+    snap(base.Filter([](int n){return n == 1;}, {"nZdcCharged"}), "cuts/cut_nZdc1.root"); // -1: no EventSummary, fails
     snap(base.Filter([maxHits](int n){return EvenHits(n, maxHits);}, {"nHits"}), "cuts/cut_nHits.root");
+    snap(base.Filter([maxHits](int n){return EvenHits(n, maxHits);}, {"nTrackerHitsEv"}), "cuts/cut_nChHits.root");
+    snap(base.Filter([](int n){return n == 2;}, {"nTrackerHitsEv"}), "cuts/cut_nChHits2.root");
 
     // 7_megaCut2: the same cuts as 6_megaCut, and the proton must also be a reconstructed ZDC proton with ZDC KE > 80% of the beam KE
     using KeyKeys = std::set<std::pair<int, int>>;

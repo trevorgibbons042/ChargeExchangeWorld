@@ -100,6 +100,7 @@ void GraphBlocks(){
             canvas->Clear();
             TH1* hz = MakeHist(SplitDraw(zHist.Data()).target); // no cut in zPlots: every row fills
             drawStyle(hz, t);
+            hz->SetLineColor(kRed); // CE protons are red in the other plots
             for (double z : cols[iZ]) hz->Fill(z);
             hz->Draw("");
             TString zTitle = Form("%s, %s, %s: %lld", p.label, ceLabel.Data(), name.Data(), nCE);

@@ -1,11 +1,6 @@
 # run.sh without ReconAngleAll.cpp: reuses the cuts/cut_angles_all.root already in the run folder (run it once with run.sh first)
 
-# runs one macro and prints how long it took, compiled with ACLiC (+O) unless ACLIC= (empty), see plot.sh
-run(){
-    local start=$SECONDS
-    root -l -b -q "${1/.cpp/.cpp${ACLIC-+O}}"
-    echo ">>> $1 took $((SECONDS - start)) s"
-}
+source ./run_lib.sh # run <macro>: times it, ACLiC or interpreted, retries in the other mode on Failed to materialize symbols
 
 if [ ! -f cuts/cut_angles_all.root ]; then
     echo "cuts/cut_angles_all.root missing: run ReconAngleAll.cpp (run.sh) first"

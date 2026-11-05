@@ -1,10 +1,10 @@
-// KE cut overlays of the megaCut folders, in plots/6_cuts/<6_megaCut|7_megaCut2|9_megaCut3>/1_1particlecut/2_phi_cosfit/<1_Recon|2_ReconD>/KE_overlay/.
+// KE cut overlays of the megaCut folders, in plots/6_cuts/<6_megaCut|7_megaCut2|9_megaCut3>/KE_overlay/ (the recon block phi fits of 1_1particlecut/2_phi_cosfit).
 // One pdf per curve of Plot3D.cpp part 4 (P vs start theta, its percent error, the ratios 5 to 13), each with the ZDC KE cuts of the folder on top of each other:
 //   7_megaCut2, 9_megaCut3: 80% (the folder itself) and 85, 90, 95% (its _KE85, _KE90, _KE95 folders, cut_megacut2_p_ke85.root ... from CutPlots.cpp)
 //   6_megaCut: its own sample without a ZDC KE cut, then the 7_megaCut2 curves (6_megaCut plus ZDC KE > x is the megacut2 sample, so those folders hold its 80 to 95% curves)
 // Reads the csv files the part 4 plots write next to their pdfs (P_vs_start_theta.csv: plot,sample,start_theta_deg,value,error,pct_kept; ratios_vs_start_theta.csv: plot,start_theta_deg,value),
-// so no fit is redone. All recon protons, all recon particles and the CE recon protons of the P plots, and the proton and particle ratios, are separate pdfs because they are separate plots there.
-// Run from the run folder after every part 4 and before tidy_plots.py, which moves the csv files (plot.sh, Plot.pbs pdfs step).
+// so no fit is redone. All recon protons, all recon charged particles and the CE recon protons of the P plots, and the proton and particle ratios, are separate pdfs because they are separate plots there.
+// Run from the run folder after every part 4 and before tidy_plots.py, which moves the csv files (the 6_cuts lane of plot.sh, the Plot3D step of Plot.pbs).
 #include "TCanvas.h"
 #include "TString.h"
 #include "TGraphErrors.h"
@@ -79,7 +79,7 @@ double KePTrue(){
     return 1.0;
 }
 
-void KeOverlayFolder(const std::string& family, const std::string& name, const std::string& sub){
+void KeOverlayFolder(const std::string& family, const std::string& name){
     const std::string base = "plots/6_cuts/";
     const bool ke6 = family == "6_megaCut";
     const std::string fam = ke6 ? "7_megaCut2" : family; // the folders that hold the KE levels
@@ -89,9 +89,8 @@ void KeOverlayFolder(const std::string& family, const std::string& name, const s
     const int colors[3] = {kBlue, kGreen + 2, kMagenta + 1}, pcts[3] = {85, 90, 95};
     for (int i = 0; i < 3; i++) levels.push_back({Form("ZDC KE > %d%%", pcts[i]), fam + "/" + name + Form("_KE%d", pcts[i]), colors[i]});
 
-    const std::string csvDir = "/2_phi_cosfit/" + sub + "/csv/";
-    const std::string outDir = sub == "2_ReconD" ? base + family + "/KE_overlay/" : base + family + "/" + name + "/2_phi_cosfit/" + sub + "/KE_overlay/"; // the recon block overlays sit in the megaCut folder itself
-    const bool recon = sub == "1_Recon";
+    const std::string csvDir = "/2_phi_cosfit/";
+    const std::string outDir = base + family + "/KE_overlay/"; // the overlays sit in the megaCut folder itself
     // description of the cuts every curve applies, for the plot (every cut a plot applies is written on it)
     std::vector<std::string> cutLines = {Form("%s/%s:", family.c_str(), name.c_str()),
         name[2] == '1' ? "at most 1 recon particle in the event" : "at most 2 recon particles in the event",
@@ -104,7 +103,9 @@ void KeOverlayFolder(const std::string& family, const std::string& name, const s
         std::vector<KeCurves> data;
         std::vector<const KeLevel*> have;
         for (const auto& lv : levels){
-            const std::string path = base + lv.folder + csvDir + (isP ? "P_vs_start_theta.csv" : "ratios_vs_start_theta.csv");
+            const std::string file = isP ? "P_vs_start_theta.csv" : "ratios_vs_start_theta.csv";
+            std::string path = base + lv.folder + csvDir + file; // next to the pdfs before tidy_plots.py, in csv/ after it
+            if (!KeExists(path)) path = base + lv.folder + csvDir + "csv/" + file;
             if (!KeExists(path)) continue;
             data.push_back(KeRead(path, isP));
             have.push_back(&lv);
@@ -115,6 +116,7 @@ void KeOverlayFolder(const std::string& family, const std::string& name, const s
         for (const auto& [key, n] : keys){
             (void)n;
             const std::string plot = key.substr(0, key.find('|')), sample = key.substr(key.find('|') + 1);
+            if (plot.find("_proton") != std::string::npos) continue; // no all recon protons overlays, only the CE recon protons and all recon charged particles
             const bool pct = plot.find("pct_error") != std::string::npos, ce = plot.size() > 7 && plot.compare(plot.size() - 7, 7, "_CE.pdf") == 0;
             const std::string quantity = KeQuantity(plot);
             auto* mg = new TMultiGraph();
@@ -131,7 +133,7 @@ void KeOverlayFolder(const std::string& family, const std::string& name, const s
                     g->SetPointError(g->GetN() - 1, 0, 0, bars ? p.y - std::max(p.y - p.ey, -1.0) : 0, bars ? std::min(p.y + p.ey, 1.0) - p.y : 0);
                 }
                 if (isP && !pct) g->SetLineColorAlpha(have[i]->color, 0.3); else g->SetLineColor(have[i]->color); // the error bars of the four curves overlap: see-through
-                g->SetMarkerColor(have[i]->color); g->SetMarkerStyle(20); g->SetMarkerSize(isP && !pct ? 1.0 : 0.5); g->SetLineWidth(1);
+                g->SetMarkerColor(have[i]->color); g->SetMarkerStyle(20); g->SetMarkerSize(0.33); g->SetLineWidth(1);
                 mg->Add(g, isP && !pct ? "P" : "PL");
                 leg->AddEntry(g, have[i]->label.c_str(), "lp");
                 drawn++;
@@ -140,7 +142,7 @@ void KeOverlayFolder(const std::string& family, const std::string& name, const s
             const std::string what = (isP ? std::string(pct ? "P error (%)" : "P") + (ce ? ", CE recon protons" : ", " + sample) : quantity);
             auto* canvas = new TCanvas("cKEov", "", 800, 640);
             canvas->SetRightMargin(0.30); canvas->SetTopMargin(0.1);
-            mg->SetTitle((what + " vs start theta, ZDC KE cut overlay, " + family + "/" + name + ", " + (recon ? "recon" : "recon block") + " theta from the start value to 1 deg;Start theta (deg);" + what).c_str());
+            mg->SetTitle((what + " vs start theta, ZDC KE cut overlay, " + family + "/" + name + ", recon block theta from the start value to 1 deg;Start theta (deg);" + what).c_str());
             if (isP){ // P is between -1 and 1 (the percent error plots show the same range)
                 const double pTrue = KePTrue();
                 mg->SetMinimum(pct ? 100 * (-1.05 - pTrue) / pTrue : -1.05); mg->SetMaximum(pct ? 100 * (1.05 - pTrue) / pTrue : 1.05);
@@ -166,6 +168,5 @@ void PlotKEOverlay(){
     gStyle->SetOptStat(0);
     for (const char* family : {"7_megaCut2", "9_megaCut3"}) // 6_megaCut has no ZDC KE cut, so no overlay
         for (const char* name : {"1_1particlecut"})
-            for (const char* sub : {"2_ReconD"}) // recon block only, no overlay for 1_Recon
-                KeOverlayFolder(family, name, sub);
+            KeOverlayFolder(family, name);
 }

@@ -86,7 +86,7 @@ static bool FitSlice(const std::vector<double>& phis, Slice& s, bool draw, const
     if (!FitPhi(phis, s.am, h, f, draw ? "LQ" : "LQ0")) return false; // drawn pages keep the fit in the histogram, like the other plots' fit boxes
     s.nPhi = h.GetEntries(); s.p = f.GetParameter(1); s.pErr = f.GetParError(1);
     if (draw){
-        h.SetTitle(PlotTitle(file, Form("Phi, theta %.2f to %.2f deg, AP = %.4f #pm %.4f", s.lo, s.hi, s.ap, s.am.Err()) + (cutNote.empty() ? "" : ", " + cutNote) + std::string(";Angle (degrees);Count")).c_str());
+        h.SetTitle(PlotTitle(file, Form("Phi, theta %.2f to %.2f deg, A_{eff} = %.4f #pm %.4f", s.lo, s.hi, s.ap, s.am.Err()) + (cutNote.empty() ? "" : ", " + cutNote) + std::string(";Angle (degrees);Count")).c_str());
         h.GetXaxis()->SetNdivisions(505);
         h.SetStats(0);
         h.SetMinimum(0); h.SetMaximum(1.1 * h.GetMaximum());
@@ -97,7 +97,7 @@ static bool FitSlice(const std::vector<double>& phis, Slice& s, bool draw, const
         box->AddText("Fit function:");
         box->AddText("Unbinned fit: N(#phi) #propto 1 + AP #times P #times cos#phi");
         box->AddText(gApName.c_str());
-        box->AddText(Form("AP_{avg} = %.4f #pm %.4f  (fixed)", s.ap, s.am.Err()));
+        box->AddText(Form("A_{eff} = %.4f #pm %.4f  (fixed)", s.ap, s.am.Err()));
         box->AddText(Form("P = %.3f #pm %.3f", s.p, s.pErr));
         box->AddText(Form("entries = %.0f", s.nPhi));
         box->Draw(); // before DrawCEPercent: the CE lost box goes under it
@@ -129,7 +129,7 @@ static void DrawSliceGrid(const std::vector<std::vector<double>>& phis, const st
         TH1D h(Form("hGrid%zu", i), "", kPhiBins, 0, 360);
         TF1 f("fGrid", "[0]*(1+[1]*[2]*cos(x*TMath::DegToRad()))", 0, 360);
         if (!FitPhi(phis[(int)std::lround(s.lo / kThetaStep)], s.am, h, f, "LQ")) continue;
-        h.SetTitle(Form("#theta %.2f to %.2f deg: P = %.3f #pm %.3f, AP = %.4f #pm %.4f, N = %.0f;#phi (deg);Count", s.lo, s.hi, f.GetParameter(1), f.GetParError(1), s.ap, s.am.Err(), h.GetEntries()));
+        h.SetTitle(Form("#theta %.2f to %.2f deg: P = %.3f #pm %.3f, A_{eff} = %.4f #pm %.4f, N = %.0f;#phi (deg);Count", s.lo, s.hi, f.GetParameter(1), f.GetParError(1), s.ap, s.am.Err(), h.GetEntries()));
         h.SetStats(0);
         h.GetXaxis()->SetNdivisions(505);
         for (TAxis* a : {h.GetXaxis(), h.GetYaxis()}){a->SetTitleSize(0.055); a->SetLabelSize(0.05);}
@@ -202,12 +202,13 @@ void PlotPolarization(std::string energy = "fKEnergy"){ // energy: "fKEnergy" (t
                 Gather(ce, set.theta + ":" + set.phi + ":" + (apInOwnTree ? "" : apSrc.tree + ".") + apSrc.branch, kes[k].dir, 3, ceCols);
                 Gather(all, set.allTheta + deg + ":" + set.allPhi + deg, kes[k].dir, 2, allCols, "Angles" + suffix);
 
-                std::vector<AMean> apA(nSlices); // the A of the CE protons of each slice
+                std::vector<AMean> apA(nSlices); // A_eff of the CE protons of each slice: AEffOfTheta (0.05 degree theta bins, FitCore.h) of their theta
                 std::vector<std::vector<double>> cePhi(nSlices), allPhi(nSlices);
+                const double apScaleSim = ReadSettings().at("APScale"); // settings.csv from the sim, read once
                 for (size_t i = 0; i < ceCols[0].size(); i++){
                     const int b = SliceOf(ceCols[0][i]);
                     if (b < 0) continue;
-                    cePhi[b].push_back(ceCols[1][i]); apA[b].Add(ceCols[2][i]);
+                    cePhi[b].push_back(ceCols[1][i]); apA[b].Add(AEffOfTheta(ceCols[0][i], apScaleSim));
                 }
                 for (size_t i = 0; i < allCols[0].size(); i++){
                     const int b = SliceOf(allCols[0][i]);
@@ -241,7 +242,7 @@ void PlotPolarization(std::string energy = "fKEnergy"){ // energy: "fKEnergy" (t
                         AMean apRange;
                         for (size_t i = 0; i < ceCols[0].size(); i++){
                             if (ceCols[0][i] < range.first || ceCols[0][i] >= range.second) continue;
-                            apRange.Add(ceCols[2][i]);
+                            apRange.Add(AEffOfTheta(ceCols[0][i], apScaleSim));
                         }
                         if (apRange.n == 0) continue;
                         const auto& phiSrc = type == 0 ? ceCols : allCols; // theta and phi of the protons type of this plot

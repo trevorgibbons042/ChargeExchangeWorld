@@ -1,6 +1,8 @@
 #pragma once
 #include <TDirectory.h>
 #include <TError.h>
+#include <TEntryList.h>
+#include <TFile.h>
 #include <TFriendElement.h>
 #include <TH1F.h>
 #include <TH2F.h>
@@ -147,16 +149,43 @@ inline TH1* MakeHist(const std::string& target){
 }
 
 // The entries of t that pass cut (a TTree::GetEntries(cut) with all the threads): the entry list set on t and the friends are honoured as in Columns. Empty cut or "1": every entry.
-inline Long64_t CountMT(TTree* t, const std::string& cut = ""){
-    std::map<std::string, std::string> aliases;
-    const bool all = cut.empty() || cut == "1";
-    const std::string c = all ? "" : ColumnsExpr(t, cut, aliases);
-    ROOT::RDataFrame df0(*t);
-    ROOT::RDF::RNode df = WithEntryNumber(df0, df0.GetNSlots()); // all threads, exact entry numbers
-    for (const auto& [alias, column] : aliases) df = df.Alias(alias, column);
-    if (!all) df = df.Filter(c, "count filter");
-    return (Long64_t)df.Count().GetValue();
+// Key of the CountsMT and HistsMT memos: the file, name, entries, entry list and friends of the tree, then the expression text. The trees do not change while a macro runs, so a request that
+// repeats (same tree, same cut) is answered from the memo instead of another event loop.
+inline std::string MemoKey(TTree* t, const std::string& s){
+    std::string k = std::string(t->GetCurrentFile() ? t->GetCurrentFile()->GetName() : "") + "|" + t->GetName() + "|" + std::to_string(t->GetEntries());
+    if (TEntryList* el = t->GetEntryList()) k += std::string("|el:") + el->GetName() + ":" + std::to_string(el->GetN());
+    if (t->GetListOfFriends()) for (auto* o : *t->GetListOfFriends()) k += std::string("|fr:") + ((TFriendElement*)o)->GetTree()->GetName();
+    return k + "|" + s;
 }
+
+// CountMT of several cuts in ONE event loop (the counts come back in the order of cuts). Cuts that were counted before on the same tree come from the memo and are not booked again.
+inline std::vector<Long64_t> CountsMT(TTree* t, const std::vector<std::string>& cuts){
+    static std::map<std::string, Long64_t> memo;
+    const auto isAll = [](const std::string& c){return c.empty() || c == "1";};
+    std::vector<std::string> keys, todo; // todo: the cuts that are not in the memo, each once
+    for (const auto& c : cuts){
+        keys.push_back(MemoKey(t, isAll(c) ? "" : c));
+        if (!memo.count(keys.back()) && std::find(todo.begin(), todo.end(), keys.back()) == todo.end()) todo.push_back(keys.back());
+    }
+    if (!todo.empty()){
+        std::map<std::string, std::string> aliases;
+        std::vector<std::string> expr; // the column expression of each todo cut ("" = no filter)
+        for (const auto& k : todo){
+            const size_t i = std::find(keys.begin(), keys.end(), k) - keys.begin();
+            expr.push_back(isAll(cuts[i]) ? "" : ColumnsExpr(t, cuts[i], aliases));
+        }
+        ROOT::RDataFrame df0(*t);
+        ROOT::RDF::RNode df = WithEntryNumber(df0, df0.GetNSlots()); // all threads, exact entry numbers
+        for (const auto& [alias, column] : aliases) df = df.Alias(alias, column);
+        std::vector<ROOT::RDF::RResultPtr<ULong64_t>> res;
+        for (const auto& e : expr) res.push_back((e.empty() ? df : df.Filter(e, "count filter")).Count()); // lazy: the first GetValue runs the loop for all of them
+        for (size_t j = 0; j < todo.size(); j++) memo[todo[j]] = (Long64_t)res[j].GetValue();
+    }
+    std::vector<Long64_t> out;
+    for (const auto& k : keys) out.push_back(memo.at(k));
+    return out;
+}
+inline Long64_t CountMT(TTree* t, const std::string& cut = ""){return CountsMT(t, {cut})[0];}
 
 // TTree::Draw(drawExpr, cut, "goff") as one event loop on all the threads, no row vectors: drawExpr is "x>>name(nx,lo,hi)" or "y:x>>name(nx,lo,hi,ny,lo,hi)". Returns the TH1F / TH2F that MakeHist makes
 // (in gDirectory, named name), filled with the bins and stats of the threads merged, with the line/fill/marker attributes of t as TTree::Draw gives them. It is not drawn: call h->Draw(opt) ("same" for an overlay).
@@ -164,13 +193,29 @@ inline Long64_t CountMT(TTree* t, const std::string& cut = ""){
 // Several HistMT of one tree in one event loop: reqs are (drawExpr, cut) pairs, the histograms come back in the same order (nullptr for a target without binning). The names in the
 // drawExprs must differ, MakeHist replaces a histogram of the same name.
 inline std::vector<TH1*> HistsMT(TTree* t, const std::vector<std::pair<std::string, std::string>>& reqs){
+    // memo of the finished histograms: a request with the same tree, draw string and cut as an earlier one gets a clone of that histogram (named as MakeHist would name it), no event loop
+    static std::map<std::string, TH1*> memo;
     std::map<std::string, std::string> aliases;
     std::vector<DrawSpec> specs;
     std::vector<TH1*> hs;
-    std::vector<std::string> cuts;
+    std::vector<std::string> cuts, keys;
+    std::vector<bool> cached;
     std::vector<std::vector<std::string>> defs;
     for (const auto& [drawExpr, cut] : reqs){
         specs.push_back(SplitDraw(drawExpr));
+        keys.push_back(MemoKey(t, drawExpr + "\x1f" + (cut == "1" ? "" : cut)));
+        const auto hit = memo.find(keys.back());
+        cached.push_back(hit != memo.end());
+        if (cached.back()){
+            const std::string name = specs.back().target.substr(0, specs.back().target.find('('));
+            delete gDirectory->Get(name.c_str());
+            TH1* c = (TH1*)hit->second->Clone(name.c_str());
+            c->SetDirectory(gDirectory);
+            hs.push_back(c);
+            cuts.emplace_back();
+            defs.emplace_back();
+            continue;
+        }
         hs.push_back(MakeHist(specs.back().target));
         cuts.push_back(cut.empty() || cut == "1" ? "" : ColumnsExpr(t, cut, aliases));
         defs.emplace_back();
@@ -182,7 +227,7 @@ inline std::vector<TH1*> HistsMT(TTree* t, const std::vector<std::pair<std::stri
     std::vector<std::function<TH1*()>> src(reqs.size()); // the first call runs the event loop of every booked histogram
     for (size_t j = 0; j < reqs.size(); j++){
         TH1* h = hs[j];
-        if (!h) continue;
+        if (!h || cached[j]) continue;
         ROOT::RDF::RNode d = df;
         if (!cuts[j].empty()) d = d.Filter(cuts[j], "hist filter");
         const std::string col = "hcol" + std::to_string(j) + "_";
@@ -199,7 +244,7 @@ inline std::vector<TH1*> HistsMT(TTree* t, const std::vector<std::pair<std::stri
     }
     for (size_t j = 0; j < reqs.size(); j++){
         TH1* h = hs[j];
-        if (!h || !src[j]) continue;
+        if (!h || cached[j] || !src[j]) continue;
         TH1* s = src[j]();
         s->SetDirectory(nullptr);
         for (int i = 0; i < h->GetNcells(); i++) h->SetBinContent(i, s->GetBinContent(i)); // SetBinContent, not Add: Add would turn Sumw2 on and the plot would show error bars
@@ -209,6 +254,9 @@ inline std::vector<TH1*> HistsMT(TTree* t, const std::vector<std::pair<std::stri
         h->SetEntries(s->GetEntries());
         delete s;
         t->TAttLine::Copy(*(TAttLine*)h); t->TAttFill::Copy(*(TAttFill*)h); t->TAttMarker::Copy(*(TAttMarker*)h);
+        TH1* keep = (TH1*)h->Clone((std::string(h->GetName()) + "_memo").c_str()); // before the caller changes h
+        keep->SetDirectory(nullptr);
+        memo[keys[j]] = keep;
     }
     return hs;
 }

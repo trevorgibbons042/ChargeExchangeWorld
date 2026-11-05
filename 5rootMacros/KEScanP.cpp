@@ -11,8 +11,8 @@
 #include "FitCore.h"
 #include "Plot3DCols.h"
 
-// Unbinned P of the phi cos fit at recon block theta start 0.15 deg (2_ReconD/2_phiReD_P_vs_start_theta of Plot3D.cpp part 4) for the 9_megaCut3/1_1particlecut sample with the ZDC KE cut at 80, 85, 90 and 95%,
-// for all recon particles, all recon protons and CE recon protons, with the purity (CE recon protons / all recon protons (particles) in the cut) and the share of the CE recon protons
+// Unbinned P of the phi cos fit at recon block theta start 0.15 deg (2_phi_cosfit/2_phiReD_P_vs_start_theta of Plot3D.cpp part 4) for the 9_megaCut3/1_1particlecut sample with the ZDC KE cut at 80, 85, 90 and 95%,
+// for all recon charged particles, all recon protons and CE recon protons, with the purity (CE recon protons / all recon protons (particles) in the cut) and the share of the CE recon protons
 // that stay (CE recon protons in the cut / CE recon protons of cut_angles_all.root with theta 0 to 1 deg). All three counts and the fit use the block theta 0.15 to 1 deg and block phi 0.5 to 359.5 deg,
 // like the plot. Cut files: cuts/cut_megacut3_1.root (80%), cuts/cut_megacut3_1_ke85/90/95.root (CutPlots.cpp (samples)). Writes cuts/ke_scan_P.csv. Run: root -l -b -q KEScanP.cpp
 namespace {
@@ -54,7 +54,7 @@ void KEScanP(){
         const Rows part = Load(file, ""), prot = Load(file, " && PDG == 2212"), ce = Load(file, " && isFromCE == 1");
         const double nPart = (double)part.th.size(), nProt = (double)prot.th.size(), nCE = (double)ce.th.size();
         const double purProt = nProt > 0 ? nCE / nProt : 0, purPart = nPart > 0 ? nCE / nPart : 0, eff = nCEtotal > 0 ? nCE / nCEtotal : 0;
-        const std::pair<const char*, const Rows*> samples[3] = {{"all recon particles", &part}, {"all recon protons", &prot}, {"CE recon protons", &ce}};
+        const std::pair<const char*, const Rows*> samples[3] = {{"all recon charged particles", &part}, {"all recon protons", &prot}, {"CE recon protons", &ce}};
         for (const auto& [name, rows] : samples){
             const Fit f = FitP(*rows, apScale);
             printf("%-5d %-22s %9lld %8.4f %8.4f | %8.0f %8.0f %8.0f | %8.4f %8.4f %8.4f\n", pct, name, f.n, f.p, f.err, nCE, nProt, nPart, purProt, purPart, eff);
