@@ -11,20 +11,23 @@
 #PBS -M tgibbons@anl.gov
 
 # The whole analysis chain of one run folder (5rootMacros/run.sh): CutEvents, ReconAngleAll, CalcAPandT, CountCE, then plot.sh.
-# Submit with -v RUN=<folder in build/root>. The macros run from the run folder's own copy: copy them in first (rsync -a --exclude __pycache__ 5rootMacros/ build/root/<run>/).
+# Submit with -v RUN=<folder in build/root>. SCRIPT=run_norecon.sh (-v RUN=<run>,SCRIPT=run_norecon.sh) skips ReconAngleAll and reuses the cuts/cut_angles_all.root of an earlier run.sh.
+# The job copies the current macros into the run folder itself (the macros run from that copy).
 # BASE can be overridden to try it on another machine.
 BASE=${BASE:-/lcrc/project/eic/tgibbons/G4ChargeExchange}
 
 cd $BASE/build/root/$RUN || exit 1
+rsync -a --exclude __pycache__ $BASE/5rootMacros/ $BASE/build/root/$RUN/
 
 module load root
 export LD_LIBRARY_PATH=/lcrc/project/eic/tgibbons/xxhash-install/lib:$LD_LIBRARY_PATH
 export LD_LIBRARY_PATH=/lcrc/project/eic/tgibbons/gif-lib:$LD_LIBRARY_PATH
 
-export NCPUS=128 # run.sh and plot.sh split these between their steps and lanes (NThreads(), FitCore.h)
+export NCPUS=128 # the script and plot.sh split these between their steps and lanes (NThreads(), FitCore.h)
+export ACLIC=${ACLIC-+O} # compiled with ACLiC (see Plot.pbs). Submit with -v ACLIC= to run interpreted.
 
 echo Jobid: $PBS_JOBID
 echo Running on host `hostname`
 echo Run folder: $RUN
 
-zsh run.sh
+zsh ${SCRIPT:-run.sh}

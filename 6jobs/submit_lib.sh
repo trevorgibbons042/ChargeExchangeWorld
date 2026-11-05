@@ -8,5 +8,5 @@ submit() {
     local dep=() res=()
     [ -n "$after" ] && dep=(-W depend=${DEPKIND:-afterok}:$after) # DEPKIND=afterany: start when the jobs ended, whatever their exit code
     [ -n "$ncpus" ] && res=(-l select=1:ncpus=$ncpus)
-    qsub -N "$name" -v RUN=$RUN,STEP=$step,NCPUS=${ncpus:-16}${PARTS:+,PARTS=$PARTS}${CUT_ONLY:+,CUT_ONLY=$CUT_ONLY} "${dep[@]}" "${res[@]}" Plot.pbs
+    qsub -N "$name" -v RUN=$RUN,STEP=$step,NCPUS=${ncpus:-128}${PARTS:+,PARTS=$PARTS}${CUT_ONLY:+,CUT_ONLY=$CUT_ONLY} "${dep[@]}" "${res[@]}" Plot.pbs
 }
