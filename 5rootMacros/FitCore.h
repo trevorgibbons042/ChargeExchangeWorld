@@ -90,6 +90,12 @@ inline double APFromT(double pbeam, double t, double apScale){
     return std::max(-1.0, apScale * -kAPA * (1 - std::exp(-kAPk * pbeam / 1000.0)) * std::sqrt(std::max(t, 0.0)));
 }
 
+// AP at the center of the 0.05 degree theta bin of a proton (thetaDeg, its lab polar angle): the term AP(theta_i) of A_eff = sum_i N_i AP(theta_i) / N0 of the P fits,
+// N(phi) = N0 (1 + P A_eff cos(phi)). Add it per proton to an AMean: Mean() is A_eff over the protons of the fit, N0 = their number.
+inline double AEffOfTheta(double thetaDeg, double apScale){
+    return APFromT(kBeamMomentum, TFromAngle(kBeamMomentum, (std::floor(thetaDeg / 0.05) + 0.5) * 0.05 * TMath::Pi() / 180), apScale);
+}
+
 // Run settings the sim wrote to settings.csv (a row of names, a row of values), as name -> value (.at("APScale"), ...).
 // Throws if the file is missing or the two rows do not match.
 inline std::map<std::string, double> ReadSettings(const std::string& path = "settings.csv"){
@@ -449,7 +455,7 @@ inline PFit UnbinnedP(const std::vector<double>& phiDeg, const AMean& aMean, dou
 // A is the fixed A with its error (the stats box shows A +- aErr instead of +- 0).
 inline TF1* AddUnbinnedFit(TH1* h, const char* name, const PFit& r, double aFix, double aErr, bool draw){
     TF1* f = new TF1(name, "[0] * (1 + [1] * [2] * cos(x * TMath::Pi() / 180))", 0, 360);
-    f->SetParNames("N0", "P", "A");
+    f->SetParNames("N0 (mean per bin)", "P", "A");
     f->SetParameters(h->GetEntries() / h->GetNbinsX(), r.p, aFix);
     f->SetParError(1, r.err);
     f->SetParError(2, aErr);

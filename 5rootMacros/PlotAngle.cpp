@@ -223,62 +223,37 @@ static void WriteFomCsv(const std::string& groupDir, const std::vector<KeCut>& k
     }
 }
 
-// phi histogram (50 bins) of t with the polarization fit N(phi) = N0 (1 + P <A> cos(phi)): N0 = entries / bins and <A> (mean sim analyzing power apCE of the CE protons) are fixed, only P is fitted
-// aExpr (the per-event analyzing power, e.g. "LastAP", all negative) switches to the A-weighted version: phi is filled with weight -A, so a bin holds sum(-A) (1 + P A_eff cos(phi)) with A_eff = sum(A^2) / sum(A)
-// (N0 = sum(-A) / bins and A_eff fixed), and the line P = 2 sum(A cos(phi)) / sum(A^2) +- sqrt(2 / sum(A^2)) is printed.
-static void PhiCosFit(TCanvas* canvas, TTree* t, const std::string& phiBranch, const std::string& cut, const std::string& name, const std::string& title, const AMean& aMean, const std::string& path, const std::string& aExpr = "", const std::string& aLabel = "mean sim A (LastAP)"){
+// phi histogram (50 bins) of t with the polarization fit N(phi) = N0 (1 + P A_eff cos(phi)): N0 = entries / bins (the protons that pass cut) and A_eff = sum_i N_i AP(theta_i) / N0 are fixed, only P is fitted.
+// theta_i are the 0.05 degree theta bins of those protons (AEffOfTheta, FitCore.h); thetaBranch is the theta of the plot in degrees, the CE theta for a CE phi and the recon theta for a recon phi.
+static void PhiCosFit(TCanvas* canvas, TTree* t, const std::string& phiBranch, const std::string& thetaBranch, const std::string& cut, const std::string& name, const std::string& title, const std::string& path){
     const int nBins = 50;
-    const bool weighted = !aExpr.empty();
-    canvas->Clear(); canvas->SetRightMargin(0.25); canvas->SetTopMargin(weighted ? 0.2 : 0.17); // weighted: a third text line above the frame
-    double aFit = aMean.Mean(), nFit = 0, pSum = 0, pSumErr = 0;
-    TH1* h = nullptr;
-    std::vector<double> phiAll, aAll; // phi (deg) and, weighted, the A of every proton: the unbinned fit below uses them, the histogram only shows them
-    if (weighted){
-        const auto ap = Columns(t, {aExpr, phiBranch}, cut); // A, phi (degrees)
-        const size_t n = ap[0].size();
-        phiAll = ap[1]; aAll = ap[0];
-        double sA = 0, sA2 = 0, sAc = 0;
-        for (size_t k = 0; k < n; k++){const double a = ap[0][k]; sA += a; sA2 += a * a; sAc += a * std::cos(ap[1][k] * TMath::Pi() / 180);}
-        if (n < 10 || sA == 0){canvas->SetRightMargin(0.30); canvas->SetTopMargin(0.1); return;}
-        aFit = sA2 / sA; pSum = 2 * sAc / sA2; pSumErr = std::sqrt(2 / sA2);
-        h = new TH1D(name.c_str(), "", nBins, 0, 360);
-        h->Sumw2();
-        for (size_t k = 0; k < n; k++) h->Fill(ap[1][k], -ap[0][k]);
-        h->Draw("hist"); // "hist": a histogram with Sumw2 is drawn as error bars by default
-        nFit = h->GetSumOfWeights();
-    } else {
-        h = MakeHist(name + "(" + std::to_string(nBins) + ",0,360)");
-        if (h){
-            const auto phis = Columns(t, {phiBranch}, cut)[0];
-            phiAll = phis;
-            for (double phi : phis) h->Fill(phi);
-            h->Draw();
-            nFit = h->GetEntries();
-        }
+    canvas->Clear(); canvas->SetRightMargin(0.25); canvas->SetTopMargin(0.17);
+    TH1* h = MakeHist(name + "(" + std::to_string(nBins) + ",0,360)");
+    std::vector<double> phiAll;
+    AMean aMean; // A_eff of the protons of the fit, with its error
+    if (h){
+        const auto cols = Columns(t, {phiBranch, thetaBranch}, cut); // phi, theta (degrees)
+        phiAll = cols[0];
+        const double apScale = ReadSettings().at("APScale"); // settings.csv from the sim, read once
+        for (size_t k = 0; k < phiAll.size(); k++){h->Fill(phiAll[k]); aMean.Add(AEffOfTheta(cols[1][k], apScale));}
+        h->Draw();
     }
     if (!h || h->GetEntries() < 10){canvas->SetRightMargin(0.30); canvas->SetTopMargin(0.1); return;}
-    h->SetTitle((title + ";Angle (degrees);" + (weighted ? "Weighted count (weight -A)" : "Count")).c_str());
+    const double nFit = h->GetEntries();
+    h->SetTitle((title + Form(", %d phi bins of %.1f deg", nBins, 360.0 / nBins) + ";Angle (degrees);Count").c_str());
     h->SetLineColor(kRed); // CE protons are red
     const bool block = phiBranch == "phiReD"; // the block phi fit leaves out the spike at 0 (kBlockPhiLo to kBlockPhiHi), the likelihood is normalised over that range
-    const PFit uf = UnbinnedP(phiAll, weighted ? AMean() : aMean, block ? kBlockPhiLo : 0, block ? kBlockPhiHi : 360, weighted ? &aAll : nullptr); // unbinned fit of every proton's phi (FitCore.h), weighted: each with its own A
-    const double aErr = weighted ? std::fabs(aFit) * kBeamAFrac : aMean.Err(); // the error of the fixed A: the beam spread (weighted) or the spread over the sample and the beam spread
-    TF1& fit = *AddUnbinnedFit(h, "fPhiCos", uf, aFit, aErr, true);
+    const PFit uf = UnbinnedP(phiAll, aMean, block ? kBlockPhiLo : 0, block ? kBlockPhiHi : 360); // unbinned fit of every proton's phi (FitCore.h), A fixed to A_eff
+    TF1& fit = *AddUnbinnedFit(h, "fPhiCos", uf, aMean.Mean(), aMean.Err(), true);
     fit.SetParameter(0, nFit / nBins);
     fit.SetLineColor(kBlack);
     h->SetMinimum(0); h->SetMaximum(1.1 * h->GetMaximum());
     h->SetName("Fit results"); // the first line of the stats box is the histogram name
-    if (weighted) fit.DrawCopy("same"); // the "hist" draw option leaves out the fitted function
     canvas->Update();
     if (auto* st = (TPaveStats*)h->FindObject("stats")){st->SetX1NDC(0.76); st->SetX2NDC(0.995); st->SetY1NDC(0.55); st->SetY2NDC(0.83);}
     TLatex tx; tx.SetNDC(); tx.SetTextSize(0.028);
-    if (weighted){
-        tx.DrawLatex(0.13, 0.90, "Unbinned fit  N(#phi) #propto 1 + P #upoint A cos#phi,   the A of each event,   histogram weight -A per event");
-        tx.DrawLatex(0.13, 0.865, Form("A_{eff} = #SigmaA^{2} / #SigmaA = %.4f #pm %.4f,   P = %.2f #pm %.2f", aFit, aErr, uf.p, uf.err));
-        tx.DrawLatex(0.13, 0.83, Form("P = 2 #SigmaA cos#phi / #SigmaA^{2} = %.2f #pm %.2f", pSum, pSumErr));
-    } else {
-        tx.DrawLatex(0.13, 0.90, "Unbinned fit  N(#phi) #propto 1 + P #upoint #LTA#GT cos#phi (every proton, no bins)");
-        tx.DrawLatex(0.13, 0.865, Form("#LTA#GT = %.4f #pm %.4f (fixed, %s),   P = %.2f #pm %.2f", aMean.Mean(), aMean.Err(), aLabel.c_str(), uf.p, uf.err));
-    }
+    tx.DrawLatex(0.13, 0.90, "Unbinned fit  N(#phi) #propto N_{0} (1 + P #upoint A_{eff} cos#phi) (every proton, no bins), N_{0} = protons / bins, fixed");
+    tx.DrawLatex(0.13, 0.865, Form("A_{eff} = #Sigma N_{i} AP(#theta_{i}) / N_{0} = %.4f #pm %.4f (fixed, 0.05 deg theta bins),   P = %.2f #pm %.2f", aMean.Mean(), aMean.Err(), uf.p, uf.err));
     canvas->Modified(); canvas->Update();
     canvas->SaveAs(path.c_str());
     canvas->SetRightMargin(0.30); canvas->SetTopMargin(0.1);
@@ -306,6 +281,7 @@ void PlotAngle(std::string energy = "fKEnergy"){ // energy: "fKEnergy" (true KE)
     for (TTree* t : {events, events3, events4, events5}) t->AddFriend(events2);
     // the diff trees also need the CE value (diff = recon - CE) for the percent error plots
     for (TTree* t : {events4, events5}) t->AddFriend(events);
+    events3->AddFriend(events); // the block recon vs CE theta 2D plot (5_thetaBlockDiff.pdf) needs the CE value next to the block value
 
     TCanvas* canvas = new TCanvas("canvas", "Plots", 1500, 1200);
     gPad->SetRightMargin(0.30);
@@ -333,9 +309,10 @@ void PlotAngle(std::string energy = "fKEnergy"){ // energy: "fKEnergy" (true KE)
     std::vector<PlotSpec> specsCE = {
         {events,  "thetaCE" + thetaHist("hThetaCE"),  "Reconstructed CE protons, CE theta Distribution", ang, false, "1_theta/1_thetaCE.pdf"},
         {events2, "thetaRe" + thetaHist("hThetaRe"),  "Reconstructed CE protons, recon theta Distribution", ang, false, "1_theta/2_thetaRe.pdf"},
-        {events4, "thetaReD>>hThetaDiff(100,-1,1)", "Reconstructed CE protons, difference between CE and Recon Theta", diff, true, "1_theta/4_thetaDiff.pdf"},
+        // theta matrices, x is the truth (CE theta) and y the reconstructed value; the file names keep the old Diff names
+        {events4, Form("CalcValsRe%s.thetaRe:CE%s.thetaCE>>hThetaDiff(100,0,%g,100,0,%g)", suffix.c_str(), suffix.c_str(), ThetaAxisMax(), ThetaAxisMax()), "Reconstructed CE protons, recon theta vs CE theta", "CE theta (degrees);Recon theta (degrees)", false, "1_theta/4_thetaDiff.pdf", "colz"},
         {events3, "thetaReD" + thetaHist("hThetaBlock"), "Reconstructed CE protons, recon block theta Distribution", ang, false, "1_theta/3_thetaBlock.pdf"},
-        {events5, "thetaReD>>hThetaBlockDiff(100,-1,1)", "Reconstructed CE protons, difference between CE and Recon Block Theta", diff, true, "1_theta/5_thetaBlockDiff.pdf"},
+        {events3, Form("thetaReD:CE%s.thetaCE>>hThetaBlockDiff(100,0,%g,100,0,%g)", suffix.c_str(), ThetaAxisMax(), ThetaAxisMax()), "Reconstructed CE protons, recon block theta vs CE theta", "CE theta (degrees);Recon block theta (degrees)", false, "1_theta/5_thetaBlockDiff.pdf", "colz"},
         {events,  "phiCE>>hPhiCE(100,0,360)",    "Reconstructed CE protons, CE phi Distribution", ang, false, "2_phi/1_phiCE.pdf"},
         {events2, "phiRe>>hPhiRe(100,0,360)",    "Reconstructed CE protons, recon phi Distribution", ang, false, "2_phi/2_phiRe.pdf"},
         {events4, "phiReD>>hPhiDiff(100,-180,180)",   "Reconstructed CE protons, difference between CE and Recon Phi", diff, true, "2_phi/4_phiDiff.pdf"},
@@ -352,7 +329,7 @@ void PlotAngle(std::string energy = "fKEnergy"){ // energy: "fKEnergy" (true KE)
         {events3, "apReD>>hAPBlock(100,-1,0)",    "Recon block AP Distribution", "AP;Count", false, "4_ap/3_apBlock.pdf"},
         {events5, "apReD>>hAPBlockDiff(100,-0.15,0.1)",    "Difference between CE and Recon Block AP", "AP Difference;Count", true, "4_ap/5_apBlockDiff.pdf"},
         // recon minus recon block (events3 has the recon tree events2 as friend, same entries)
-        {events3, reDiff("thetaRe", "thetaReD") + ">>hThetaReBlockDiff(100,-1,1)", "Reconstructed CE protons, difference between Recon and Recon Block Theta", diff, true, "1_theta/7_thetaReBlockDiff.pdf"},
+        {events3, Form("thetaReD:CalcValsRe%s.thetaRe>>hThetaReBlockDiff(100,0,%g,100,0,%g)", suffix.c_str(), ThetaAxisMax(), ThetaAxisMax()), "Reconstructed CE protons, recon block theta vs recon theta", "Recon theta (degrees);Recon block theta (degrees)", false, "1_theta/7_thetaReBlockDiff.pdf", "colz"},
         {events3, wrap360(reDiff("phiRe", "phiReD")) + ">>hPhiReBlockDiff(72,-180,180)", "Reconstructed CE protons, difference between Recon and Recon Block Phi", diff, true, "2_phi/8_phiReBlockDiff.pdf"},
         {events3, reDiff("tRe", "tReD") + ">>hTReBlockDiff(100,-0.05,0.05)", "Difference between Recon and Recon Block t", "t Difference;Count", true, "3_t/8_tReBlockDiff.pdf"},
         {events3, reDiff("apRe", "apReD") + ">>hAPReBlockDiff(100,-0.15,0.1)", "Difference between Recon and Recon Block AP", "AP Difference;Count", true, "4_ap/8_apReBlockDiff.pdf"},
@@ -436,15 +413,12 @@ void PlotAngle(std::string energy = "fKEnergy"){ // energy: "fKEnergy" (true KE)
         TTree* rawCE = OpenCut("cuts/cut_CE.root", "ChargeExchange_values");
         gROOT->cd();
         const std::string ceCut = "";
-        const auto apRaw = Columns(rawCE, {"LastAP"}, ceCut)[0];
-        const AMean aRaw = AMeanOf(apRaw);
-        PhiCosFit(canvas, rawCE, "(LastPhiLab < 0 ? LastPhiLab + 2 * TMath::Pi() : LastPhiLab) * 180 / TMath::Pi()", ceCut, "hPhiCEfit", "All CE protons (every carbon-block CE), CE phi Distribution, no cuts", aRaw, phiDir + "1_phiCE_cosfit.pdf");
-        // the same events at the recon angles (CE protons with a recon track), A is the mean sim A of those events
-        const auto apCE = Columns(events, {"apCE"})[0];
-        const AMean aMean = AMeanOf(apCE);
-        PhiCosFit(canvas, events, "phiRe", "", "hPhiRefit", "Reconstructed CE protons, recon phi Distribution, no cuts", aMean, phiDir + "2_phiRe_cosfit.pdf");
-        // the same fit at the block position recon phi (phiReD), A is the mean sim A (apCE) of the same events (the trees are filled in one loop, so aMean is the same)
-        PhiCosFit(canvas, events3, "phiReD", Form("phiReD >= %g && phiReD <= %g", kBlockPhiLo, kBlockPhiHi), "hPhiReDfit", std::string("Reconstructed CE protons, recon block phi Distribution, fit phi ") + "0.5 to 359.5 deg (spike at 0 left out), no other cuts", aMean, phiDir + "5_phiReD_cosfit.pdf");
+        // A_eff of each fit is built inside PhiCosFit from the 0.05 degree theta bins of the protons of that fit: the true CE theta (LastTheta, rad) for the CE phi, the recon theta for the recon phi
+        PhiCosFit(canvas, rawCE, "(LastPhiLab < 0 ? LastPhiLab + 2 * TMath::Pi() : LastPhiLab) * 180 / TMath::Pi()", "LastTheta * 180 / TMath::Pi()", ceCut, "hPhiCEfit", "All CE protons (every carbon-block CE), CE phi Distribution, no cuts", phiDir + "1_phiCE_cosfit.pdf");
+        // the same events at the recon angles (CE protons with a recon track)
+        PhiCosFit(canvas, events, "phiRe", "thetaRe", "", "hPhiRefit", "Reconstructed CE protons, recon phi Distribution, no cuts", phiDir + "2_phiRe_cosfit.pdf");
+        // the same fit at the block position recon phi (phiReD) and block theta (thetaReD)
+        PhiCosFit(canvas, events3, "phiReD", "thetaReD", Form("phiReD >= %g && phiReD <= %g", kBlockPhiLo, kBlockPhiHi), "hPhiReDfit", std::string("Reconstructed CE protons, recon block phi Distribution, fit phi ") + "0.5 to 359.5 deg (spike at 0 left out), no other cuts", phiDir + "5_phiReD_cosfit.pdf");
     }
     printf("[PlotAngle] CE plots done %s\n", TDatime().AsSQLString()); fflush(stdout);
 }
