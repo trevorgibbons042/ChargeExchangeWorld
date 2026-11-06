@@ -605,6 +605,40 @@ void Plot3D(){
         TTree* ceAllTree = OpenCut("cuts/cut_CEall.root", "ChargeExchange_values"); // every charge exchange the sim made (CutEvents.cpp), counted once
         if (!ceAllTree) return;
         const Long64_t nCEallZdcAll = ceAllTree->GetEntries();
+        // The ZDC KE plot of a cut (0_KE_KECUT<pct>_<energy>, log and _linear pdf and the _perbin.csv): the CE recon protons that hit the ZDC (red), all recon protons (blue) and all recon charged particles (green) that pass qCut / qCutPart.
+        // folder_res: where the pdfs go; labelTxt: the cut named in the title; filePrefix: "0_KE_KECUT80_" (also KECUT85 to 95 for the KE folders of 7_megaCut2 and 9_megaCut3) or "0_KE_hitZDC_"; legTxt: the KE cut in the legend (", KE > 80%" or empty);
+        // nCEq, nAllq: the CE recon protons and all recon protons of qCut (0 for the sample without a KE cut, which has no counts in its legend)
+        const auto drawKeDetector = [&](const auto& e, const std::string& folder_res, const std::string& qCut, const std::string& qCutPart, long long nCEq, long long nAllq, const std::string& labelTxt, const std::string& filePrefix, const std::string& legTxt){
+            for (const auto& r : keRanges){ TH1 *hfKE = nullptr, *hpKE = nullptr; long long nPartKE = 0; /* the all recon protons / particles histograms and the particle count are the same for the log and the linear pdf: made once */ for (const bool lin : {false, true}){ // 0_KE_KECUT80 plots only for the cuts that already hit the ZDC with a KE cut (7_megaCut2, 9_megaCut3), and 0_KE_hitZDC (hit ZDC, no KE cut) for 10_nChargedTrackerHits; the others keep their KE distribution. The ZDC KE plot only with the KE cut: the cut alone needs no ZDC hit. lin: the same plot with a linear y axis, saved as ..._linear.pdf
+                drawPlot(events2, e.branch + ">>hResCE" + binSpec(r), qCut, e.label + " of Protons that hit ZDC, " + labelTxt + ", " + kThetaNote + ", CE recon protons vs all recon protons;" + e.label + " (MeV);Count", folder_res + filePrefix + e.dir + r.tag + (lin ? "_linear" : "") + ".pdf", "", [&](TH1* h){
+                    h->SetLineColor(kRed);
+                    if (!hfKE){
+                                                hfKE = HistMT(eventsAllEv, P3(e.branch + ">>hResAll" + binSpec(r)), P3(qCut));
+                        hpKE = HistMT(eventsAllPart, P3(e.branch + ">>hResPart" + binSpec(r)), P3(qCutPart));
+                        nPartKE = CountMT(eventsAllPart, P3(qCutPart));
+                        hfKE->SetLineColor(kBlue); hpKE->SetLineColor(kGreen + 2);
+                    }
+                    TH1 *hf = hfKE, *hp = hpKE;
+                    hf->Draw("same"); hp->Draw("same");
+                    if (lin){ // per bin counts and the CE share of the recon protons and of the recon particles in the cut, beside the linear pdf
+                        FILE* bf = fopen((folder_res + filePrefix + e.dir + r.tag + "_perbin.csv").c_str(), "w");
+                        fprintf(bf, "KE_lo_MeV,KE_hi_MeV,CE_recon_protons,all_recon_protons,all_recon_particles,CE_over_all_protons_percent,CE_over_all_particles_percent\n");
+                        for (int b = 1; b <= h->GetNbinsX(); b++){
+                            const double ce = h->GetBinContent(b), pr = hf->GetBinContent(b), pa = hp->GetBinContent(b);
+                            fprintf(bf, "%g,%g,%g,%g,%g,%.3f,%.3f\n", h->GetBinLowEdge(b), h->GetBinLowEdge(b) + h->GetBinWidth(b), ce, pr, pa, pr > 0 ? 100 * ce / pr : 0., pa > 0 ? 100 * ce / pa : 0.);
+                        }
+                        fclose(bf);
+                    }
+                    h->SetMinimum(lin ? 0 : 0.5); h->SetMaximum((lin ? 1.1 : 2.0) * std::max(h->GetMaximum(), std::max(hf->GetMaximum(), hp->GetMaximum()))); canvas->SetLogy(lin ? 0 : 1);
+                    TLegend* leg = new TLegend(0.745, 0.44, 0.99, 0.55); leg->SetTextSize(0.012);
+                    leg->AddEntry(h, Form("CE recon protons that hit ZDC%s, %lld", legTxt.c_str(), nCEq), "l");
+                    leg->AddEntry(hf, Form("all recon protons that hit ZDC%s, %lld", legTxt.c_str(), nAllq), "l");
+                    leg->AddEntry(hp, Form("all recon charged particles that hit ZDC%s, %lld", legTxt.c_str(), nPartKE), "l");
+                    leg->Draw();
+                });
+                canvas->SetLogy(0);
+            } }
+        };
         if (RunPart(2) || RunPart(5)){
         if (RunPart(2) && RunCut(0)) for (const auto& e : cutEnergies) for (const bool ke80 : {false, true}) for (const bool noTheta : {false, true}){ // the uncut samples (1_hitZDC with the theta window, 0_cuts without) are in every ranking as the baseline
             if (noTheta && ke80) continue; // 0_cuts has no KE cut
@@ -659,36 +693,8 @@ void Plot3D(){
                 rankRows.push_back({sc.dir, ke80 ? "cut and ZDC KE > 80%" : "cut", double(nCEc), double(nAllc), double(nCEallZdc), nCEreconTotal, {fom[0], fom[1]}, {pol[0], pol[1]}, {polErr[0], polErr[1]}, double(nPartc), nNonProtTh, nNonPartTh});
             }
             P2Log("  rank row done");
-            if ((ke80 && sc.zdcKE80) || (!ke80 && sc.onFolder == "10_nChargedTrackerHits")) for (const auto& r : keRanges){ TH1 *hfKE = nullptr, *hpKE = nullptr; long long nPartKE = 0; /* the all recon protons / particles histograms and the particle count are the same for the log and the linear pdf: made once */ for (const bool lin : {false, true}){ // 0_KE_KECUT80 plots only for the cuts that already hit the ZDC with a KE cut (7_megaCut2, 9_megaCut3), and 0_KE_hitZDC (hit ZDC, no KE cut) for 10_nChargedTrackerHits; the others keep their KE distribution. The ZDC KE plot only with the KE cut: the cut alone needs no ZDC hit. lin: the same plot with a linear y axis, saved as ..._linear.pdf
-                drawPlot(events2, e.branch + ">>hResCE" + binSpec(r), qCut, e.label + " of Protons that hit ZDC, " + sc.label + (ke80 ? ", ZDC KE > 80%" : "") + ", " + kThetaNote + ", CE recon protons vs all recon protons;" + e.label + " (MeV);Count", folder_res + (ke80 ? "0_KE_KECUT80_" : "0_KE_hitZDC_") + e.dir + r.tag + (lin ? "_linear" : "") + ".pdf", "", [&](TH1* h){
-                    h->SetLineColor(kRed);
-                    if (!hfKE){
-                        const std::string qCutPart = zdcBasePart + " && " + sc.expr + (ke80 ? " && " + e.branch + " > " + std::to_string(cutVal) : ""); // the same cut on every recon charged particle (any pdg)
-                        hfKE = HistMT(eventsAllEv, P3(e.branch + ">>hResAll" + binSpec(r)), P3(qCut));
-                        hpKE = HistMT(eventsAllPart, P3(e.branch + ">>hResPart" + binSpec(r)), P3(qCutPart));
-                        nPartKE = CountMT(eventsAllPart, P3(qCutPart));
-                        hfKE->SetLineColor(kBlue); hpKE->SetLineColor(kGreen + 2);
-                    }
-                    TH1 *hf = hfKE, *hp = hpKE;
-                    hf->Draw("same"); hp->Draw("same");
-                    if (lin){ // per bin counts and the CE share of the recon protons and of the recon particles in the cut, beside the linear pdf
-                        FILE* bf = fopen((folder_res + (ke80 ? "0_KE_KECUT80_" : "0_KE_hitZDC_") + e.dir + r.tag + "_perbin.csv").c_str(), "w");
-                        fprintf(bf, "KE_lo_MeV,KE_hi_MeV,CE_recon_protons,all_recon_protons,all_recon_particles,CE_over_all_protons_percent,CE_over_all_particles_percent\n");
-                        for (int b = 1; b <= h->GetNbinsX(); b++){
-                            const double ce = h->GetBinContent(b), pr = hf->GetBinContent(b), pa = hp->GetBinContent(b);
-                            fprintf(bf, "%g,%g,%g,%g,%g,%.3f,%.3f\n", h->GetBinLowEdge(b), h->GetBinLowEdge(b) + h->GetBinWidth(b), ce, pr, pa, pr > 0 ? 100 * ce / pr : 0., pa > 0 ? 100 * ce / pa : 0.);
-                        }
-                        fclose(bf);
-                    }
-                    h->SetMinimum(lin ? 0 : 0.5); h->SetMaximum((lin ? 1.1 : 2.0) * std::max(h->GetMaximum(), std::max(hf->GetMaximum(), hp->GetMaximum()))); canvas->SetLogy(lin ? 0 : 1);
-                    TLegend* leg = new TLegend(0.745, 0.44, 0.99, 0.55); leg->SetTextSize(0.012);
-                    leg->AddEntry(h, Form("CE recon protons that hit ZDC%s, %lld", ke80 ? ", KE > 80%" : "", nCEq), "l");
-                    leg->AddEntry(hf, Form("all recon protons that hit ZDC%s, %lld", ke80 ? ", KE > 80%" : "", nAllq), "l");
-                    leg->AddEntry(hp, Form("all recon charged particles that hit ZDC%s, %lld", ke80 ? ", KE > 80%" : "", nPartKE), "l");
-                    leg->Draw();
-                });
-                canvas->SetLogy(0);
-            } }
+            if ((ke80 && sc.zdcKE80) || (!ke80 && sc.onFolder == "10_nChargedTrackerHits")) drawKeDetector(e, folder_res, qCut, zdcBasePart + " && " + sc.expr + (ke80 ? " && " + e.branch + " > " + std::to_string(cutVal) : ""), nCEq, nAllq,
+                                                                                      sc.label + (ke80 ? ", ZDC KE > 80%" : ""), ke80 ? "0_KE_KECUT80_" : "0_KE_hitZDC_", ke80 ? ", KE > 80%" : "");
         }
 
         const char* partEnv = std::getenv("P3_PART");
@@ -1281,6 +1287,16 @@ void Plot3D(){
                         const std::string idir = folder_KEcuts + ic.first + (inCuts0 ? "/" : "/1_additionalinfo/");
                         gSystem->mkdir(idir.c_str(), true);
                         canvas->SaveAs((idir + std::to_string(11 + w) + "_reconBlockDiff_" + rps[w].name + ".pdf").c_str());
+                    }
+                }
+                // the ZDC KE plot of the KE folders of 7_megaCut2 and 9_megaCut3 (0_KE_KECUT85, 90, 95), the same as the 0_KE_KECUT80 one of the 80% folder (part 2), drawn here so that one process writes this folder's csv files
+                if (RunSec(0)) for (const auto& ks : keSamples) if (&ks == sc){
+                    const int pct = std::atoi(ks.dir.c_str() + ks.dir.rfind("_KE") + 3);
+                    gSystem->mkdir((folder_KEcuts + ic.first + "/1_additionalinfo").c_str(), true);
+                    for (const auto& e : cutEnergies){
+                        const std::string qL = zdcBase + " && " + ks.expr + " && " + e.branch + " > " + std::to_string(initialKE * pct / 100.0);
+                        drawKeDetector(e, folder_KEcuts + ic.first + "/1_additionalinfo/", qL, zdcBasePart + " && " + ks.expr + " && " + e.branch + " > " + std::to_string(initialKE * pct / 100.0),
+                                       CountMT(events2, P3(qL)), CountMT(eventsAllEv, P3(qL)), ks.label + ", ZDC KE > " + std::to_string(pct) + "%", "0_KE_KECUT" + std::to_string(pct) + "_", ", KE > " + std::to_string(pct) + "%");
                     }
                 }
                 lap(ic.first + ": drawing the plots");
