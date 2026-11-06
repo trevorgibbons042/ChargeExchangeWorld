@@ -63,7 +63,7 @@ for m in "${macros[@]}"; do
         }
         case $STEP in analysis6|cutplots6) ;; *) cp_run trees $t_trees trees "" ;; esac # the KE cut lists feed the Fom lane only, not 6_cuts
         cp_run zdc $t_half zdc ""
-        cp_run samplesA $t_half samples "ResCuts,nParticles,nZdc1,nHits,cut_megacut_"
+        cp_run samplesA $t_half samples "ResCuts,nParticles,nZdc1,nHits,nChHits,cut_megacut_"
         wait
         cp_run samplesB1 $t_five samples "cut_megacut2_1.root,cut_hitZDC"
         cp_run samplesB2 $t_five samples "cut_megacut3_1.root"
