@@ -133,8 +133,8 @@ static void ZdcColumns(){
 //   cut_nParticles1/2 at most 1 / 2 reconstructed particles in the event
 //   cut_nZdc1         exactly 1 charged particle at the ZDC in the event (8_nZdcParticles, EventSummary of the sim)
 //   cut_nHits         the even tracker hit counts 2, 4, ... 2 * nBlocks (EvenHits, FitCore.h)
-//   cut_nChHits       the even charged tracker hit counts 2, 4, ... 2 * nBlocks in the event (nTrackerHitsEv, all particles added up; 10_nChargedTrackerHits/1_evenHits)
-//   cut_nChHits2      exactly 2 charged tracker hits in the event (10_nChargedTrackerHits/2_twoHits)
+//   cut_nChHits       no charged tracker hit in the event besides the proton's own (nTrackerHitsEv == nHits; 10_nChargedTrackerHits/1_noExtraHits)
+//   cut_nChHits2      at most 1 charged tracker hit in the event besides the proton's own (nTrackerHitsEv - nHits <= 1; 10_nChargedTrackerHits/2_maxOneExtraHit)
 //   cut_megacut_1     6_megaCut/1_1particlecut: at most 1 reconstructed particle in the event, the even tracker hits, at most 1 charged particle in every tracker plane of the event (nMaxChargedPerPlaneEv), RECONTHETA_ESTNEU and RECONTHETABL_ESTNEU 0 to 1 degree
 //   cut_megacut2_1    7_megaCut2/1_1particlecut: the same, and a reconstructed ZDC proton with ZDC KE > 80% of the beam KE
 //   cut_megacut3_1    9_megaCut3/1_1particlecut: the cut_megacut2 cuts, no charged tracker hit in the event besides the proton's own (nTrackerHitsEv == nHits) and exactly 1 charged particle at the ZDC (nZdcCharged)
@@ -170,8 +170,8 @@ static void CutSamples(){
     snap(base.Filter([](int n){return n <= 2;}, {"nProtonsEv"}), "cuts/cut_nParticles2.root");
     snap(base.Filter([](int n){return n == 1;}, {"nZdcCharged"}), "cuts/cut_nZdc1.root"); // -1: no EventSummary, fails
     snap(base.Filter([maxHits](int n){return EvenHits(n, maxHits);}, {"nHits"}), "cuts/cut_nHits.root");
-    snap(base.Filter([maxHits](int n){return EvenHits(n, maxHits);}, {"nTrackerHitsEv"}), "cuts/cut_nChHits.root");
-    snap(base.Filter([](int n){return n == 2;}, {"nTrackerHitsEv"}), "cuts/cut_nChHits2.root");
+    snap(base.Filter([](int tr, int n){return tr == n;}, {"nTrackerHitsEv", "nHits"}), "cuts/cut_nChHits.root");
+    snap(base.Filter([](int tr, int n){return tr - n <= 1;}, {"nTrackerHitsEv", "nHits"}), "cuts/cut_nChHits2.root");
 
     // 7_megaCut2: the same cuts as 6_megaCut, and the proton must also be a reconstructed ZDC proton with ZDC KE > 80% of the beam KE
     using KeyKeys = std::set<std::pair<int, int>>;
