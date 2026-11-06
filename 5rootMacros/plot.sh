@@ -31,7 +31,7 @@ if (( NCPU >= 32 )); then
     }
     cp_run trees $(( NCPU / 32 )) trees ""
     cp_run zdc $(( NCPU / 2 )) zdc ""
-    cp_run samplesA $(( NCPU / 2 )) samples "ResCuts,nParticles,nZdc1,nHits,cut_megacut_"
+    cp_run samplesA $(( NCPU / 2 )) samples "ResCuts,nParticles,nZdc1,nHits,nChHits,cut_megacut_"
     wait
     cp_run samplesB1 $(( NCPU / 5 )) samples "cut_megacut2_1.root,cut_hitZDC"
     cp_run samplesB2 $(( NCPU / 5 )) samples "cut_megacut3_1.root"
