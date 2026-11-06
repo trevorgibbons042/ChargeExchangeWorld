@@ -96,7 +96,7 @@ void KeOverlayFolder(const std::string& family, const std::string& name){
         name[2] == '1' ? "at most 1 recon particle in the event" : "at most 2 recon particles in the event",
         "even tracker hits, 2 to 2 x nBlocks", "at most 1 charged particle per tracker plane", "RECONTHETA_ESTNEU, block theta 0 to 1 deg"};
     if (family != "6_megaCut") cutLines.push_back("a recon ZDC proton, ZDC KE cut of the legend");
-    if (family == "9_megaCut3"){cutLines.push_back("even charged tracker hits in the event, 2 to 2 x nBlocks"); cutLines.push_back("exactly 1 charged ZDC particle");}
+    if (family == "9_megaCut3"){cutLines.push_back("no other charged tracker hit in the event (nTrackerHitsEv == nHits)"); cutLines.push_back("exactly 1 charged ZDC particle");}
     if (ke6) cutLines.push_back("the other curves also have the ZDC KE cut");
 
     for (const bool isP : {true, false}){

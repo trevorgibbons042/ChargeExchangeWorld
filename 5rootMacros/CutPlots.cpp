@@ -137,7 +137,7 @@ static void ZdcColumns(){
 //   cut_nChHits2      exactly 2 charged tracker hits in the event (10_nChargedTrackerHits/2_twoHits)
 //   cut_megacut_1     6_megaCut/1_1particlecut: at most 1 reconstructed particle in the event, the even tracker hits, at most 1 charged particle in every tracker plane of the event (nMaxChargedPerPlaneEv), RECONTHETA_ESTNEU and RECONTHETABL_ESTNEU 0 to 1 degree
 //   cut_megacut2_1    7_megaCut2/1_1particlecut: the same, and a reconstructed ZDC proton with ZDC KE > 80% of the beam KE
-//   cut_megacut3_1    9_megaCut3/1_1particlecut: the cut_megacut2 cuts, the even charged tracker hit counts in the event (nTrackerHitsEv, all particles added up) and exactly 1 charged particle at the ZDC (nZdcCharged)
+//   cut_megacut3_1    9_megaCut3/1_1particlecut: the cut_megacut2 cuts, no charged tracker hit in the event besides the proton's own (nTrackerHitsEv == nHits) and exactly 1 charged particle at the ZDC (nZdcCharged)
 // ZDC cut (cut_ZdcAllEv.root, the ZDC protons with the Plot3D columns of ZdcColumns.cpp):
 //   cut_hitZDC_AllEv           the proton has a reconstructed track (isReco)
 // Run after ZdcColumns.cpp, with all the threads: every input is read once and all the cut files of it are written in the same pass.
@@ -215,7 +215,7 @@ static void CutSamples(){
             snap(base.Filter([&keys, maxP, maxHits, onePerPlane](int np, int n, int e, int t, int nPl){return np <= maxP && EvenHits(n, maxHits) && keys.count({e, t}) > 0 && onePerPlane(nPl);},
                              {"nProtonsEv", "nHits", "fEvent", "TrackID", "nMaxChargedPerPlaneEv"}), scanFile.c_str());
         else
-            snap(base.Filter([&keys, maxP, maxHits, onePerPlane](int np, int n, int e, int t, int nTh, int nZ, int nPl){return np <= maxP && EvenHits(n, maxHits) && keys.count({e, t}) > 0 && EvenHits(nTh, maxHits) && nZ == 1 && onePerPlane(nPl);},
+            snap(base.Filter([&keys, maxP, maxHits, onePerPlane](int np, int n, int e, int t, int nTh, int nZ, int nPl){return np <= maxP && EvenHits(n, maxHits) && keys.count({e, t}) > 0 && nTh == n && nZ == 1 && onePerPlane(nPl);},
                              {"nProtonsEv", "nHits", "fEvent", "TrackID", "nTrackerHitsEv", "nZdcCharged", "nMaxChargedPerPlaneEv"}), scanFile.c_str());
     }
     for (const int maxP : {1}){ // 1_1particlecut of 6_megaCut, 7_megaCut2 and 9_megaCut3: at most 1 reconstructed particle in the event
@@ -224,8 +224,8 @@ static void CutSamples(){
         snap(base.Filter([&ke80Keys, maxP, maxHits, onePerPlane](int np, int n, int e, int t, int nPl){return np <= maxP && EvenHits(n, maxHits) && ke80Keys.count({e, t}) > 0 && onePerPlane(nPl);},
                          {"nProtonsEv", "nHits", "fEvent", "TrackID", "nMaxChargedPerPlaneEv"}), Form("cuts/cut_megacut2_%d.root", maxP));
         snap(base.Filter([&ke80Keys, maxP, maxHits, onePerPlane](int np, int n, int e, int t, int nTh, int nZ, int nPl){return np <= maxP && EvenHits(n, maxHits) && ke80Keys.count({e, t}) > 0
-                                                                                                          && EvenHits(nTh, maxHits) && nZ == 1 && onePerPlane(nPl);},
-                         {"nProtonsEv", "nHits", "fEvent", "TrackID", "nTrackerHitsEv", "nZdcCharged", "nMaxChargedPerPlaneEv"}), Form("cuts/cut_megacut3_%d.root", maxP)); // 9_megaCut3: megaCut2, the even charged tracker hits in the event and exactly 1 charged particle at the ZDC
+                                                                                                          && nTh == n && nZ == 1 && onePerPlane(nPl);},
+                         {"nProtonsEv", "nHits", "fEvent", "TrackID", "nTrackerHitsEv", "nZdcCharged", "nMaxChargedPerPlaneEv"}), Form("cuts/cut_megacut3_%d.root", maxP)); // 9_megaCut3: megaCut2, no charged tracker hit in the event besides the proton's own (nTrackerHitsEv == nHits) and exactly 1 charged particle at the ZDC
     }
 
     // opened only when their file is wanted: cut_ZdcAllEv.root and cut_ZdcAllPart.root are written by the zdc part, which Plot.pbs runs beside the samples without a ZDC KE cut; both stay alive until RunGraphs

@@ -486,15 +486,15 @@ void Plot3D(){
             {"5_nHits", EvenHitsDraw("rawVal(fEvent, TrackID, 10)"), "cut " + EvenHitsText() + " tracker hits", "5_nHits", "cut_nHits"},
           };
           const std::string hitsList = EvenHitsText();
-          // 6_megaCut (no ZDC requirement), 7_megaCut2 (ZDC KE > 80%) and 9_megaCut3 (megaCut2 and the even charged tracker hits in the event, all particles added up), each with at most 1 charged particle per tracker plane and
+          // 6_megaCut (no ZDC requirement), 7_megaCut2 (ZDC KE > 80%) and 9_megaCut3 (megaCut2 and no charged tracker hit in the event besides the proton's own: nTrackerHitsEv == nHits), each with at most 1 charged particle per tracker plane and
           // 1_1particlecut: at most 1 particle
           auto addMega = [&](int level){ // 0: megaCut, 1: megaCut2, 2: megaCut3
               const bool zdc = level >= 1;
               const std::string top = level == 0 ? "6_megaCut" : level == 1 ? "7_megaCut2" : "9_megaCut3";
               std::string expr = "rawVal(fEvent, TrackID, 6) <= 1 && " + EvenHitsDraw("rawVal(fEvent, TrackID, 10)") + perPlaneCut + " && rawVal(fEvent, TrackID, 9) >= 0 && rawVal(fEvent, TrackID, 9) <= 1 && rawVal(fEvent, TrackID, 11) >= 0 && rawVal(fEvent, TrackID, 11) <= 1";
               if (zdc) expr += " && fDEnergy > " + std::to_string(initialKE * 0.80);
-              if (level == 2) expr += " && " + EvenHitsDraw("rawVal(fEvent, TrackID, 17)") + " && rawVal(fEvent, TrackID, 7) == 1";
-              const std::string label = std::string(level == 0 ? "MEGA CUT: at most " : level == 1 ? "MEGA CUT 2: ZDC KE > 80%, at most " : "MEGA CUT 3: ZDC KE > 80%, at most ") + "1 reconstructed particle in event AND number of times the reconstructed particle hits tracker [" + hitsList + "] AND at most 1 charged particle per tracker plane, RECONTHETA_ESTNEU and RECONTHETABL_ESTNEU from 0 degrees to 1 degree" + (level == 2 ? " AND charged tracker plane hits in the event (all particles added up) [" + hitsList + "] AND exactly 1 charged particle at the ZDC in the event" : "");
+              if (level == 2) expr += " && " + std::string("rawVal(fEvent, TrackID, 17) == rawVal(fEvent, TrackID, 10)") + " && rawVal(fEvent, TrackID, 7) == 1";
+              const std::string label = std::string(level == 0 ? "MEGA CUT: at most " : level == 1 ? "MEGA CUT 2: ZDC KE > 80%, at most " : "MEGA CUT 3: ZDC KE > 80%, at most ") + "1 reconstructed particle in event AND number of times the reconstructed particle hits tracker [" + hitsList + "] AND at most 1 charged particle per tracker plane, RECONTHETA_ESTNEU and RECONTHETABL_ESTNEU from 0 degrees to 1 degree" + (level == 2 ? " AND charged tracker plane hits in the event (all particles added up) equal to the proton's own hits (no other charged tracker hit), AND exactly 1 charged particle at the ZDC in the event" : "");
               const char* file = level == 0 ? "cut_megacut_1" : level == 1 ? "cut_megacut2_1" : "cut_megacut3_1";
               v.push_back({level == 0 ? top : top + "/1_1particlecut", expr, label, top, file, zdc}); // 6_megaCut holds its files directly, no 1_1particlecut subfolder
           };
