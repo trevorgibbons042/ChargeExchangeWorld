@@ -18,6 +18,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <chrono>
 #include <cstdio>
 #include <string>
 #include <unordered_map>
@@ -25,6 +26,7 @@
 
 #include "FitCore.h"
 #include "CutOpen.h"
+#include "TreeColumns.h"
 
 // Response matrices of the recon block angles (thetaReD, phiReD, CalcValsReD in cut_APandT.root) against the truth of the CE proton, for the random beam angle of the sim (/randGun/randPAngle: theta uniform
 // 0 to 5 mrad = 0.29 deg, phi uniform). Two truths per CE proton: the lab truth (thetaCE, phiCE in CE: angles about the z axis, the frame the recon block angles are measured in) and the truth relative to the
@@ -46,6 +48,8 @@ static constexpr int kPhiFlat = 50;      // phi bins of R_thetaphi, same as the 
 static constexpr int kSlices = 10;      // true theta slices of R_phi_<k> and theta bins of R_thetaphi
 
 static double ThetaMaxDeg(){return 5.0 * ThetaScale();} // same range as PlotPolarization.cpp
+// seconds since the last call (the first call starts the clock): the ">>> SmearMatrix ... took" lines of the log
+static double Secs(){static auto last = std::chrono::steady_clock::now(); const auto now = std::chrono::steady_clock::now(); const double d = std::chrono::duration<double>(now - last).count(); last = now; return d;}
 static double Wrap360(double a){a = std::fmod(a, 360.0); return a < 0 ? a + 360.0 : a;}
 static double Wrap180(double a){return std::remainder(a, 360.0);}
 // The flattened (theta slice, phi bin) index of R_thetaphi for theta in 0 to tMax and phi in 0 to 360 deg.
@@ -154,6 +158,7 @@ static void SaveResidual(TH1D* hNeutron, TH1D* hLab, const char* angle, const st
 }
 
 void SmearMatrix(){
+    Secs();
     FastJit();
     TH1::AddDirectory(kFALSE); // the histograms are written to the file by hand at the end, so closing it does not delete the stack ones
     const double tMax = ThetaMaxDeg();
@@ -172,13 +177,13 @@ void SmearMatrix(){
     std::unordered_map<ULong64_t, NDir> dirs;
     dirs.reserve((size_t)cev->GetEntries());
     {
-        TTreeReader r(cev);
-        TTreeReaderValue<int> ev(r, "fEvent"), tr(r, "TrackID");
-        TTreeReaderValue<double> dx(r, "CENDirX"), dy(r, "CENDirY"), dz(r, "CENDirZ"), lt(r, "LastTheta"), lp(r, "LastPhiLab");
-        while (r.Next()){
-            dirs[EvKey(*ev, *tr)] = {*dx, *dy, *dz, *lt * TMath::RadToDeg(), Wrap360(*lp * TMath::RadToDeg())};
-            maxTilt = std::max(maxTilt, std::acos(std::min(1.0, *dz)) * TMath::RadToDeg());
+        // read on all threads (Columns, TreeColumns.h), rows in entry order so the last row of a (event, track) wins as before
+        const auto c = Columns(cev, {"fEvent", "TrackID", "CENDirX", "CENDirY", "CENDirZ", "LastTheta", "LastPhiLab"});
+        for (size_t i = 0; i < c[0].size(); i++){
+            dirs[EvKey((int)c[0][i], (int)c[1][i])] = {c[2][i], c[3][i], c[4][i], c[5][i] * TMath::RadToDeg(), Wrap360(c[6][i] * TMath::RadToDeg())};
+            maxTilt = std::max(maxTilt, std::acos(std::min(1.0, c[4][i])) * TMath::RadToDeg());
         }
+        printf(">>> SmearMatrix ChargeExchange_values read took %.0f s\n", Secs()); fflush(stdout);
     }
 
     gSystem->mkdir("plots/8_smear/1_matrix", kTRUE); gSystem->mkdir("plots/8_smear/2_matrix2", kTRUE);
@@ -263,11 +268,12 @@ void SmearMatrix(){
     // The lab CE truth comes from ChargeExchange_values (dirs); the recon angles rotated by the TRUE neutron (the "recon neutron frame" states) are made from the lab recon angles of AnglesRaw (outTheta ...), matched on (fEvent, ParentID).
     std::unordered_map<ULong64_t, LabRecon> labRecon;
     if (TTree* raw = OpenCut("cuts/cut_angles_all.root", "AnglesRaw")){
-        TTreeReader rw(raw);
-        TTreeReaderValue<int> evw(rw, "fEvent"), par(rw, "ParentID"), pdgw(rw, "PDG"), fce(rw, "isFromCE");
-        TTreeReaderValue<double> a(rw, "outDTheta"), b(rw, "outDPhi"), c(rw, "outTheta"), d(rw, "outPhi");
-        TTreeReaderValue<double> tx0(rw, "tubeX0"), ty0(rw, "tubeY0"), tx1(rw, "tubeX1"), ty1(rw, "tubeY1"), tz0(rw, "tubeZ0"), tz1(rw, "tubeZ1");
-        while (rw.Next()) if (*pdgw == 2212 && *fce) labRecon[EvKey(*evw, *par)] = {*a * TMath::RadToDeg(), Wrap360(*b * TMath::RadToDeg()), *c * TMath::RadToDeg(), Wrap360(*d * TMath::RadToDeg()), 0.5 * (*tx0 + *tx1), 0.5 * (*ty0 + *ty1), 0.5 * (*tz0 + *tz1)};
+        // the CE protons of AnglesRaw only, read on all threads with the filter in the dataframe (Columns, TreeColumns.h), entry order: the last row of a key wins as before
+        const auto c = Columns(raw, {"fEvent", "ParentID", "outDTheta", "outDPhi", "outTheta", "outPhi", "tubeX0", "tubeY0", "tubeX1", "tubeY1", "tubeZ0", "tubeZ1"}, "PDG == 2212 && isFromCE");
+        labRecon.reserve(c[0].size());
+        for (size_t i = 0; i < c[0].size(); i++)
+            labRecon[EvKey((int)c[0][i], (int)c[1][i])] = {c[2][i] * TMath::RadToDeg(), Wrap360(c[3][i] * TMath::RadToDeg()), c[4][i] * TMath::RadToDeg(), Wrap360(c[5][i] * TMath::RadToDeg()), 0.5 * (c[6][i] + c[8][i]), 0.5 * (c[7][i] + c[9][i]), 0.5 * (c[10][i] + c[11][i])};
+        printf(">>> SmearMatrix AnglesRaw CE protons (%zu) read took %.0f s\n", c[0].size(), Secs()); fflush(stdout);
     } else {printf("SmearMatrix: cut_angles_all.root AnglesRaw missing\n"); return;}
     TTreeReader rc(ce), rr(red), rre(rec);
     TTreeReaderValue<int> ev(rc, "fEvent"), tr(rc, "TrackID"), ev2(rr, "fEvent"), tr2(rr, "TrackID");
@@ -361,18 +367,19 @@ void SmearMatrix(){
     }
     printf("SmearMatrix: %ld CE rows, %ld without a neutron direction, %ld in the matrix\n", nRows, nNoDir, nPair);
 
+    printf(">>> SmearMatrix main loop over the CE, block and recon rows (%ld rows) took %.0f s\n", nRows, Secs()); fflush(stdout);
     // SiCE protons: the recon block protons that are not children of a carbon CE track (silicon CE in a noPhys run), recon theta and phi only
     TH1D hSiCETheta("SiCE_theta", "", nTheta, 0, tMax), hSiCEFlat("SiCE_thetaphi", "", nFlatT, 0, nFlatT), hSiCEFlatRe("SiCE_thetaphi_recon", "", nFlatT, 0, nFlatT);
     TH2D hSiCEThPh("SiCE_theta_phi", "", nTheta, 0, tMax, kPhiFine, 0, 360);
     long nSiCE = 0;
     if (TTree* raw = OpenCut("cuts/cut_angles_all.root", "AnglesRaw")){
-        TTreeReader rf(raw);
-        TTreeReaderValue<int> pdg(rf, "PDG"), fromCE(rf, "isFromCE");
-        TTreeReaderValue<double> thF(rf, "thetaRelND"), phF(rf, "phiRelND"), thF2(rf, "thetaRelN"), phF2(rf, "phiRelN");
-        while (rf.Next()){
-            if (*pdg != 2212 || *fromCE) continue;
-            const double th = *thF * TMath::RadToDeg(), ph = Wrap360(*phF * TMath::RadToDeg());
-            const double thr = *thF2 * TMath::RadToDeg(), phr = Wrap360(*phF2 * TMath::RadToDeg()); // recon theta and phi (the recon matrix of UnfoldPhi.cpp)
+        // the non-CE protons with a theta in range (block or recon), read on all threads; the histograms do not depend on the row order (ColumnsUnordered, TreeColumns.h); NaN (no tube) fails the comparisons
+        const std::string inRange = Form("(thetaRelND * %.17g >= 0 && thetaRelND * %.17g < %.17g) || (thetaRelN * %.17g >= 0 && thetaRelN * %.17g < %.17g)", TMath::RadToDeg(), TMath::RadToDeg(), tMax, TMath::RadToDeg(), TMath::RadToDeg(), tMax);
+        const auto sc = ColumnsUnordered(raw, {"thetaRelND", "phiRelND", "thetaRelN", "phiRelN"}, "PDG == 2212 && isFromCE == 0 && (" + inRange + ")");
+        printf(">>> SmearMatrix AnglesRaw SiCE protons (%zu rows) read took %.0f s\n", sc[0].size(), Secs()); fflush(stdout);
+        for (size_t i = 0; i < sc[0].size(); i++){
+            const double th = sc[0][i] * TMath::RadToDeg(), ph = Wrap360(sc[1][i] * TMath::RadToDeg());
+            const double thr = sc[2][i] * TMath::RadToDeg(), phr = Wrap360(sc[3][i] * TMath::RadToDeg()); // recon theta and phi (the recon matrix of UnfoldPhi.cpp)
             if (thr >= 0 && thr < tMax) hSiCEFlatRe.Fill(FlatBin(thr, phr, tMax) + 0.5);
             if (!(th >= 0 && th < tMax)) continue; // NaN (no tube) fails
             hSiCETheta.Fill(th); hSiCEFlat.Fill(FlatBin(th, ph, tMax) + 0.5); hSiCEThPh.Fill(th, ph);
@@ -620,4 +627,5 @@ void SmearMatrix(){
     for (int k = 0; k < 4; k++) for (int a = 0; a < 3; a++) hNew[k][a]->Write();
     for (TH1* h : hTSlice) h->Write();
     out.Close();
+    printf(">>> SmearMatrix matrices, plots and csv took %.0f s\n", Secs()); fflush(stdout);
 }

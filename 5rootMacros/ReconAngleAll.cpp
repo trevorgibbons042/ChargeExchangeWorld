@@ -20,6 +20,8 @@
 #include "CutOpen.h"
 #include "FitCore.h"
 #include <chrono>
+#include <fstream>
+#include <thread>
 
 // One proton point as the read pass sees it. The read keeps these flat per slot; the tracks are built from them later, in parallel (a std::map per slot made the read as slow as the fits).
 struct Point {int eventID, trackID, pdg, parentID; double x, y, z, xD, yD, zD; ULong64_t entry;};
@@ -49,6 +51,15 @@ struct Track {
 };
 
 // Weight of a point in every line fit, relative to the 2 points with the lowest z (weight 1): the points near the vertex have scattered the least, the later ones more.
+// Reads the raw files names[lo] to names[hi - 1] once through and throws the bytes away: the next group of the loop below then finds them in the page cache. On LCRC the
+// first read of a group of 8 files took 11.6 s against 3.3 s when they were cached; this runs beside the fit and the write of the group before.
+static void PrefetchFiles(const std::vector<std::string>& names, std::size_t lo, std::size_t hi){
+    std::vector<char> buf(8u << 20);
+    for (std::size_t i = lo; i < hi; i++){
+        std::ifstream f(names[i], std::ios::binary);
+        while (f) f.read(buf.data(), (std::streamsize)buf.size());
+    }
+}
 static constexpr double kWeightFar = 0.25;
 
 // Weighted least-squares line x = x0 + bx z, y = y0 + by z through the points of t: all of them, or with block the detector block points (zD != 0) at their block positions.
@@ -202,6 +213,8 @@ void ReconAngleAll(){
     for (const TObject* rawFile : *rawFiles.GetListOfFiles()) rawNames.push_back(rawFile->GetTitle());
     const unsigned nShards = NThreads();
     for (size_t first = 0; first < rawNames.size(); first += filesPerPass) {
+        std::thread prefetch; // the files of the next group, read into the page cache while this group is processed
+        if (first + filesPerPass < rawNames.size()) prefetch = std::thread(PrefetchFiles, std::cref(rawNames), first + filesPerPass, std::min(rawNames.size(), first + 2 * (size_t)filesPerPass));
         TChain group("ParticleInfo");
         for (size_t i = first; i < std::min(rawNames.size(), first + filesPerPass); i++) group.Add(rawNames[i].c_str());
         ROOT::RDataFrame df0(group);
@@ -570,6 +583,7 @@ void ReconAngleAll(){
             shardRows[shard].clear(); shardRows[shard].shrink_to_fit();
         }, ROOT::TSeqU(nShards));
         printf(">>> ReconAngleAll group %zu: read %.1f s, sort and fit %.1f s, write %.1f s\n", first, secs(tRead0, tFit0), secs(tFit0, tWrite0), secs(tWrite0, Clock::now())); fflush(stdout);
+        if (prefetch.joinable()) prefetch.join();
     }
     printf(">>> ReconAngleAll loop total %.1f s (the merger closes after this)\n", secs(tStart, Clock::now())); fflush(stdout);
 }

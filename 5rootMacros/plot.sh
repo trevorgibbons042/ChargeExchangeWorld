@@ -3,7 +3,7 @@ source ~/.zshrc
 source ./run_lib.sh # run <macro>: times it, ACLiC or interpreted, retries in the other mode on Failed to materialize symbols
 
 sh preflight.sh || exit 1 # skipped when run.sh already ran it (PREFLIGHT_DONE) or with PREFLIGHT=0
-# Cores: CutPlots runs with all of them, each of the 4 lanes with a quarter (the macros read ANA_NTHREADS through NThreads(), FitCore.h).
+# Cores: CutPlots runs with all of them, each of the 5 lanes with a fifth (the macros read ANA_NTHREADS through NThreads(), FitCore.h).
 # PLOT_PIPELINE=1: the macros skip BoxAndCropPlots (FitCore.h), the python steps below run once after every lane.
 export PLOT_PIPELINE=1
 NCPU=${NCPUS:-$(nproc 2>/dev/null || sysctl -n hw.ncpu)}
@@ -22,9 +22,30 @@ if [ "${ACLIC-+O}" != "" ]; then
     done
     wait
 fi
-run 'CutPlots.cpp' # trees (cuts/ke_gt80.root, ...: the KE cut lists), zdc (cut_ZdcCE.root, cut_ZdcAllEv.root) and samples (one cut file per cut of 6_cuts) that the plot macros read, with all the threads
+if (( NCPU >= 32 )); then
+    # the same split as 6jobs/Plot.pbs (cp_run): trees, zdc and the samples without a ZDC KE cut side by side, then the samples that read cut_ZdcAllEv.root (megacut2, megacut3, the KE scan 85 90 95, hitZDC) as five processes, each with its share of the cores.
+    # One process for all of them took 590 s of the 100M event 25 GeV 5block run, the split ones 26 to 160 s each. Fewer cores (the Mac): the single process below.
+    cpStart=$SECONDS
+    cp_run(){ # name threads part CUT_ONLY
+        ( ANA_NTHREADS=$2 CUT_ONLY=$4 nice -n 10 root -l -b -q "CutPlots.cpp${ACLIC-+O}(\"$3\")" > CutPlots_$1.log 2>&1; echo ">>> CutPlots $1 exit $? after $((SECONDS - cpStart)) s" ) &
+    }
+    cp_run trees $(( NCPU / 32 )) trees ""
+    cp_run zdc $(( NCPU / 2 )) zdc ""
+    cp_run samplesA $(( NCPU / 2 )) samples "ResCuts,nParticles,nZdc1,nHits,cut_megacut_"
+    wait
+    cp_run samplesB1 $(( NCPU / 5 )) samples "cut_megacut2_1.root,cut_hitZDC"
+    cp_run samplesB2 $(( NCPU / 5 )) samples "cut_megacut3_1.root"
+    cp_run samplesB3 $(( NCPU / 5 )) samples "_ke85"
+    cp_run samplesB4 $(( NCPU / 5 )) samples "_ke90"
+    cp_run samplesB5 $(( NCPU / 5 )) samples "_ke95"
+    wait
+    tail -qn 1 CutPlots_*.log
+    echo ">>> CutPlots.cpp took $((SECONDS - cpStart)) s"
+else
+    run 'CutPlots.cpp' # trees (cuts/ke_gt80.root, ...: the KE cut lists), zdc (cut_ZdcCE.root, cut_ZdcAllEv.root) and samples (one cut file per cut of 6_cuts) that the plot macros read, with all the threads
+fi
 
-export ANA_NTHREADS=$(( NCPU / 4 > 0 ? NCPU / 4 : 1 ))
+export ANA_NTHREADS=$(( NCPU / 5 > 0 ? NCPU / 5 : 1 )) # 5 lanes below
 
 # Lanes run at the same time. A lane holds the macros that write into the same plots/ folders (stats.csv and fit_values.csv are
 # truncated per folder) or read another's csv files, in order; no two lanes share a folder.
@@ -41,7 +62,6 @@ export ANA_NTHREADS=$(( NCPU / 4 > 0 ? NCPU / 4 : 1 ))
     run 'PlotAngle.cpp("fDEnergy")'
     run 'PlotCEFraction.cpp'
     run 'PlotPolarization.cpp("fDEnergy")'
-    run 'SmearMatrix.cpp' # response matrices of RECONTHETABL_ESTNEU and phi vs the truth relative to the neutron, plots/8_smear
     run 'PlotFomPolarization.cpp("fDEnergy")'
 } &
 { # 4_CEblock
@@ -49,6 +69,7 @@ export ANA_NTHREADS=$(( NCPU / 4 > 0 ? NCPU / 4 : 1 ))
     run 'GraphBlocks.cpp'
     run 'CETCompare.cpp' # t and z of the CE in the carbon blocks vs the silicon trackers, plots/4_CEblock/1_CarbonVsSi
 } &
+run 'SmearMatrix.cpp' & # response matrices of RECONTHETABL_ESTNEU and phi vs the truth relative to the neutron, plots/8_smear: a lane of its own, it reads only cut_angles_all.root and cut_APandT.root and writes only plots/8_smear
 run 'SecondaryCE.cpp' & # CE of the beam neutron vs the secondary neutrons by creator, plots/7_secondaryCE
 wait
 
