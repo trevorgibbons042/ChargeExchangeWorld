@@ -501,8 +501,8 @@ void Plot3D(){
           addMega(0); addMega(1);
           v.push_back({"8_nZdcParticles/1_1zdcparticlecut", "rawVal(fEvent, TrackID, 7) == 1", "cut exactly 1 charged particle at the ZDC in the event", "8_nZdcParticles", "cut_nZdc1", false}); // P3_CUT 7
           addMega(2); // P3_CUT 8
-          v.push_back({"10_nChargedTrackerHits/1_evenHits", EvenHitsDraw("rawVal(fEvent, TrackID, 17)"), "cut " + hitsList + " charged tracker plane hits in the event", "10_nChargedTrackerHits", "cut_nChHits", false}); // P3_CUT 9
-          v.push_back({"10_nChargedTrackerHits/2_twoHits", "rawVal(fEvent, TrackID, 17) == 2", "cut exactly 2 charged tracker plane hits in the event", "10_nChargedTrackerHits", "cut_nChHits2", false}); // P3_CUT 10
+          v.push_back({"10_nChargedTrackerHits/1_noExtraHits", "rawVal(fEvent, TrackID, 17) == rawVal(fEvent, TrackID, 10)", "cut no charged tracker plane hit in the event besides the proton's own (nTrackerHitsEv == nHits)", "10_nChargedTrackerHits", "cut_nChHits", false}); // P3_CUT 9
+          v.push_back({"10_nChargedTrackerHits/2_maxOneExtraHit", "rawVal(fEvent, TrackID, 17) - rawVal(fEvent, TrackID, 10) <= 1", "cut at most 1 charged tracker plane hit in the event besides the proton's own (nTrackerHitsEv - nHits <= 1)", "10_nChargedTrackerHits", "cut_nChHits2", false}); // P3_CUT 10
           return v;
         }();
         struct RankRow {std::string cut, sample; double nCEin, nAllIn, nCEtotal, nCEreconBefore, fom[2], pol[2], polErr[2], nPartIn, nNonProtBefore, nNonPartBefore;}; // nAllIn: recon protons (pdg 2212) in the cut, nPartIn: every recon charged particle in the cut, nNon*Before: the non-CE protons / particles of the sample the cut is made on (the base of the row), so out of cut = before - in;  fom, pol (fitted P), polErr: [0] RECONTHETA_ESTNEU / phi, [1] RECONTHETABL_ESTNEU / phi
@@ -1048,13 +1048,13 @@ void Plot3D(){
 
         // 1_additionalinfo in every KE cut folder: the cut candidates (6_cuts/3_ResCuts to 5_nHits) of the reconstructed protons that hit the ZDC and pass that KE cut
         // (1_hitZDC: no KE cut), reconstructed CE protons vs all reconstructed protons of all events. Nothing is cut on these variables.
-        struct InfoVar {std::string name, folder, label; int k; double lo, hi; int nBins;}; // lo >= hi: range from the 1 to 99% quantiles of all fitted protons
+        struct InfoVar {std::string name, folder, label; int k; double lo, hi; int nBins; int k2 = -1;}; // k2 >= 0: the plotted value is raw column k minus raw column k2 // lo >= hi: range from the 1 to 99% quantiles of all fitted protons
         const std::vector<InfoVar> kInfoVars = {
             {"resDRms", "3_ResCuts", "residual, block position (mm)", 1, 0, 0, 100},
             {"nParticlesEv", "4_nParticles", "reconstructed particles in the event", 6, -0.5, 19.5, 20},
             {"nHits", "5_nHits", "tracker hits", 10, -0.5, MaxTrackerHits() + 2.5, MaxTrackerHits() + 3}, // one bin per count from 0 to 2 * nBlocks + 2
             {"nZdcCharged", "8_nZdcParticles", "charged particles at the ZDC in the event", 7, -0.5, 9.5, 10},
-            {"nChargedTrackerHitsEv", "10_nChargedTrackerHits", "charged tracker plane hits in the event", 17, -0.5, 5 * MaxTrackerHits() + 0.5, 5 * MaxTrackerHits() + 1}, // all charged particles of the event added up; 5 per tracker hit slot, 0 to 40 for 4 blocks
+            {"extraTrackerHitsEv", "10_nChargedTrackerHits", "charged tracker plane hits in the event besides the proton's own (nTrackerHitsEv - nHits)", 17, -0.5, 5 * MaxTrackerHits() + 0.5, 5 * MaxTrackerHits() + 1, 10}, // all charged particles of the event added up minus the proton's own hits (raw column 10); 0: the proton is the only charged hit, the 9_megaCut3 cut
             {"thetaBlock", "7_theta", "RECONTHETABL_ESTNEU (degrees)", 11, 0, ThetaAxisMax(), 100}, // 0 to 2.3 deg at 25 GeV/c, scaled with 1 / p (FitCore.h)
             {"impactD", "13_impactD", "impact to the beam axis, block position (mm)", 3, 0, 0, 100}, // plots only, no cut on these two yet
             {"r2D", "14_r2D", "R^{2} of the block position line fit", 5, 0, 1.02, 102}};
@@ -1137,7 +1137,8 @@ void Plot3D(){
                 for (size_t iv = 0; iv < kInfoVars.size(); iv++){
                     if (!RunSec(int(iv % 4))) continue; // P3_SEC 0 to 3: the variables of one group
                     const auto& v = kInfoVars[iv];
-                    const std::string k = std::to_string(v.k);
+                    const std::string k = std::to_string(v.k), k2 = std::to_string(v.k2), kn = v.k2 < 0 ? k : k + "m" + k2; // kn: histogram name part, k2 given the name of its own
+                    const std::string valExpr = v.k2 < 0 ? "rawVal(fEvent, TrackID, " + k + ")" : "(rawVal(fEvent, TrackID, " + k + ") - rawVal(fEvent, TrackID, " + k2 + "))";
                     slot[iv] = (int)reqCE.size();
                     double lo = v.lo, hi = v.hi;
                     if (lo >= hi){
@@ -1145,13 +1146,11 @@ void Plot3D(){
                         lo = 0.0; hi = std::max(1e-6, 1.2 * q99);
                     }
                     range[iv] = {lo, hi};
-                    // 0_cuts/1_noCuts nChargedTrackerHitsEv: only the events with at most 1 charged particle in every tracker plane
-                    const bool perPlane = noTheta && v.name == "nChargedTrackerHitsEv";
-                    const std::string sel = ke + (perPlane ? perPlaneCut : std::string()) + " && rawOk(fEvent, TrackID, " + k + ")",
-                        exprPre = "rawVal(fEvent, TrackID, " + k + ")>>hInfo", spec = Form("(%d,%g,%g)", v.nBins, lo, hi);
-                    reqCE.push_back({P3(exprPre + "CE" + k + spec), P3(bCE + sel)});
-                    reqAll.push_back({P3(exprPre + "Recon" + k + spec), P3(bAll + sel)});
-                    reqPart.push_back({P3(exprPre + "Part" + k + spec), P3(bPart + sel)});
+                    const std::string sel = ke + " && rawOk(fEvent, TrackID, " + k + ")" + (v.k2 < 0 ? std::string() : " && rawOk(fEvent, TrackID, " + k2 + ")"),
+                        exprPre = valExpr + ">>hInfo", spec = Form("(%d,%g,%g)", v.nBins, lo, hi);
+                    reqCE.push_back({P3(exprPre + "CE" + kn + spec), P3(bCE + sel)});
+                    reqAll.push_back({P3(exprPre + "Recon" + kn + spec), P3(bAll + sel)});
+                    reqPart.push_back({P3(exprPre + "Part" + kn + spec), P3(bPart + sel)});
                 }
                 lap(ic.first + ": quantiles and booking the requests");
                 std::vector<TH1*> hCEs, hAlls, hParts;
@@ -1195,8 +1194,9 @@ void Plot3D(){
                     const std::string idir = folder_KEcuts + ic.first + (sc && v.folder == sc->onFolder || inCuts0 ? "/" : "/1_additionalinfo/"); // the variable a cut is on sits beside 1_additionalinfo; 0_cuts has no such folder, its plots sit in it directly
                     gSystem->mkdir(idir.c_str(), true);
                     canvas->SaveAs((idir + v.folder + "_" + v.name + ".pdf").c_str());
+                    if (v.name == "extraTrackerHitsEv" && !inCuts0 && sc && v.folder == sc->onFolder){gSystem->mkdir((folder_KEcuts + ic.first + "/1_additionalinfo/").c_str(), true); canvas->SaveAs((folder_KEcuts + ic.first + "/1_additionalinfo/" + v.folder + "_" + v.name + ".pdf").c_str());} // the 10_nChargedTrackerHits cut folders: the plot also sits in 1_additionalinfo like in every other folder
                     if (noTheta && v.name == "nParticlesEv") canvas->SaveAs((folder_KEcuts + "4_nParticles/4_nParticles_nParticlesEv.pdf").c_str()); // the general count, no cut but the ZDC hit, beside the 1 and 2 particle cuts
-                    if (noTheta && v.name == "nChargedTrackerHitsEv"){gSystem->mkdir((folder_KEcuts + "10_nChargedTrackerHits").c_str(), true); canvas->SaveAs((folder_KEcuts + "10_nChargedTrackerHits/10_nChargedTrackerHits_nChargedTrackerHitsEv.pdf").c_str());} // the general count with no cut, in its own folder
+                    if (noTheta && v.name == "extraTrackerHitsEv"){gSystem->mkdir((folder_KEcuts + "10_nChargedTrackerHits").c_str(), true); canvas->SaveAs((folder_KEcuts + "10_nChargedTrackerHits/10_nChargedTrackerHits_extraTrackerHitsEv.pdf").c_str());} // the general count with no cut, in its own folder
                     if (noTheta && v.name == "nHits"){gSystem->mkdir((folder_KEcuts + "5_nHits").c_str(), true); canvas->SaveAs((folder_KEcuts + "5_nHits/5_nHits_nHits_noCut.pdf").c_str());} // the general count with no cut, beside the cut version
                     if (noTheta && v.name == "nZdcCharged"){gSystem->mkdir((folder_KEcuts + "8_nZdcParticles").c_str(), true); canvas->SaveAs((folder_KEcuts + "8_nZdcParticles/8_nZdcParticles_nZdcCharged.pdf").c_str());} // the general count with no cut, beside the exactly 1 ZDC particle cut
                     canvas->SetLogy(0);
