@@ -33,7 +33,7 @@ namespace
 }
 
 using Key = std::pair<int, int>;
-struct Angles {double LastPhi, LastTheta, LastMomentum, LastT, LastAP; int PDG; double FinalKE; ULong64_t entry = 0; double resDRms = 0; double FinalKED = 0; double LabPhi = 0, LabTheta = 0; double ThMin = 0, ThMax = 0, PhHalf = 0;}; // ThMin, ThMax, PhHalf: the est neutron range of the proton (rad, ReconAngleAll.cpp); FinalKED: the detector KE, for the _DE trees; LabPhi, LabTheta: recon angles about the lab z axis (rad), no neutron estimate
+struct Angles {double LastPhi, LastTheta, LastMomentum, LastT, LastAP; int PDG; double FinalKE; ULong64_t entry = 0; double resDRms = 0; double FinalKED = 0; double LabPhi = 0, LabTheta = 0; double ThMin = 0, ThMax = 0, PhHalf = 0; double ThBMin = NAN, ThBMax = NAN, PhBHalf = NAN, ThLMin = NAN, ThLMax = NAN, PhLHalf = NAN;}; // ThB*, PhB*: the block grid range in the est neutron frame; ThL*, PhL*: the same about the lab z axis (block only) // ThMin, ThMax, PhHalf: the est neutron range of the proton (rad, ReconAngleAll.cpp); FinalKED: the detector KE, for the _DE trees; LabPhi, LabTheta: recon angles about the lab z axis (rad), no neutron estimate
 
 struct Track {std::vector<Angles> points;};
 
@@ -94,7 +94,7 @@ static void CalcAPandTBoth(bool both){ // both: the true-KE trees and the detect
 
     std::vector<TrackMap> slotTracksAngles(dfAngles.GetNSlots());
     dfAngles.ForeachSlot([&](unsigned slot,
-    int eventID, int ParentID, double thetaRelN, double phiRelN, double thetaRelND, double phiRelND, double finalKE, int pdg, ULong64_t entry, double resDRms, double finalKED, double labPhi, double labTheta, double labPhiD, double labThetaD, double thMin, double thMax, double phHalf, double thMinD, double thMaxD, double phHalfD){
+    int eventID, int ParentID, double thetaRelN, double phiRelN, double thetaRelND, double phiRelND, double finalKE, int pdg, ULong64_t entry, double resDRms, double finalKED, double labPhi, double labTheta, double labPhiD, double labThetaD, double thMin, double thMax, double phHalf, double thMinD, double thMaxD, double phHalfD, double thBMinD, double thBMaxD, double phBHalfD, double thLMinD, double thLMaxD, double phLHalfD){
         if (pdg != 2212) {return;}
 
         auto &tRecon = slotTracksAngles[slot][{eventID, ParentID, 1}];
@@ -104,8 +104,8 @@ static void CalcAPandTBoth(bool both){ // both: the true-KE trees and the detect
 
         auto &tReconBlock = slotTracksAngles[slot][{eventID, ParentID, 2}];
 
-        tReconBlock.points.push_back({phiRelND, thetaRelND, 0.0, 0.0, 0.0, pdg, finalKE, entry, resDRms, finalKED, labPhiD, labThetaD, thMinD, thMaxD, phHalfD});
-        },{"fEvent", "ParentID","thetaRelN", "phiRelN", "thetaRelND", "phiRelND", KeVar(""), "PDG","entryNo", "resDRms", KeVar("_DE"), "outPhi", "outTheta", "outDPhi", "outDTheta", "thetaRelNMin", "thetaRelNMax", "phiRelNHalf", "thetaRelNDMin", "thetaRelNDMax", "phiRelNDHalf"});
+        tReconBlock.points.push_back({phiRelND, thetaRelND, 0.0, 0.0, 0.0, pdg, finalKE, entry, resDRms, finalKED, labPhiD, labThetaD, thMinD, thMaxD, phHalfD, thBMinD, thBMaxD, phBHalfD, thLMinD, thLMaxD, phLHalfD});
+        },{"fEvent", "ParentID","thetaRelN", "phiRelN", "thetaRelND", "phiRelND", KeVar(""), "PDG","entryNo", "resDRms", KeVar("_DE"), "outPhi", "outTheta", "outDPhi", "outDTheta", "thetaRelNMin", "thetaRelNMax", "phiRelNHalf", "thetaRelNDMin", "thetaRelNDMax", "phiRelNDHalf", "thetaRelNDBMin", "thetaRelNDBMax", "phiRelNDBHalf", "thetaLabDBMin", "thetaLabDBMax", "phiLabDBHalf"});
     std::vector<TrackMap> tracksAngles = mergeSlots(slotTracksAngles);
     
 
@@ -143,6 +143,8 @@ static void CalcAPandTBoth(bool both){ // both: the true-KE trees and the detect
         double outThetaReLab, outPhiReLab, outThetaReDLab, outPhiReDLab; // recon angles about the lab z axis (degrees), no neutron estimate
         double outThetaReMin, outThetaReMax, outAPReMin, outAPReMax, outPhiReHalf; // est neutron range of the recon proton: theta (deg) and the AP at its ends, phi half width (rad)
         double outThetaReDMin, outThetaReDMax, outAPReDMin, outAPReDMax, outPhiReDHalf;
+        double outThetaReDBMin, outThetaReDBMax, outAPReDBMin, outAPReDBMax, outPhiReDBHalf; // the block grid range alone (est neutron frame)
+        double outThetaReDLabMin, outThetaReDLabMax, outPhiReDLabHalf; // the block grid range about the lab z axis
         double outThetaReDIFF, outPhiReDIFF, outTReDIFF, outAPReDIFF;
         double outThetaReDDIFF, outPhiReDDIFF, outTReDDIFF, outAPReDDIFF;
 
@@ -196,6 +198,14 @@ static void CalcAPandTBoth(bool both){ // both: the true-KE trees and the detect
         outTree3->Branch("apReDMin", &outAPReDMin);
         outTree3->Branch("apReDMax", &outAPReDMax);
         outTree3->Branch("phiReDHalf", &outPhiReDHalf);
+        outTree3->Branch("thetaReDBMin", &outThetaReDBMin);
+        outTree3->Branch("thetaReDBMax", &outThetaReDBMax);
+        outTree3->Branch("apReDBMin", &outAPReDBMin);
+        outTree3->Branch("apReDBMax", &outAPReDBMax);
+        outTree3->Branch("phiReDBHalf", &outPhiReDBHalf);
+        outTree3->Branch("thetaReDLabMin", &outThetaReDLabMin);
+        outTree3->Branch("thetaReDLabMax", &outThetaReDLabMax);
+        outTree3->Branch("phiReDLabHalf", &outPhiReDLabHalf);
 
         outTree4->Branch("thetaReD", &outThetaReDIFF);
         outTree4->Branch("phiReD", &outPhiReDIFF);
@@ -262,6 +272,9 @@ static void CalcAPandTBoth(bool both){ // both: the true-KE trees and the detect
                 outAPReMin = APFromT(pBeam, TFromAngle(pBeam, re.ThMin), apScale); outAPReMax = APFromT(pBeam, TFromAngle(pBeam, re.ThMax), apScale);
                 outThetaReDMin = reD.ThMin*180/TMath::Pi(); outThetaReDMax = reD.ThMax*180/TMath::Pi(); outPhiReDHalf = reD.PhHalf;
                 outAPReDMin = APFromT(pBeam, TFromAngle(pBeam, reD.ThMin), apScale); outAPReDMax = APFromT(pBeam, TFromAngle(pBeam, reD.ThMax), apScale);
+                outThetaReDBMin = reD.ThBMin*180/TMath::Pi(); outThetaReDBMax = reD.ThBMax*180/TMath::Pi(); outPhiReDBHalf = reD.PhBHalf;
+                outAPReDBMin = APFromT(pBeam, TFromAngle(pBeam, reD.ThBMin), apScale); outAPReDBMax = APFromT(pBeam, TFromAngle(pBeam, reD.ThBMax), apScale);
+                outThetaReDLabMin = reD.ThLMin*180/TMath::Pi(); outThetaReDLabMax = reD.ThLMax*180/TMath::Pi(); outPhiReDLabHalf = reD.PhLHalf;
 
                 outPDG = re.PDG;
                 outFinalKE[0] = re.FinalKE; outFinalKE[1] = re.FinalKED;

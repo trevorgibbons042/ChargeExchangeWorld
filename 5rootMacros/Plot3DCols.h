@@ -40,7 +40,8 @@ using ColumnAdder = std::function<ROOT::RDF::RNode(ROOT::RDF::RNode)>; // adds t
 // Empty when AnglesRaw has no nProtonsEv column. rawOk is the Draw cut that keeps the protons that have a finite value.
 // Slot 19 is nMaxChargedPerPlaneEv, the most charged tracks that entered one tracker plane in the event (ParticleInfo, ReconAngleAll.cpp), NaN without it.
 // Slots 20, 21, 22: the est neutron range of the block recon proton (RECONTHETABL_ESTNEU): thetaRelNDMin, thetaRelNDMax (deg) and phiRelNDHalf (rad), NaN without them (the error by source of the phi fits).
-inline constexpr int kP3Slots = 23; // values per fitted proton
+// Slots 23, 24, 25: the block grid range alone of that proton (thetaRelNDBMin, thetaRelNDBMax in deg, phiRelNDBHalf in rad): the slope error of the block position fit, NaN without them.
+inline constexpr int kP3Slots = 26; // values per fitted proton
 inline std::vector<std::pair<int, int>> gP3Keys;
 inline std::vector<unsigned char> gP3Flags;
 inline std::vector<std::array<double, kP3Slots>> gP3Vals;
@@ -87,7 +88,7 @@ inline bool LoadPlot3DMaps(){
     const unsigned char kReco = kP3Reco;
     ROOT::RDataFrame df0(*raw);
     ROOT::RDF::RNode df = df0;
-    for (const char* col : {"thetaRelNDMin", "thetaRelNDMax", "phiRelNDHalf"}){
+    for (const char* col : {"thetaRelNDMin", "thetaRelNDMax", "phiRelNDHalf", "thetaRelNDBMin", "thetaRelNDBMax", "phiRelNDBHalf"}){
         if (!raw->GetBranch(col)) df = df.Define(col, []{return std::numeric_limits<double>::quiet_NaN();}); // an AnglesRaw file made before the range columns
     }
     for (const char* col : {"nZdcCharged", "nTrackerHitsEv", "nTrackerTracksEv", "nMaxChargedPerPlaneEv"}){
@@ -98,7 +99,7 @@ inline bool LoadPlot3DMaps(){
     if (withRaw){
         const double rad = TMath::RadToDeg(), twoPi = 2 * TMath::Pi();
         df.ForeachSlot([&](unsigned slot, int ev, int tid, double resRms, double resDRms, double impact, double impactD, double r2, double r2D, int nP, int nZdc, int nH,
-                           double phiRad, double phiBlockRad, double firstXD, double firstYD, double zRecon, double resHalfRatioD, double thetaRad, double thetaBlockRad, int nTH, int nTT, int nMP, double thMinDRad, double thMaxDRad, double phHalfD){
+                           double phiRad, double phiBlockRad, double firstXD, double firstYD, double zRecon, double resHalfRatioD, double thetaRad, double thetaBlockRad, int nTH, int nTT, int nMP, double thMinDRad, double thMaxDRad, double phHalfD, double thMinBRad, double thMaxBRad, double phHalfB){
             P3Item it; it.key = {ev, tid}; it.flags = kReco;
             double* v = it.a.data();
             v[0] = resRms; v[1] = resDRms; v[2] = impact; v[3] = impactD; v[4] = r2; v[5] = r2D;
@@ -106,9 +107,10 @@ inline bool LoadPlot3DMaps(){
             v[8] = resHalfRatioD; v[9] = thetaRad * rad; v[10] = nH; v[11] = thetaBlockRad * rad; v[12] = firstXD; v[13] = firstYD;
             v[14] = (phiRad < 0 ? phiRad + twoPi : phiRad) * rad; v[15] = (phiBlockRad < 0 ? phiBlockRad + twoPi : phiBlockRad) * rad; v[16] = zRecon; v[17] = nTH >= 0 ? nTH : NAN; v[18] = nTT >= 0 ? nTT : NAN; v[19] = nMP >= 0 ? nMP : NAN;
             v[20] = thMinDRad * rad; v[21] = thMaxDRad * rad; v[22] = phHalfD;
+            v[23] = thMinBRad * rad; v[24] = thMaxBRad * rad; v[25] = phHalfB;
             parts[slot].push_back(it);
         }, {"fEvent", "TrackID", "resRms", "resDRms", "impact", "impactD", "r2", "r2D", "nProtonsEv", "nZdcCharged", "nHits",
-            "phiRelN", "phiRelND", "firstXD", "firstYD", "z_bx_reconVertexOut", "resHalfRatioD", "thetaRelN", "thetaRelND", "nTrackerHitsEv", "nTrackerTracksEv", "nMaxChargedPerPlaneEv", "thetaRelNDMin", "thetaRelNDMax", "phiRelNDHalf"});
+            "phiRelN", "phiRelND", "firstXD", "firstYD", "z_bx_reconVertexOut", "resHalfRatioD", "thetaRelN", "thetaRelND", "nTrackerHitsEv", "nTrackerTracksEv", "nMaxChargedPerPlaneEv", "thetaRelNDMin", "thetaRelNDMax", "phiRelNDHalf", "thetaRelNDBMin", "thetaRelNDBMax", "phiRelNDBHalf"});
     } else {
         df.ForeachSlot([&](unsigned slot, int ev, int tid, double resDRms){
             P3Item it; it.key = {ev, tid}; it.flags = kReco; it.a.fill(0); it.a[1] = resDRms;
@@ -193,7 +195,7 @@ inline std::string P3(const std::string& s){
 // raw_k its k-th value of gP3Vals (LoadPlot3DMaps) and ok_k whether that value is finite. P3() rewrites the Draw strings to these names for every tree.
 inline void Plot3DRawAliases(TTree* raw){
     const char* val[kP3Slots] = {"resRms", "resDRms", "impact", "impactD", "r2", "r2D", "nProtonsEv", "nZdcCharged", "resHalfRatioD", "thetaRelN*TMath::RadToDeg()", "nHits",
-                           "thetaRelND*TMath::RadToDeg()", "firstXD", "firstYD", "phiRelN*TMath::RadToDeg()", "phiRelND*TMath::RadToDeg()", "z_bx_reconVertexOut", "nTrackerHitsEv", "nTrackerTracksEv", "nMaxChargedPerPlaneEv", "thetaRelNDMin*TMath::RadToDeg()", "thetaRelNDMax*TMath::RadToDeg()", "phiRelNDHalf"}; // phi in 0 to 360 (ReconAngleAll.cpp)
+                           "thetaRelND*TMath::RadToDeg()", "firstXD", "firstYD", "phiRelN*TMath::RadToDeg()", "phiRelND*TMath::RadToDeg()", "z_bx_reconVertexOut", "nTrackerHitsEv", "nTrackerTracksEv", "nMaxChargedPerPlaneEv", "thetaRelNDMin*TMath::RadToDeg()", "thetaRelNDMax*TMath::RadToDeg()", "phiRelNDHalf", "thetaRelNDBMin*TMath::RadToDeg()", "thetaRelNDBMax*TMath::RadToDeg()", "phiRelNDBHalf"}; // phi in 0 to 360 (ReconAngleAll.cpp)
     for (int k = 0; k < kP3Slots; k++){
         raw->SetAlias(Form("raw_%d", k), val[k]);
         raw->SetAlias(Form("ok_%d", k), Form("TMath::Finite(raw_%d)", k));

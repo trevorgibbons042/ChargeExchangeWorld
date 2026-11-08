@@ -29,28 +29,32 @@ inline std::string PhiAxisName(const std::string& phiBranch){
 // notes: extra text lines under the fit formula (which frame the angles are in, which neutron), none for the 3_ReconCalcVals plots.
 // range: {thetaMin, thetaMax, phiHalf} branches (degrees, degrees, rad) of the est neutron range of each proton (CalcAPandT.cpp), none for a fit with no est neutron frame. With them A_eff gets the
 // theta range error (A at the two ends, AMean) and P the phi range error (PhiRange), and the side box splits the errors of A_eff and P by source.
-inline void PhiCosFit(TCanvas* canvas, TTree* t, const std::string& phiBranch, const std::string& thetaBranch, const std::string& cut, const std::string& name, const std::string& title, const std::string& path, const std::vector<std::string>& notes = {}, const std::string& aBranch = "", const std::vector<std::string>& range = {}){
+// range2: the same three branches for the block grid range alone (the slope error of the block position fit, a range of its own in quadrature), only on the block fits.
+inline void PhiCosFit(TCanvas* canvas, TTree* t, const std::string& phiBranch, const std::string& thetaBranch, const std::string& cut, const std::string& name, const std::string& title, const std::string& path, const std::vector<std::string>& notes = {}, const std::string& aBranch = "", const std::vector<std::string>& range = {}, const std::vector<std::string>& range2 = {}){
     const int nBins = 50;
     canvas->Clear(); canvas->SetRightMargin(0.25); canvas->SetTopMargin(0.17);
     TH1* h = MakeHist(name + "(" + std::to_string(nBins) + ",0,360)");
     std::vector<double> phiAll;
     AMean aMean; // A_eff of the protons of the fit, with its error
-    PhiRange phiRange; // the est neutron phi range of those protons
+    PhiRange phiRange, phiRange2; // the est neutron phi range of those protons, and the block grid one
     if (h){
         std::vector<std::string> exprs = {phiBranch, thetaBranch};
         if (!aBranch.empty()) exprs.push_back(aBranch); // the A the model weighted each event with (LastAP), used as it is
         const size_t iRange = exprs.size();
         if (range.size() == 3) for (const auto& r : range) exprs.push_back(r); // est neutron range: thetaMin, thetaMax (degrees), phi half width (rad)
-        const auto cols = Columns(t, exprs, cut); // phi, theta (degrees), A (if aBranch), range (if range)
+        const size_t iRange2 = exprs.size();
+        if (range2.size() == 3) for (const auto& r : range2) exprs.push_back(r); // block grid range: thetaMin, thetaMax (degrees), phi half width (rad)
+        const auto cols = Columns(t, exprs, cut); // phi, theta (degrees), A (if aBranch), range (if range), range2 (if range2)
         phiAll = cols[0];
         const double apScale = ReadSettings().at("APScale"); // settings.csv from the sim, read once
         for (size_t k = 0; k < phiAll.size(); k++){
             h->Fill(phiAll[k]);
             const double a = aBranch.empty() ? AEffOfTheta(cols[1][k], apScale) : cols[2][k];
-            if (range.size() == 3 && std::isfinite(cols[iRange][k]) && std::isfinite(cols[iRange + 1][k])){
-                aMean.Add(a, AEffOfTheta(cols[iRange][k], apScale), AEffOfTheta(cols[iRange + 1][k], apScale));
-                if (std::isfinite(cols[iRange + 2][k])) phiRange.Add(cols[iRange + 2][k]);
-            } else aMean.Add(a);
+            const bool r1 = range.size() == 3 && std::isfinite(cols[iRange][k]) && std::isfinite(cols[iRange + 1][k]);
+            const bool r2 = range2.size() == 3 && std::isfinite(cols[iRange2][k]) && std::isfinite(cols[iRange2 + 1][k]);
+            aMean.Add(a, r1 ? AEffOfTheta(cols[iRange][k], apScale) : a, r1 ? AEffOfTheta(cols[iRange + 1][k], apScale) : a, r2 ? AEffOfTheta(cols[iRange2][k], apScale) : a, r2 ? AEffOfTheta(cols[iRange2 + 1][k], apScale) : a);
+            if (r1 && std::isfinite(cols[iRange + 2][k])) phiRange.Add(cols[iRange + 2][k]);
+            if (r2 && std::isfinite(cols[iRange2 + 2][k])) phiRange2.Add(cols[iRange2 + 2][k]);
         }
         h->Draw();
     }
@@ -59,7 +63,7 @@ inline void PhiCosFit(TCanvas* canvas, TTree* t, const std::string& phiBranch, c
     h->SetTitle((title + Form(", %d phi bins of %.1f deg", nBins, 360.0 / nBins) + ";" + PhiAxisName(phiBranch) + " (degrees);Count").c_str());
     h->SetLineColor(kRed); // CE protons are red
     const bool block = phiBranch.rfind("phiReD", 0) == 0; // the block phi fit leaves out the spike at 0 (kBlockPhiLo to kBlockPhiHi), the likelihood is normalised over that range
-    const PFit uf = UnbinnedP(phiAll, aMean, block ? kBlockPhiLo : 0, block ? kBlockPhiHi : 360, nullptr, true, range.size() == 3 ? &phiRange : nullptr); // unbinned fit of every proton's phi (FitCore.h), A fixed to A_eff
+    const PFit uf = UnbinnedP(phiAll, aMean, block ? kBlockPhiLo : 0, block ? kBlockPhiHi : 360, nullptr, true, range.size() == 3 ? &phiRange : nullptr, range2.size() == 3 ? &phiRange2 : nullptr); // unbinned fit of every proton's phi (FitCore.h), A fixed to A_eff
     TF1& fit = *AddUnbinnedFit(h, "fPhiCos", uf, aMean.Mean(), aMean.Err(), true);
     fit.SetParameter(0, nFit / nBins);
     fit.SetLineColor(kBlack);

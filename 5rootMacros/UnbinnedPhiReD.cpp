@@ -23,21 +23,24 @@ void UnbinnedPhiReD(){
     auto fitRows = dfPhi.Filter(Form("phiReD >= %g && phiReD <= %g", kBlockPhiLo, kBlockPhiHi));
     auto phiTake = fitRows.Take<double>("phiReD");
     auto thetaTake = fitRows.Take<double>("thetaReD");
-    auto thMinTake = fitRows.Take<double>("thetaReDMin"), thMaxTake = fitRows.Take<double>("thetaReDMax"), halfTake = fitRows.Take<double>("phiReDHalf"); // est neutron range (CalcAPandT.cpp): theta ends (deg), phi half width (rad)
+    auto thMinTake = fitRows.Take<double>("thetaReDMin"), thMaxTake = fitRows.Take<double>("thetaReDMax"), halfTake = fitRows.Take<double>("phiReDHalf"), thBMinTake = fitRows.Take<double>("thetaReDBMin"), thBMaxTake = fitRows.Take<double>("thetaReDBMax"), halfBTake = fitRows.Take<double>("phiReDBHalf"); // the last three: the block grid range alone; // est neutron range (CalcAPandT.cpp): theta ends (deg), phi half width (rad)
     const auto& phi = *phiTake;
     // A_eff = sum_i N_i AP(theta_i) / N0 over the protons of the fit, theta_i the own block theta of each proton, no theta bins (AEffOfTheta, FitCore.h); its error goes into P
     const double apScale = ReadSettings().at("APScale");
-    AMean aM; PhiRange phiRange;
+    AMean aM; PhiRange phiRange, phiRange2;
     for (size_t i = 0; i < thetaTake->size(); i++){
         const double a = AEffOfTheta((*thetaTake)[i], apScale), lo = (*thMinTake)[i], hi = (*thMaxTake)[i];
-        if (std::isfinite(lo) && std::isfinite(hi)){aM.Add(a, AEffOfTheta(lo, apScale), AEffOfTheta(hi, apScale)); if (std::isfinite((*halfTake)[i])) phiRange.Add((*halfTake)[i]);}
-        else aM.Add(a);
+        const double lo2 = (*thBMinTake)[i], hi2 = (*thBMaxTake)[i];
+        const bool r1 = std::isfinite(lo) && std::isfinite(hi), r2 = std::isfinite(lo2) && std::isfinite(hi2);
+        aM.Add(a, r1 ? AEffOfTheta(lo, apScale) : a, r1 ? AEffOfTheta(hi, apScale) : a, r2 ? AEffOfTheta(lo2, apScale) : a, r2 ? AEffOfTheta(hi2, apScale) : a);
+        if (r1 && std::isfinite((*halfTake)[i])) phiRange.Add((*halfTake)[i]);
+        if (r2 && std::isfinite((*halfBTake)[i])) phiRange2.Add((*halfBTake)[i]);
     }
     const double aMean = aM.Mean();
     const double n = (double)phi.size(), lo = kBlockPhiLo * TMath::Pi() / 180, hi = kBlockPhiHi * TMath::Pi() / 180;
     const double sd = std::sin(hi) - std::sin(lo);
 
-    const PFit uf = UnbinnedP(phi, aM, kBlockPhiLo, kBlockPhiHi, nullptr, true, &phiRange); // FitCore.h, the same fit as every plot of the plot chain
+    const PFit uf = UnbinnedP(phi, aM, kBlockPhiLo, kBlockPhiHi, nullptr, true, &phiRange, &phiRange2); // FitCore.h, the same fit as every plot of the plot chain
     const double p = uf.p, err = uf.err;
 
     TH1D h("hUnb", "", 50, 0, 360);

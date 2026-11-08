@@ -135,7 +135,7 @@ static void ZdcColumns(){
 //   cut_nHits         the even tracker hit counts 2, 4, ... 2 * nBlocks (EvenHits, FitCore.h)
 //   cut_nChHits       no charged tracker hit in the event besides the proton's own (nTrackerHitsEv == nHits; 10_nChargedTrackerHits/1_noExtraHits)
 //   cut_nChHits2      at most 1 charged tracker hit in the event besides the proton's own (nTrackerHitsEv - nHits <= 1; 10_nChargedTrackerHits/2_maxOneExtraHit)
-//   cut_megacut3_1    9_megaCut3/1_1particlecut: at most 1 reconstructed particle in the event, the even tracker hits, at most 1 charged particle in every tracker plane of the event (nMaxChargedPerPlaneEv), RECONTHETA_ESTNEU and RECONTHETABL_ESTNEU 0 to 1 degree,
+//   cut_megacut3_1    9_megaCut3/1_1particlecut: at most 1 reconstructed particle in the event, the even tracker hits, at most 1 charged particle in every tracker plane of the event (nMaxChargedPerPlaneEv), RECONTHETA_ESTNEU and RECONTHETABL_ESTNEU 0 to 2 degrees,
 //                     a reconstructed ZDC proton with ZDC KE > 80% of the beam KE, no charged tracker hit in the event besides the proton's own (nTrackerHitsEv == nHits) and exactly 1 charged particle at the ZDC (nZdcCharged)
 // ZDC cut (cut_ZdcAllEv.root, the ZDC protons with the Plot3D columns of ZdcColumns.cpp):
 //   cut_hitZDC_AllEv           the proton has a reconstructed track (isReco)
@@ -157,12 +157,14 @@ static void CutSamples(){
 
     const std::vector<std::string> rawCols = {"fEvent", "TrackID", "PDG", "isFromCE", "inCE", "finalKE", "resRms", "resDRms", "impact", "impactD", "r2", "r2D", "nProtonsEv", "nZdcCharged", "nTrackerHitsEv", "nTrackerTracksEv",
                                               "resHalfRatioD", "thetaRelN", "thetaRelND", "phiRelN", "phiRelND", "nHits", "firstXD", "firstYD", "z_bx_reconVertexOut", "ParentID", "nMaxChargedPerPlaneEv",
-                                              "thetaRelNDMin", "thetaRelNDMax", "phiRelNDHalf"}; // the last three: the est neutron range of the block recon proton (error by source of the phi fits)
+                                              "thetaRelNDMin", "thetaRelNDMax", "phiRelNDHalf", "thetaRelNDBMin", "thetaRelNDBMax", "phiRelNDBHalf"}; // the last three: the est neutron range of the block recon proton (error by source of the phi fits)
     ROOT::RDataFrame raw("AnglesRaw", "cuts/cut_angles_all.root");
     const int maxHits = MaxTrackerHits(); // the even tracker hit counts 2 to 2 * nBlocks (FitCore.h), read once outside the event loops
     const auto onePerPlane = [](int n){return n >= 0 && n <= 1;}; // at most 1 charged particle in every tracker plane of the event (ParticleInfo; -1 in an AnglesRaw without it fails)
-    // baseline of every cut of 6_cuts: RECONTHETA_ESTNEU and RECONTHETABL_ESTNEU from 0 to 1 degree (NaN fails)
-    auto base = raw.Filter([](double theta, double thetaBlock){const double deg = theta * TMath::RadToDeg(), degBlock = thetaBlock * TMath::RadToDeg(); return deg >= 0 && deg <= 1 && degBlock >= 0 && degBlock <= 1;}, {"thetaRelN", "thetaRelND"});
+    // baseline of every cut of 6_cuts: RECONTHETA_ESTNEU and RECONTHETABL_ESTNEU from 0 to 1 degree (NaN fails); 9_megaCut3 (base2) from 0 to 2 degrees (the same 2 as mega3ThMax in Plot3D.cpp)
+    const auto thetaWithin = [&raw](double maxDeg){return raw.Filter([maxDeg](double theta, double thetaBlock){const double deg = theta * TMath::RadToDeg(), degBlock = thetaBlock * TMath::RadToDeg(); return deg >= 0 && deg <= maxDeg && degBlock >= 0 && degBlock <= maxDeg;}, {"thetaRelN", "thetaRelND"});};
+    auto base = thetaWithin(1.0);
+    auto base2 = thetaWithin(2.0);
     auto snap = [&](ROOT::RDF::RNode node, const char* file){if (CutWanted(file)) handles.emplace_back(node.Snapshot("AnglesRaw", file, rawCols, lazy));};
     snap(base, "cuts/cut_base.root"); // the baseline sample itself (about 7% of AnglesRaw in a test run): QualityStudy reads it instead of every fitted proton
     snap(base.Filter([](double resD){return resD < kRes4Mm;}, {"resDRms"}), "cuts/cut_ResCuts.root");
@@ -211,11 +213,11 @@ static void CutSamples(){
         const int pct = 85 + 5 * i;
         const std::string scanFile = Form("cuts/cut_megacut3_%d_ke%d.root", maxP, pct);
         const KeyKeys& keys = chainKeys[i];
-        snap(base.Filter([&keys, maxP, maxHits, onePerPlane](int np, int n, int e, int t, int nTh, int nZ, int nPl){return np <= maxP && EvenHits(n, maxHits) && keys.count({e, t}) > 0 && nTh == n && nZ == 1 && onePerPlane(nPl);},
+        snap(base2.Filter([&keys, maxP, maxHits, onePerPlane](int np, int n, int e, int t, int nTh, int nZ, int nPl){return np <= maxP && EvenHits(n, maxHits) && keys.count({e, t}) > 0 && nTh == n && nZ == 1 && onePerPlane(nPl);},
                          {"nProtonsEv", "nHits", "fEvent", "TrackID", "nTrackerHitsEv", "nZdcCharged", "nMaxChargedPerPlaneEv"}), scanFile.c_str());
     }
     for (const int maxP : {1}){ // 1_1particlecut of 9_megaCut3: at most 1 reconstructed particle in the event
-        snap(base.Filter([&ke80Keys, maxP, maxHits, onePerPlane](int np, int n, int e, int t, int nTh, int nZ, int nPl){return np <= maxP && EvenHits(n, maxHits) && ke80Keys.count({e, t}) > 0
+        snap(base2.Filter([&ke80Keys, maxP, maxHits, onePerPlane](int np, int n, int e, int t, int nTh, int nZ, int nPl){return np <= maxP && EvenHits(n, maxHits) && ke80Keys.count({e, t}) > 0
                                                                                                           && nTh == n && nZ == 1 && onePerPlane(nPl);},
                          {"nProtonsEv", "nHits", "fEvent", "TrackID", "nTrackerHitsEv", "nZdcCharged", "nMaxChargedPerPlaneEv"}), Form("cuts/cut_megacut3_%d.root", maxP)); // 9_megaCut3: no charged tracker hit in the event besides the proton's own (nTrackerHitsEv == nHits) and exactly 1 charged particle at the ZDC
     }
