@@ -51,10 +51,10 @@ void SecondaryCE(){
     const auto& ceEvent = ceCol[0], &ceTrack = ceCol[1], &cePolY = ceCol[2], &ceAP = ceCol[3], &cePhiLab = ceCol[4], &ceX = ceCol[5], &ceYv = ceCol[6];
     const auto ceTheta = Columns(&ce, {"CEThetaNeu(LastTheta, LastPhiLab, CENDirX, CENDirY, CENDirZ) * 180 / TMath::Pi()"})[0]; // CETHETA_NEUFRAME (degrees), rows in the order of ceCol: the A_eff of the phi fits comes from its 0.05 degree bins (AEffOfTheta)
     // the CE recon protons in the estimated neutron frame, for 5_phi_cosfit: (fEvent, CE neutron TrackID = ParentID) -> RECONPHI_ESTNEU, RECONTHETA_ESTNEU (deg; thetaRelN is NAN without a tube, so those protons are left out)
-    std::map<std::pair<int, int>, std::pair<double, double>> reconEst;
+    std::map<std::pair<int, int>, std::array<double, 5>> reconEst; // phi, theta, then the est neutron range: theta min, theta max (deg), phi half width (rad)
     if (TTree* raw = OpenCut("cuts/cut_angles_all.root", "AnglesRaw")){
-        const auto rr = Columns(raw, {"fEvent", "ParentID", "phiRelN * 180 / TMath::Pi()", "thetaRelN * 180 / TMath::Pi()"}, "isFromCE == 1 && PDG == 2212 && thetaRelN >= 0");
-        for (size_t i = 0; i < rr[0].size(); i++) reconEst[{(int)rr[0][i], (int)rr[1][i]}] = {rr[2][i], rr[3][i]};
+        const auto rr = Columns(raw, {"fEvent", "ParentID", "phiRelN * 180 / TMath::Pi()", "thetaRelN * 180 / TMath::Pi()", "thetaRelNMin * 180 / TMath::Pi()", "thetaRelNMax * 180 / TMath::Pi()", "phiRelNHalf"}, "isFromCE == 1 && PDG == 2212 && thetaRelN >= 0");
+        for (size_t i = 0; i < rr[0].size(); i++) reconEst[{(int)rr[0][i], (int)rr[1][i]}] = {rr[2][i], rr[3][i], rr[4][i], rr[5][i], rr[6][i]};
         gROOT->cd();
     } else {Error("SecondaryCE", "no cuts/cut_angles_all.root (run ReconAngleAll.cpp)"); return;}
     const double apScaleCE = ReadSettings().at("APScale");
@@ -253,25 +253,29 @@ void SecondaryCE(){
     // keep(k) picks the CE rows (it reads the vectors of the ce entry k), what is added to the title; 19_ is the same plot for the CE protons that hit the first tracker inside a square
     const auto phiFitPlot = [&](const std::string& phiFile, const std::string& what, const std::function<bool(Long64_t)>& keep){
         TH1D hPhi[2] = {TH1D("hPhiAll", "", 50, 0, 360), TH1D("hPhiBeam", "", 50, 0, 360)};
-        AMean sAng[2]; long long nPhi[2] = {0, 0}; // sAng: A_eff of each set (AEffOfTheta at the own theta of each proton), its mean and error are the fixed A of the fit
+        PhiRange phiRng[2]; AMean sAng[2]; long long nPhi[2] = {0, 0}; // sAng: A_eff of each set (AEffOfTheta at the own theta of each proton), its mean and error are the fixed A of the fit
         std::vector<double> phiV[2]; // phi of every CE proton of each set: the unbinned fit below uses them, the histogram only shows them
         for (Long64_t k = 0; k < nCE; k++){
             if (!keep(k)) continue;
             const auto est = reconEst.find({(int)ceEvent[k], (int)ceTrack[k]}); // the recon proton of this CE, in the estimated neutron frame
             if (est == reconEst.end()) continue;
-            const double phiDeg = est->second.first, aEff = AEffOfTheta(est->second.second, apScaleCE); const int trackID = (int)ceTrack[k];
+            const double phiDeg = est->second[0], aEff = AEffOfTheta(est->second[1], apScaleCE), aLo = AEffOfTheta(est->second[2], apScaleCE), aHi = AEffOfTheta(est->second[3], apScaleCE); const int trackID = (int)ceTrack[k];
             for (int g = 0; g < 2; g++){
                 if (g == 1 && trackID != 1) continue;
-                hPhi[g].Fill(phiDeg); phiV[g].push_back(phiDeg); sAng[g].Add(aEff); nPhi[g]++;
+                hPhi[g].Fill(phiDeg); phiV[g].push_back(phiDeg); nPhi[g]++;
+                if (std::isfinite(aLo) && std::isfinite(aHi)){sAng[g].Add(aEff, aLo, aHi); if (std::isfinite(est->second[4])) phiRng[g].Add(est->second[4]);}
+                else sAng[g].Add(aEff);
             }
         }
         const char* phiName[2] = {"all CE", "beam neutron CE (TrackID 1)"};
         const int phiColor[2] = {kBlack, kRed};
         TF1 phiFit[2];
         double pFit[2], pFitErr[2];
+        PFit ufBox[2];
         double phiMax = 0;
         for (int g = 0; g < 2; g++){
-            const PFit uf = UnbinnedP(phiV[g], sAng[g]); // unbinned fit of every proton's phi (FitCore.h), A fixed to the mean
+            const PFit uf = UnbinnedP(phiV[g], sAng[g], 0, 360, nullptr, true, &phiRng[g]); //
+            ufBox[g] = uf; // unbinned fit of every proton's phi (FitCore.h), A fixed to the mean
             phiFit[g] = *AddUnbinnedFit(&hPhi[g], Form("fPhiCos%d", g), uf, sAng[g].Mean(), sAng[g].Err(), false); // in the function list for fit_values.csv, a copy here for the dashed curve
             phiFit[g].ResetBit(TF1::kNotDraw);
             pFit[g] = uf.p; pFitErr[g] = uf.err;
@@ -293,6 +297,7 @@ void SecondaryCE(){
             txPhi.SetTextColor(phiColor[g]);
             txPhi.DrawLatex(0.13, 0.875 - 0.10 * g, Form("%s,   P = %.3f #pm %.3f", phiName[g], pFit[g], pFitErr[g]));
             txPhi.DrawLatex(0.13, 0.845 - 0.10 * g, Form("%s = %.4f #pm %.4f,   %lld CE protons", AEffEq(), sAng[g].Mean(), sAng[g].Err(), nPhi[g]));        }
+        for (int g = 0; g < 2; g++) DrawErrorBySource(sAng[g], ufBox[g], true, 0.745, 0.02 + 0.215 * g, 0.99, 0.225 + 0.215 * g, phiName[g], 0.0155); // the errors of A_eff and P by source of each set, in the right margin below the legend
         WritePlotNumbers(&hPhi[0], outDir + phiFile, numbersStarted);
         canvas.SaveAs((outDir + phiFile).c_str());
     };

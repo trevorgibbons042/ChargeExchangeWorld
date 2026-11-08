@@ -23,16 +23,21 @@ void UnbinnedPhiReD(){
     auto fitRows = dfPhi.Filter(Form("phiReD >= %g && phiReD <= %g", kBlockPhiLo, kBlockPhiHi));
     auto phiTake = fitRows.Take<double>("phiReD");
     auto thetaTake = fitRows.Take<double>("thetaReD");
+    auto thMinTake = fitRows.Take<double>("thetaReDMin"), thMaxTake = fitRows.Take<double>("thetaReDMax"), halfTake = fitRows.Take<double>("phiReDHalf"); // est neutron range (CalcAPandT.cpp): theta ends (deg), phi half width (rad)
     const auto& phi = *phiTake;
     // A_eff = sum_i N_i AP(theta_i) / N0 over the protons of the fit, theta_i the own block theta of each proton, no theta bins (AEffOfTheta, FitCore.h); its error goes into P
     const double apScale = ReadSettings().at("APScale");
-    AMean aM;
-    for (double th : *thetaTake) aM.Add(AEffOfTheta(th, apScale));
+    AMean aM; PhiRange phiRange;
+    for (size_t i = 0; i < thetaTake->size(); i++){
+        const double a = AEffOfTheta((*thetaTake)[i], apScale), lo = (*thMinTake)[i], hi = (*thMaxTake)[i];
+        if (std::isfinite(lo) && std::isfinite(hi)){aM.Add(a, AEffOfTheta(lo, apScale), AEffOfTheta(hi, apScale)); if (std::isfinite((*halfTake)[i])) phiRange.Add((*halfTake)[i]);}
+        else aM.Add(a);
+    }
     const double aMean = aM.Mean();
     const double n = (double)phi.size(), lo = kBlockPhiLo * TMath::Pi() / 180, hi = kBlockPhiHi * TMath::Pi() / 180;
     const double sd = std::sin(hi) - std::sin(lo);
 
-    const PFit uf = UnbinnedP(phi, aM, kBlockPhiLo, kBlockPhiHi); // FitCore.h, the same fit as every plot of the plot chain
+    const PFit uf = UnbinnedP(phi, aM, kBlockPhiLo, kBlockPhiHi, nullptr, true, &phiRange); // FitCore.h, the same fit as every plot of the plot chain
     const double p = uf.p, err = uf.err;
 
     TH1D h("hUnb", "", 50, 0, 360);
@@ -44,7 +49,7 @@ void UnbinnedPhiReD(){
     TF1 fu("fUnbinned", Form("%g * (1 + %g * %g * cos(x * TMath::Pi() / 180))", k, p, aMean), 0.5, 359.5);
 
     TCanvas cv("cvUnb", "", 1000, 800);
-    cv.SetLeftMargin(0.14); cv.SetTopMargin(0.17); cv.SetRightMargin(0.04);
+    cv.SetLeftMargin(0.14); cv.SetTopMargin(0.17); cv.SetRightMargin(0.25); // room for the error by source box
     h.SetStats(0); h.SetMinimum(0); h.SetMaximum(1.25 * h.GetMaximum());
     h.SetLineColor(kRed);
     h.SetTitle("Reconstructed CE protons, RECONPHIBL_ESTNEU Distribution, fit phi 0.5 to 359.5 deg (spike at 0 left out), no other cuts;RECONPHIBL_ESTNEU (degrees);Count");
@@ -55,6 +60,7 @@ void UnbinnedPhiReD(){
     tx.DrawLatex(0.16, 0.86, Form("N(#phi) #propto 1 + P #upoint A_{eff} cos#phi, %s (fixed)", AEffEq()));
     tx.SetTextColor(kBlue); tx.DrawLatex(0.16, 0.81, Form("unbinned fit (blue): P = %.3f #pm %.3f,  %.0f protons, A_{eff} = %.4f #pm %.4f", p, err, n, aMean, aM.Err()));
     tx.SetTextColor(kBlack); tx.DrawLatex(0.16, 0.76, Form("binned #chi^{2} fit (dashed): P = %.3f #pm %.3f,  #chi^{2}/ndf = %.0f / %d", fb.GetParameter(1), fb.GetParError(1), h.Chisquare(&fb), 49));
+    DrawErrorBySource(aM, uf, true); // the errors of A_eff and P by source
     cv.SaveAs("UnbinnedPhiReD.pdf");
     printf("unbinned P = %.4f +- %.4f (n = %.0f, <A> = %.5f +- %.5f), binned P = %.4f +- %.4f\n", p, err, n, aMean, aM.Err(), fb.GetParameter(1), fb.GetParError(1));
 }
