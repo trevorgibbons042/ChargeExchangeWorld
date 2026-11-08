@@ -406,17 +406,18 @@ inline void AddFitEquation(TH1* h, const std::vector<std::string>& lines){
 // each proton (aEach) has the beam spread only.
 // The error of P by source (the side box of the A_eff and P fits, PhiCosFit.h), all in quadrature in err: errFit the likelihood (statistics of the phi), errA the error of A carried over (errAStat
 // the spread of A over the theta distribution, errABeam the beam energy spread, errARange the est neutron theta range), errPhi the est neutron phi range (PhiRange). Each is |P| times a relative error.
-struct PFit {double p = 0, err = 0, errFit = 0, errA = 0, errPhi = 0, errAStat = 0, errABeam = 0, errARange = 0; bool ok = false;};
+struct PFit {double p = 0, err = 0, errFit = 0, errA = 0, errPhi = 0, errAStat = 0, errABeam = 0, errARange = 0, errPhi2 = 0, errARange2 = 0; bool ok = false;}; // errPhi2, errARange2: the block grid range (the second range of AMean and PhiRange)
 
 // The mean A of a sample with its error: A = sum / n over the protons, StatErr = std(A) / sqrt(n) (the error of the mean over the theta distribution of the sample), BeamErr the beam spread
 // (kBeamAFrac), RangeErr the est neutron theta range: every proton has A at the central theta (the value that is quoted) and at thetaMin and thetaMax of its est neutron range (Add with aLo, aHi),
 // and the range is half the difference of the means of A at the two ends. Err is the three in quadrature, RelErr is relative to the mean and is what the P of that fit carries (AddAErrToP).
 // Add per proton, or add the sums of several parts (+=): n, sum, sum^2, sLo and sHi add over slices. Add(a) alone (or a sum made without the range) has no range error.
 struct AMean {
-    double n = 0, sum = 0, sum2 = 0, sLo = 0, sHi = 0;
-    void Add(double a){Add(a, a, a);}
-    void Add(double a, double aLo, double aHi){n++; sum += a; sum2 += a * a; sLo += aLo; sHi += aHi;}
-    AMean& operator+=(const AMean& o){n += o.n; sum += o.sum; sum2 += o.sum2; sLo += o.sLo; sHi += o.sHi; return *this;}
+    double n = 0, sum = 0, sum2 = 0, sLo = 0, sHi = 0, sLo2 = 0, sHi2 = 0; // sLo2, sHi2: a second range of its own, the block grid (the slope error of the block position fit), added in quadrature with the first
+    void Add(double a){Add(a, a, a, a, a);}
+    void Add(double a, double aLo, double aHi){Add(a, aLo, aHi, a, a);}
+    void Add(double a, double aLo, double aHi, double aLo2, double aHi2){n++; sum += a; sum2 += a * a; sLo += aLo; sHi += aHi; sLo2 += aLo2; sHi2 += aHi2;}
+    AMean& operator+=(const AMean& o){n += o.n; sum += o.sum; sum2 += o.sum2; sLo += o.sLo; sHi += o.sHi; sLo2 += o.sLo2; sHi2 += o.sHi2; return *this;}
     double Mean() const {return n > 0 ? sum / n : 0.0;}
     double StatErr() const {
         if (n < 2) return 0.0;
@@ -425,7 +426,8 @@ struct AMean {
     }
     double BeamErr() const {return std::fabs(Mean()) * kBeamAFrac;}
     double RangeErr() const {return n > 0 ? std::fabs(sHi - sLo) / (2 * n) : 0.0;}
-    double Err() const {const double s = StatErr(), b = BeamErr(), r = RangeErr(); return std::sqrt(s * s + b * b + r * r);}
+    double RangeErr2() const {return n > 0 ? std::fabs(sHi2 - sLo2) / (2 * n) : 0.0;}
+    double Err() const {const double s = StatErr(), b = BeamErr(), r = RangeErr(), r2 = RangeErr2(); return std::sqrt(s * s + b * b + r * r + r2 * r2);}
     double RelErr() const {const double m = std::fabs(Mean()); return m > 0 ? Err() / m : kBeamAFrac;}
 };
 // The est neutron phi range: a proton whose est phi is only known within +-h (rad) has its cos(phi) modulation diluted by sin(h) / h, D is the mean of that over the protons of a fit, and P is
@@ -438,15 +440,17 @@ struct PhiRange {
     double RelErr() const {const double d = D(); return d > 1e-6 ? 1 / d - 1 : 0.0;}
 };
 // P carries the errors of A, and with ph the phi range. aEachBeamOnly: A of each proton, so the beam spread only (the range of A is of the mean).
-inline void AddAErrToP(PFit& r, const AMean& a, const PhiRange* ph = nullptr, bool aEachBeamOnly = false){
+inline void AddAErrToP(PFit& r, const AMean& a, const PhiRange* ph = nullptr, bool aEachBeamOnly = false, const PhiRange* ph2 = nullptr){
     r.errFit = r.err;
     const double m = std::fabs(a.Mean()), ap = std::fabs(r.p);
     r.errAStat = aEachBeamOnly || m <= 0 ? 0.0 : ap * a.StatErr() / m;
     r.errABeam = ap * kBeamAFrac;
     r.errARange = aEachBeamOnly || m <= 0 ? 0.0 : ap * a.RangeErr() / m;
-    r.errA = std::sqrt(r.errAStat * r.errAStat + r.errABeam * r.errABeam + r.errARange * r.errARange);
+    r.errARange2 = aEachBeamOnly || m <= 0 ? 0.0 : ap * a.RangeErr2() / m;
+    r.errA = std::sqrt(r.errAStat * r.errAStat + r.errABeam * r.errABeam + r.errARange * r.errARange + r.errARange2 * r.errARange2);
     r.errPhi = ph ? ap * ph->RelErr() : 0.0;
-    r.err = std::sqrt(r.errFit * r.errFit + r.errA * r.errA + r.errPhi * r.errPhi);
+    r.errPhi2 = ph2 ? ap * ph2->RelErr() : 0.0;
+    r.err = std::sqrt(r.errFit * r.errFit + r.errA * r.errA + r.errPhi * r.errPhi + r.errPhi2 * r.errPhi2);
 }
 // The side box "Error by source" of every phi fit plot: the errors of A_eff and of P split by source, in quadrature in the totals the plot quotes (AMean, PFit). hasRange false: the fit has no
 // est neutron frame (true CE phi, lab phi), so the est neutron range terms are 0 and the box says so. NDC corners of the box (the right margin under the stats box).
@@ -455,16 +459,17 @@ inline TPaveText* DrawErrorBySource(const AMean& a, const PFit& uf, bool hasRang
     eb->SetTextAlign(12); eb->SetTextSize(textSize); eb->SetFillColor(kWhite); eb->SetBorderSize(1);
     eb->AddText(Form("#bf{%s}", title));
     eb->AddText(Form("#bf{A_{eff}} #pm %.4f", a.Err()));
-    eb->AddText(Form(" est n #theta range  %.4f", a.RangeErr()));
+    const bool hasBlock = a.RangeErr2() > 0 || uf.errPhi2 > 0; // the block grid range: only the block fits have one
+    const auto line = [&](const char* name, bool has, double v, const char* fmt){eb->AddText(has ? Form(fmt, name, v) : Form(" %s  n/a (exact angle)", name));};
+    line(" est n #theta range", hasRange, a.RangeErr(), "%s  %.4f");
+    line(" block grid #theta range", hasBlock, a.RangeErr2(), "%s  %.4f");
     eb->AddText(Form(" statistics (#theta spread)  %.4f", a.StatErr()));
     eb->AddText(Form(" energy range (beam)  %.4f", a.BeamErr()));
     eb->AddText(Form("#bf{P} #pm %.3f", uf.err));
-    eb->AddText(Form(" est n #phi range  %.3f", uf.errPhi));
-    eb->AddText(Form(" est n #theta (via A)  %.3f", uf.errARange));
-    eb->AddText(Form(" #theta spread (via A)  %.3f", uf.errAStat));
-    eb->AddText(Form(" energy range (via A)  %.3f", uf.errABeam));
+    line(" est n #phi range", hasRange, uf.errPhi, "%s  %.3f");
+    line(" block grid #phi range", hasBlock, uf.errPhi2, "%s  %.3f");
+    eb->AddText(Form(" A_{eff} error (all of it)  %.3f", uf.errA)); // the A terms above (theta ranges, spread, energy) carried into P, in quadrature
     eb->AddText(Form(" statistics (likelihood)  %.3f", uf.errFit));
-    if (!hasRange) eb->AddText("no est neutron range here");
     eb->Draw();
     return eb;
 }
@@ -484,7 +489,7 @@ inline double NewtonP(D derivs, double tol){
     return p;
 }
 // cosPhi: cos(phi) of every proton (a: its A, or null for aFix). parallel: the sums over the protons run on all threads (not when the caller is already one of the threads).
-inline PFit UnbinnedPFromCos(const double* cosPhi, Long64_t n, const double* a, const AMean& aMean, double loDeg, double hiDeg, bool parallel = true, const PhiRange* ph = nullptr){
+inline PFit UnbinnedPFromCos(const double* cosPhi, Long64_t n, const double* a, const AMean& aMean, double loDeg, double hiDeg, bool parallel = true, const PhiRange* ph = nullptr, const PhiRange* ph2 = nullptr){
     PFit r;
     const double aFix = aMean.Mean();
     if (n < 10 || (!a && std::fabs(aFix) < 1e-12)) return r;
@@ -508,14 +513,14 @@ inline PFit UnbinnedPFromCos(const double* cosPhi, Long64_t n, const double* a, 
     const double p = NewtonP([&](double pp, double& d1, double& d2){const Sums t = sums(pp); d1 = t.d1; d2 = t.d2;}, 1e-10);
     const Sums t = sums(p);
     r.p = p; r.err = t.d2 < 0 ? 1 / std::sqrt(-t.d2) : 0; r.ok = true;
-    AddAErrToP(r, aMean, ph, a != nullptr); // the A of each proton: the beam spread only
+    AddAErrToP(r, aMean, ph, a != nullptr, ph2); // the A of each proton: the beam spread only
     return r;
 }
 // aMean: the A fixed for every proton (its error goes into P), or, with aEach, the A of each proton (aMean is then not used: pass AMean())
-inline PFit UnbinnedP(const std::vector<double>& phiDeg, const AMean& aMean, double loDeg = 0, double hiDeg = 360, const std::vector<double>* aEach = nullptr, bool parallel = true, const PhiRange* ph = nullptr){
+inline PFit UnbinnedP(const std::vector<double>& phiDeg, const AMean& aMean, double loDeg = 0, double hiDeg = 360, const std::vector<double>* aEach = nullptr, bool parallel = true, const PhiRange* ph = nullptr, const PhiRange* ph2 = nullptr){
     std::vector<double> cs(phiDeg.size());
     for (size_t i = 0; i < cs.size(); i++) cs[i] = std::cos(phiDeg[i] * TMath::Pi() / 180);
-    return UnbinnedPFromCos(cs.data(), (Long64_t)cs.size(), aEach ? aEach->data() : nullptr, aMean, loDeg, hiDeg, parallel, ph);
+    return UnbinnedPFromCos(cs.data(), (Long64_t)cs.size(), aEach ? aEach->data() : nullptr, aMean, loDeg, hiDeg, parallel, ph, ph2);
 }
 
 // The curve N0 (1 + P A cos phi) of the unbinned P in the histogram h (50 bins over 0 to 360, N0 = entries / bins), where the stats box and WritePlotNumbers (fit_values.csv) look for a fit.
@@ -542,7 +547,7 @@ inline void AddCosMoments(double* m, double phiDeg){
     double pw = 1;
     for (int k = 0; k < kPhiMoments; k++){pw *= c; m[k] += pw;}
 }
-inline PFit UnbinnedPFromMoments(const double* m, double n, const AMean& aMean, double loDeg = 0, double hiDeg = 360, const PhiRange* ph = nullptr){
+inline PFit UnbinnedPFromMoments(const double* m, double n, const AMean& aMean, double loDeg = 0, double hiDeg = 360, const PhiRange* ph = nullptr, const PhiRange* ph2 = nullptr){
     PFit r;
     const double aFix = aMean.Mean();
     if (n < 10 || std::fabs(aFix) < 1e-12) return r;
@@ -563,7 +568,7 @@ inline PFit UnbinnedPFromMoments(const double* m, double n, const AMean& aMean, 
     double d1, d2;
     derivs(p, d1, d2);
     r.p = p; r.err = d2 < 0 ? 1 / std::sqrt(-d2) : 0; r.ok = true;
-    AddAErrToP(r, aMean, ph);
+    AddAErrToP(r, aMean, ph, false, ph2);
     return r;
 }
 

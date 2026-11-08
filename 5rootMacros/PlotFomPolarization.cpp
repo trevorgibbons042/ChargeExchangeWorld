@@ -76,27 +76,32 @@ struct PhiAP {
     PhiCounts phi; std::vector<double> apSum, apN, apSum2; // apSum2: the sums of A^2, for the spread of A (AMean)
     std::vector<double> apLo, apHi, dSum, dN; // per theta slice, the sums of A at thetaMin and thetaMax of the est neutron theta range, and of sin(h) / h with its count (PhiRange): the errors by source
     double totalApLo = 0, totalApHi = 0, totalDSum = 0, totalDN = 0; // the same for every proton at any theta
+    std::vector<double> apLo2, apHi2, dSum2, dN2; double totalApLo2 = 0, totalApHi2 = 0, totalDSum2 = 0, totalDN2 = 0; // the same for the block grid range alone (the second range of AMean and PhiRange, block set only)
     std::vector<std::array<double, kPhiMoments>> mom; // per theta slice, the sums of cos^k(phi) of its protons (the unbinned fit, AddCosMoments)
     std::array<double, kPhiBinsFP> total{}; double totalApSum = 0, totalApSum2 = 0, totalN = 0; // every proton at any theta (no theta cut), for the all-theta phi fits
     std::array<double, kPhiMoments> totalMom{};
-    PhiAP(int nSlices = 0) : phi(nSlices), apSum(nSlices, 0.0), apN(nSlices, 0.0), apSum2(nSlices, 0.0), apLo(nSlices, 0.0), apHi(nSlices, 0.0), dSum(nSlices, 0.0), dN(nSlices, 0.0), mom(nSlices) {for (auto& m : mom) m.fill(0.0);}
+    PhiAP(int nSlices = 0) : phi(nSlices), apSum(nSlices, 0.0), apN(nSlices, 0.0), apSum2(nSlices, 0.0), apLo(nSlices, 0.0), apHi(nSlices, 0.0), dSum(nSlices, 0.0), dN(nSlices, 0.0), apLo2(nSlices, 0.0), apHi2(nSlices, 0.0), dSum2(nSlices, 0.0), dN2(nSlices, 0.0), mom(nSlices) {for (auto& m : mom) m.fill(0.0);}
 };
 // A of every proton is the one at the center of its theta slice (t from theta, APFromT), so apSum of a slice is N_slice * A_slice
 // thMin, thMax (deg) and phHalf (rad): the est neutron range of the proton, NaN when it has none (the true CE angles): then A at both ends is the central A and the phi range is left out.
-static void AddProton(PhiAP& d, double theta, double phi, double apScale, bool block, double thMin = NAN, double thMax = NAN, double phHalf = NAN){
+static void AddProton(PhiAP& d, double theta, double phi, double apScale, bool block, double thMin = NAN, double thMax = NAN, double phHalf = NAN, double thMin2 = NAN, double thMax2 = NAN, double phHalf2 = NAN){
     if (block && !InBlockPhi(phi)) return; // block phi: the spike at 0 is left out of every fit
     const int pt = (int)(phi / 360.0 * kPhiBinsFP);
     const double aAny = AEffOfTheta(theta, apScale); // the A of the proton at its own theta, for the total and for its theta slice
     const bool hasR = std::isfinite(thMin) && std::isfinite(thMax);
     const double aLo = hasR ? AEffOfTheta(thMin, apScale) : aAny, aHi = hasR ? AEffOfTheta(thMax, apScale) : aAny;
     PhiRange dr; if (std::isfinite(phHalf)) dr.Add(phHalf);
+    const bool hasR2 = std::isfinite(thMin2) && std::isfinite(thMax2); // the block grid range alone
+    const double aLo2 = hasR2 ? AEffOfTheta(thMin2, apScale) : aAny, aHi2 = hasR2 ? AEffOfTheta(thMax2, apScale) : aAny;
+    PhiRange dr2; if (std::isfinite(phHalf2)) dr2.Add(phHalf2);
     if (pt >= 0 && pt < kPhiBinsFP){
         d.total[pt]++; d.totalN++; AddCosMoments(d.totalMom.data(), phi);
         d.totalApSum += aAny; d.totalApSum2 += aAny * aAny; d.totalApLo += aLo; d.totalApHi += aHi; d.totalDSum += dr.sum; d.totalDN += dr.n;
+        d.totalApLo2 += aLo2; d.totalApHi2 += aHi2; d.totalDSum2 += dr2.sum; d.totalDN2 += dr2.n;
     }
     const int s = BinPhi(d.phi, theta, phi);
     if (s >= 0) AddCosMoments(d.mom[s].data(), phi);
-    if (s >= 0){d.apSum[s] += aAny; d.apSum2[s] += aAny * aAny; d.apN[s]++; d.apLo[s] += aLo; d.apHi[s] += aHi; d.dSum[s] += dr.sum; d.dN[s] += dr.n;}
+    if (s >= 0){d.apSum[s] += aAny; d.apSum2[s] += aAny * aAny; d.apN[s]++; d.apLo[s] += aLo; d.apHi[s] += aHi; d.dSum[s] += dr.sum; d.dN[s] += dr.n; d.apLo2[s] += aLo2; d.apHi2[s] += aHi2; d.dSum2[s] += dr2.sum; d.dN2[s] += dr2.n;}
 }
 // Adds the counts and sums of s to d (same number of slices).
 static void AddPhiAP(PhiAP& d, const PhiAP& s){
@@ -104,21 +109,24 @@ static void AddPhiAP(PhiAP& d, const PhiAP& s){
         for (int b = 0; b < kPhiBinsFP; b++) d.phi[i][b] += s.phi[i][b];
         d.apSum[i] += s.apSum[i]; d.apN[i] += s.apN[i]; d.apSum2[i] += s.apSum2[i];
         d.apLo[i] += s.apLo[i]; d.apHi[i] += s.apHi[i]; d.dSum[i] += s.dSum[i]; d.dN[i] += s.dN[i];
+        d.apLo2[i] += s.apLo2[i]; d.apHi2[i] += s.apHi2[i]; d.dSum2[i] += s.dSum2[i]; d.dN2[i] += s.dN2[i];
         for (int k = 0; k < kPhiMoments; k++) d.mom[i][k] += s.mom[i][k];
     }
     for (int k = 0; k < kPhiMoments; k++) d.totalMom[k] += s.totalMom[k];
     for (int b = 0; b < kPhiBinsFP; b++) d.total[b] += s.total[b];
     d.totalApSum += s.totalApSum; d.totalApSum2 += s.totalApSum2; d.totalN += s.totalN;
     d.totalApLo += s.totalApLo; d.totalApHi += s.totalApHi; d.totalDSum += s.totalDSum; d.totalDN += s.totalDN;
+    d.totalApLo2 += s.totalApLo2; d.totalApHi2 += s.totalApHi2; d.totalDSum2 += s.totalDSum2; d.totalDN2 += s.totalDN2;
 }
-// AddProton for every row of cols (theta, phi in rad, columns 0 and 1; toDeg converts; with 5 columns also thetaMin, thetaMax (rad) and the phi half width (rad), columns 2 to 4) on all threads (MapRows, FitCore.h): each row range fills its own PhiAP, added into d in range order after.
+// AddProton for every row of cols (theta, phi in rad, columns 0 and 1; toDeg converts; with 5 columns also thetaMin, thetaMax (rad) and the phi half width (rad), columns 2 to 4, with 8 the block grid range alone, columns 5 to 7) on all threads (MapRows, FitCore.h): each row range fills its own PhiAP, added into d in range order after.
 // The counts are exact; the AP sums can differ from a serial loop in the last digits.
 static void AddProtons(PhiAP& d, const std::vector<std::vector<double>>& cols, double toDeg, double apScale, bool block){
     const size_t nSlices = d.apSum.size();
     const auto parts = MapRows((Long64_t)cols[0].size(), [&](Long64_t lo, Long64_t hi){
         PhiAP part((int)nSlices);
         for (Long64_t e = lo; e < hi; e++){
-            if (cols.size() >= 5) AddProton(part, cols[0][e] * toDeg, cols[1][e] * toDeg, apScale, block, cols[2][e] * toDeg, cols[3][e] * toDeg, cols[4][e]);
+            if (cols.size() >= 8) AddProton(part, cols[0][e] * toDeg, cols[1][e] * toDeg, apScale, block, cols[2][e] * toDeg, cols[3][e] * toDeg, cols[4][e], cols[5][e] * toDeg, cols[6][e] * toDeg, cols[7][e]);
+            else if (cols.size() >= 5) AddProton(part, cols[0][e] * toDeg, cols[1][e] * toDeg, apScale, block, cols[2][e] * toDeg, cols[3][e] * toDeg, cols[4][e]);
             else AddProton(part, cols[0][e] * toDeg, cols[1][e] * toDeg, apScale, block);
         }
         return part;
@@ -146,13 +154,13 @@ void PlotFomPolarization(std::string energy = "fKEnergy"){ // energy: "fKEnergy"
     TTree* all = allFile ? (TTree*)allFile->Get(kAngleTree) : nullptr; // every fitted proton
     if (!all){printf("PlotFomPolarization: AnglesRaw in cut_angles_all.root missing\n"); return;}
     // block: the block position set, which only takes the block AP; the recon set takes AP from CE and from recon
-    struct ThetaSet {std::string dir, name, tree, theta, phi, allTheta, allPhi, thMin, thMax, phHalf, allThMin, allThMax, allPhHalf; bool block;}; // thMin, thMax (deg), phHalf (rad): the est neutron range columns of the CE tree; allThMin, allThMax, allPhHalf (rad) those of AnglesRaw // all* : theta and phi (rad) of every proton with a reconstructed path in the Angles tree
+    struct ThetaSet {std::string dir, name, tree, theta, phi, allTheta, allPhi, thMin, thMax, phHalf, allThMin, allThMax, allPhHalf, thMin2, thMax2, phHalf2, allThMin2, allThMax2, allPhHalf2; bool block;}; // ...2: the block grid range columns (block set only) // thMin, thMax (deg), phHalf (rad): the est neutron range columns of the CE tree; allThMin, allThMax, allPhHalf (rad) those of AnglesRaw // all* : theta and phi (rad) of every proton with a reconstructed path in the Angles tree
     // types: CE recon protons, all recon protons (pdg 2212) and all recon charged particles (every charged particle of AnglesRaw, any pdg)
     const std::vector<std::string> typeTags = {"CE", "recon", "reconParticles"}, typeNames = {"CE recon protons", "all recon protons", "all recon charged particles"};
     // the one AP source: the model equation (APFromT, FitCore.h) at the CE t (tCE) of each CE proton; theta and phi come from the theta set, rows line up between the trees
     struct ApSrc {std::string tag, name, tree, branch;};
-    std::vector<ThetaSet> sets = {{"1_reconTheta_estneu", "RECONTHETA_ESTNEU", "CalcValsRe" + suffix, "thetaRe", "phiRe", "thetaRelN", "phiRelN", "thetaReMin", "thetaReMax", "phiReHalf", "thetaRelNMin", "thetaRelNMax", "phiRelNHalf", false},
-                                        {"2_reconBlockTheta_estneu", "RECONTHETABL_ESTNEU", "CalcValsReD" + suffix, "thetaReD", "phiReD", "thetaRelND", "phiRelND", "thetaReDMin", "thetaReDMax", "phiReDHalf", "thetaRelNDMin", "thetaRelNDMax", "phiRelNDHalf", true}};
+    std::vector<ThetaSet> sets = {{"1_reconTheta_estneu", "RECONTHETA_ESTNEU", "CalcValsRe" + suffix, "thetaRe", "phiRe", "thetaRelN", "phiRelN", "thetaReMin", "thetaReMax", "phiReHalf", "thetaRelNMin", "thetaRelNMax", "phiRelNHalf", "", "", "", "", "", "", false},
+                                        {"2_reconBlockTheta_estneu", "RECONTHETABL_ESTNEU", "CalcValsReD" + suffix, "thetaReD", "phiReD", "thetaRelND", "phiRelND", "thetaReDMin", "thetaReDMax", "phiReDHalf", "thetaRelNDMin", "thetaRelNDMax", "phiRelNDHalf", "thetaReDBMin", "thetaReDBMax", "phiReDBHalf", "thetaRelNDBMin", "thetaRelNDBMax", "phiRelNDBHalf", true}};
     if (FomBlockOnly()) sets.erase(sets.begin()); // the cut runs besides mega only have the block position set
     const std::vector<ApSrc> apSrcs = {{"apCE", "AP from CE t", "CE" + suffix, "tCE"}};
     // phi counts of protons with reconstructed paths per theta set and KE cut: they do not depend on the AP source, so one read of the (large) all-protons tree per theta set and KE cut fills them all
@@ -162,7 +170,7 @@ void PlotFomPolarization(std::string energy = "fKEnergy"){ // energy: "fKEnergy"
         const double toDeg = 180 / TMath::Pi();
         for (size_t s = 0; s < sets.size(); s++) for (size_t k = 0; k < kes.size(); k++){
             // no KE or residual cut here: every recon proton (pdg 2212) and every recon charged particle (the Angles view); one multithreaded read (ColumnsUnordered, TreeColumns.h) of their angles each, rows in any order (AddProton only adds counts and AP sums)
-            const auto anglesPart = ColumnsUnordered(all, {sets[s].allTheta, sets[s].allPhi, sets[s].allThMin, sets[s].allThMax, sets[s].allPhHalf}, AngleSelection("Angles"));
+            const auto anglesPart = ColumnsUnordered(all, sets[s].block ? std::vector<std::string>{sets[s].allTheta, sets[s].allPhi, sets[s].allThMin, sets[s].allThMax, sets[s].allPhHalf, sets[s].allThMin2, sets[s].allThMax2, sets[s].allPhHalf2} : std::vector<std::string>{sets[s].allTheta, sets[s].allPhi, sets[s].allThMin, sets[s].allThMax, sets[s].allPhHalf}, AngleSelection("Angles"));
             AddProtons(phiAllPart[s][k], anglesPart, toDeg, apScale, sets[s].block);
         }
     }
@@ -178,7 +186,9 @@ void PlotFomPolarization(std::string energy = "fKEnergy"){ // energy: "fKEnergy"
             ce->SetEntryList(nullptr); // no cut: every CE proton with a recon track
             // the CE protons take their own CE angles (thetaCE, phiCE, deg) from the CE tree, not the recon or recon block ones of the theta set
             const std::string ceCols = (apInOwnTree ? "" : apSrc.tree + ".");
-            const std::vector<std::vector<double>> ceV = Columns(ce, {ceCols + "thetaCE", ceCols + "phiCE", ceCols + apSrc.branch, ceCols + "apCE", set.theta, set.phi, set.thMin, set.thMax, set.phHalf}); // CE angles, AP, then the recon angles and their est neutron range
+            std::vector<std::string> ceExprs = {ceCols + "thetaCE", ceCols + "phiCE", ceCols + apSrc.branch, ceCols + "apCE", set.theta, set.phi, set.thMin, set.thMax, set.phHalf};
+            if (set.block) for (const std::string& e : {set.thMin2, set.thMax2, set.phHalf2}) ceExprs.push_back(e); // the block grid range alone
+            const std::vector<std::vector<double>> ceV = Columns(ce, ceExprs); // CE angles, AP, then the recon angles and their est neutron range
             const Long64_t nCE = (Long64_t)ceV[0].size();
             ce->SetEntryList(nullptr);
             // per theta slice, the phi counts of the CE protons and the AP sum of the CE protons (the AP of both fits, as in PlotPolarization.cpp)
@@ -186,10 +196,11 @@ void PlotFomPolarization(std::string energy = "fKEnergy"){ // energy: "fKEnergy"
             PhiAP phiCERecon(nSlices); // the same CE protons at their recon angles (set.theta, set.phi), for the all-theta phi fit
             for (Long64_t k = 0; k < nCE; k++){
                 AddProton(phiCE, ceV[0][k], ceV[1][k], apScale, set.block);
-                AddProton(phiCERecon, ceV[4][k], ceV[5][k], apScale, set.block, ceV[6][k], ceV[7][k], ceV[8][k]);
+                if (set.block) AddProton(phiCERecon, ceV[4][k], ceV[5][k], apScale, set.block, ceV[6][k], ceV[7][k], ceV[8][k], ceV[9][k], ceV[10][k], ceV[11][k]);
+                else AddProton(phiCERecon, ceV[4][k], ceV[5][k], apScale, set.block, ceV[6][k], ceV[7][k], ceV[8][k]);
             }
 
-            struct Ovl {TH1D* h = nullptr; double nPhi = 0; AMean aFix; bool ok = false; PFit uf; PhiRange pr;}; // uf: the unbinned fit of the range
+            struct Ovl {TH1D* h = nullptr; double nPhi = 0; AMean aFix; bool ok = false; PFit uf; PhiRange pr, pr2;}; // uf: the unbinned fit of the range
             Ovl ovl[2][3]; // per range and type: the phi counts of the fit plot, collected here and drawn together after the type loop
             for (int type = 0; type < 3; type++){
                 if (type == 1) continue; // no all recon protons (pdg 2212): only the CE recon protons and all recon charged particles
@@ -225,14 +236,14 @@ void PlotFomPolarization(std::string energy = "fKEnergy"){ // energy: "fKEnergy"
                 for (const int range : {0, 1}){ // range 0: all thetas, range 1: theta 0 to 1 deg; phi histogram (all thetas, then from kLowEdge) (20 bins) with the fit of FitRange (same fit as the from0p3 point at theta_max = kThetaMaxFP) and the input P
                     std::array<double, kPhiBinsFP> counts{};
                     std::array<double, kPhiMoments> mom{};
-                    AMean aR; PhiRange prR; // the A of the protons of the range, and their est neutron phi range
+                    AMean aR; PhiRange prR, prR2; // the A of the protons of the range, and their est neutron phi range and block grid phi range
                     double nPhi = 0;
                     const PhiAP& fitProtons = type == 0 ? phiCERecon : protons; // CE protons with a recon track at their recon angles, recon protons at theirs
-                    if (range == 0){counts = fitProtons.total; mom = fitProtons.totalMom; nPhi = fitProtons.totalN; aR = AMean{fitProtons.totalN, fitProtons.totalApSum, fitProtons.totalApSum2, fitProtons.totalApLo, fitProtons.totalApHi}; prR.n = fitProtons.totalDN; prR.sum = fitProtons.totalDSum;} // no theta cut
+                    if (range == 0){counts = fitProtons.total; mom = fitProtons.totalMom; nPhi = fitProtons.totalN; aR = AMean{fitProtons.totalN, fitProtons.totalApSum, fitProtons.totalApSum2, fitProtons.totalApLo, fitProtons.totalApHi, fitProtons.totalApLo2, fitProtons.totalApHi2}; prR.n = fitProtons.totalDN; prR.sum = fitProtons.totalDSum; prR2.n = fitProtons.totalDN2; prR2.sum = fitProtons.totalDSum2;} // no theta cut
                     else for (int sl = 0; sl < std::min(nSlices, (int)std::lround(1.0 / kStep)); sl++){ // the slices of theta 0 to 1 deg
                         for (int b = 0; b < kPhiBinsFP; b++){counts[b] += fitProtons.phi[sl][b]; nPhi += fitProtons.phi[sl][b];}
                         for (int k = 0; k < kPhiMoments; k++) mom[k] += fitProtons.mom[sl][k];
-                        aR += AMean{fitProtons.apN[sl], fitProtons.apSum[sl], fitProtons.apSum2[sl], fitProtons.apLo[sl], fitProtons.apHi[sl]}; prR.n += fitProtons.dN[sl]; prR.sum += fitProtons.dSum[sl];
+                        aR += AMean{fitProtons.apN[sl], fitProtons.apSum[sl], fitProtons.apSum2[sl], fitProtons.apLo[sl], fitProtons.apHi[sl], fitProtons.apLo2[sl], fitProtons.apHi2[sl]}; prR.n += fitProtons.dN[sl]; prR.sum += fitProtons.dSum[sl]; prR2.n += fitProtons.dN2[sl]; prR2.sum += fitProtons.dSum2[sl];
                     }
                     double p = 0, pErr = 0; (void)p; (void)pErr;
                     if (aR.n > 0 && nPhi >= kMinNFP && std::fabs(aR.Mean()) > 1e-12){
@@ -243,7 +254,7 @@ void PlotFomPolarization(std::string energy = "fKEnergy"){ // energy: "fKEnergy"
                         h->SetDirectory(nullptr);
                         for (int b = 0; b < kPhiBinsFP; b++) h->AddBinContent(b / 2 + 1, counts[b]);
                         h->SetEntries(nPhi);
-                        ovl[range][type] = {h, nPhi, aFix, true, UnbinnedPFromMoments(mom.data(), nPhi, aFix, set.block ? kBlockPhiLo : 0, set.block ? kBlockPhiHi : 360, &prR), prR}; // drawn with the other two types after this loop
+                        ovl[range][type] = {h, nPhi, aFix, true, UnbinnedPFromMoments(mom.data(), nPhi, aFix, set.block ? kBlockPhiLo : 0, set.block ? kBlockPhiHi : 360, &prR, &prR2), prR, prR2}; // drawn with the other two types after this loop
                     }
                 }
             }

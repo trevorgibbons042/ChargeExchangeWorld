@@ -255,6 +255,7 @@ void ReconAngleAll(){
             int tubeBlock, inTubeZ;
             double tubeZ0, tubeZ1, tubeDist, tubeDistD, tubeRadius, tubeX0, tubeY0, tubeX1, tubeY1, thetaNMin, thetaNMax, phiNMid, phiNHalf;
             double thetaRelN, thetaRelNMin, thetaRelNMax, phiRelN, phiRelNHalf, thetaRelND, thetaRelNDMin, thetaRelNDMax, phiRelND, phiRelNDHalf; // proton angles in the frame of the estimated neutron
+            double thetaRelNDBMin, thetaRelNDBMax, phiRelNDBHalf, thetaLabDBMin, thetaLabDBMax, phiLabDBHalf; // the range of the block direction from the hit grid alone (the slope error of the block fit): in the est neutron frame, and about the lab z axis (outDTheta, outDPhi)
         };
         std::vector<std::vector<Row>> shardRows(nShards);
         const auto tFit0 = Clock::now(); // the event loop above is the read
@@ -407,6 +408,7 @@ void ReconAngleAll(){
                 r.thetaNMin = r.thetaNMax = r.phiNMid = r.phiNHalf = r.tubeX0 = r.tubeY0 = r.tubeX1 = r.tubeY1 = NAN;
                 r.thetaRelN = r.thetaRelNMin = r.thetaRelNMax = r.phiRelN = r.phiRelNHalf = NAN;
                 r.thetaRelND = r.thetaRelNDMin = r.thetaRelNDMax = r.phiRelND = r.phiRelNDHalf = NAN;
+                r.thetaRelNDBMin = r.thetaRelNDBMax = r.phiRelNDBHalf = r.thetaLabDBMin = r.thetaLabDBMax = r.phiLabDBHalf = NAN;
                 if (r.nHits > 0) {
                     const double zFirst = t.zD[blockHits.front()];
                     const int idx = int(std::upper_bound(blockZ.begin(), blockZ.end(), zFirst) - blockZ.begin()) - 1;
@@ -469,7 +471,8 @@ void ReconAngleAll(){
                             const double zMid = blockZ[idx], nCentre[3] = {lineX(zMid), lineY(zMid), zMid};
                             double thC[2], phC[2], thMin[2], thMax[2], phHalf[2];
                             // The block direction is the slope of the block-position line fit, and a block hit sits on a grid (error hitSigmaMm = pitch / sqrt(12) per hit): the slope error of the weighted fit is
-                            // kTubeSigmas * hitSigmaMm / sqrt(Sxx) in x and in y. The block range (thetaRelNDMin/Max, phiRelNDHalf) also covers the direction at the four corners of that slope error.
+                            // kTubeSigmas * hitSigmaMm / sqrt(Sxx) in x and in y. Its own range (thetaRelNDBMin/Max, phiRelNDBHalf in the est neutron frame, thetaLabDBMin/Max, phiLabDBHalf about the lab z axis)
+                            // is the direction at the four corners of that slope error, the neutron at its centre; the neutron range (thetaRelNDMin/Max, phiRelNDHalf) does not include it.
                             const double slopeSig = kTubeSigmas * hitSigmaMm / std::sqrt(sxx);
                             const double vx[5] = {0.0, 1.0, 1.0, -1.0, -1.0}, vy[5] = {0.0, 1.0, -1.0, 1.0, -1.0};
                             RelToDir(pTrue, nCentre, thC[0], phC[0]); RelToDir(pBlock, nCentre, thC[1], phC[1]);
@@ -477,15 +480,26 @@ void ReconAngleAll(){
                             for (const double zStart : {-zBeam, 0.0, zBeam}) for (const double zEnd : {r.tubeZ0, zMid, r.tubeZ1}) for (int k = 0; k < 9; k++) {
                                 const double a = (k - 1) * M_PI / 4.0, ex = lineX(zEnd) + (k ? Rn * std::cos(a) : 0.0), ey = lineY(zEnd) + (k ? Rn * std::sin(a) : 0.0);
                                 const double nS[3] = {ex, ey, zEnd - zStart};
-                                for (int f = 0; f < 2; f++) for (int v = 0; v < (f ? 5 : 1); v++) { // the block direction also moves by +-slopeSig in both slopes (the corners v 1 to 4)
-                                    const double pV[3] = {pBlock[0] + (f ? vx[v] * slopeSig : 0.0), pBlock[1] + (f ? vy[v] * slopeSig : 0.0), 1.0};
-                                    double th, ph; RelToDir(f ? pV : pTrue, nS, th, ph);
+                                for (int f = 0; f < 2; f++) {
+                                    double th, ph; RelToDir(f ? pBlock : pTrue, nS, th, ph);
                                     thMin[f] = std::min(thMin[f], th); thMax[f] = std::max(thMax[f], th);
                                     phHalf[f] = std::max(phHalf[f], std::fabs(std::remainder(ph - phC[f], 2.0 * M_PI)));
                                 }
                             }
                             r.thetaRelN = thC[0]; r.thetaRelNMin = thMin[0]; r.thetaRelNMax = thMax[0]; r.phiRelN = phC[0]; r.phiRelNHalf = phHalf[0];
                             r.thetaRelND = thC[1]; r.thetaRelNDMin = thMin[1]; r.thetaRelNDMax = thMax[1]; r.phiRelND = phC[1]; r.phiRelNDHalf = phHalf[1];
+                            // the block grid alone: the four slope corners with the neutron at its centre, and the same corners about the lab z axis
+                            r.thetaRelNDBMin = r.thetaRelNDBMax = thC[1]; r.phiRelNDBHalf = 0.0;
+                            r.thetaLabDBMin = r.thetaLabDBMax = r.dTheta; r.phiLabDBHalf = 0.0;
+                            for (int v = 1; v < 5; v++) {
+                                const double pV[3] = {pBlock[0] + vx[v] * slopeSig, pBlock[1] + vy[v] * slopeSig, 1.0};
+                                double th, ph; RelToDir(pV, nCentre, th, ph);
+                                r.thetaRelNDBMin = std::min(r.thetaRelNDBMin, th); r.thetaRelNDBMax = std::max(r.thetaRelNDBMax, th);
+                                r.phiRelNDBHalf = std::max(r.phiRelNDBHalf, std::fabs(std::remainder(ph - phC[1], 2.0 * M_PI)));
+                                const double thL = std::atan2(std::hypot(pV[0], pV[1]), 1.0), phL = std::atan2(pV[1], pV[0]);
+                                r.thetaLabDBMin = std::min(r.thetaLabDBMin, thL); r.thetaLabDBMax = std::max(r.thetaLabDBMax, thL);
+                                r.phiLabDBHalf = std::max(r.phiLabDBHalf, std::fabs(std::remainder(phL - r.dPhi, 2.0 * M_PI)));
+                            }
                         }
                     }
                 }
@@ -577,6 +591,12 @@ void ReconAngleAll(){
             tree->Branch("thetaRelNDMax", &cur.thetaRelNDMax);
             tree->Branch("phiRelND", &cur.phiRelND);
             tree->Branch("phiRelNDHalf", &cur.phiRelNDHalf);
+            tree->Branch("thetaRelNDBMin", &cur.thetaRelNDBMin);
+            tree->Branch("thetaRelNDBMax", &cur.thetaRelNDBMax);
+            tree->Branch("phiRelNDBHalf", &cur.phiRelNDBHalf);
+            tree->Branch("thetaLabDBMin", &cur.thetaLabDBMin);
+            tree->Branch("thetaLabDBMax", &cur.thetaLabDBMax);
+            tree->Branch("phiLabDBHalf", &cur.phiLabDBHalf);
             tree->Branch("tubeRadius", &cur.tubeRadius);
             tree->Branch("tubeDist", &cur.tubeDist);
             tree->Branch("tubeDistD", &cur.tubeDistD);
