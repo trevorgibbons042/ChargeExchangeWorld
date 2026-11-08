@@ -468,13 +468,18 @@ void ReconAngleAll(){
                             const double pTrue[3] = {fit.bx, fit.by, 1.0}, pBlock[3] = {fit.bxD, fit.byD, 1.0};
                             const double zMid = blockZ[idx], nCentre[3] = {lineX(zMid), lineY(zMid), zMid};
                             double thC[2], phC[2], thMin[2], thMax[2], phHalf[2];
+                            // The block direction is the slope of the block-position line fit, and a block hit sits on a grid (error hitSigmaMm = pitch / sqrt(12) per hit): the slope error of the weighted fit is
+                            // kTubeSigmas * hitSigmaMm / sqrt(Sxx) in x and in y. The block range (thetaRelNDMin/Max, phiRelNDHalf) also covers the direction at the four corners of that slope error.
+                            const double slopeSig = kTubeSigmas * hitSigmaMm / std::sqrt(sxx);
+                            const double vx[5] = {0.0, 1.0, 1.0, -1.0, -1.0}, vy[5] = {0.0, 1.0, -1.0, 1.0, -1.0};
                             RelToDir(pTrue, nCentre, thC[0], phC[0]); RelToDir(pBlock, nCentre, thC[1], phC[1]);
                             for (int f = 0; f < 2; f++) {thMin[f] = thC[f]; thMax[f] = thC[f]; phHalf[f] = 0.0;}
                             for (const double zStart : {-zBeam, 0.0, zBeam}) for (const double zEnd : {r.tubeZ0, zMid, r.tubeZ1}) for (int k = 0; k < 9; k++) {
                                 const double a = (k - 1) * M_PI / 4.0, ex = lineX(zEnd) + (k ? Rn * std::cos(a) : 0.0), ey = lineY(zEnd) + (k ? Rn * std::sin(a) : 0.0);
                                 const double nS[3] = {ex, ey, zEnd - zStart};
-                                for (int f = 0; f < 2; f++) {
-                                    double th, ph; RelToDir(f ? pBlock : pTrue, nS, th, ph);
+                                for (int f = 0; f < 2; f++) for (int v = 0; v < (f ? 5 : 1); v++) { // the block direction also moves by +-slopeSig in both slopes (the corners v 1 to 4)
+                                    const double pV[3] = {pBlock[0] + (f ? vx[v] * slopeSig : 0.0), pBlock[1] + (f ? vy[v] * slopeSig : 0.0), 1.0};
+                                    double th, ph; RelToDir(f ? pV : pTrue, nS, th, ph);
                                     thMin[f] = std::min(thMin[f], th); thMax[f] = std::max(thMax[f], th);
                                     phHalf[f] = std::max(phHalf[f], std::fabs(std::remainder(ph - phC[f], 2.0 * M_PI)));
                                 }
