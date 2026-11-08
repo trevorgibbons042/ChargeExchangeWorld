@@ -13,6 +13,16 @@
 #include "FitCore.h"
 #include "TreeColumns.h"
 
+// The name of the phi on the x axis, from the branch or expression that is fitted: CEPHI_NEUFRAME (true CE phi about the true neutron), RECONPHI_ESTNEU, RECONPHIBL_ESTNEU (block), or the lab phi (no neutron frame).
+inline std::string PhiAxisName(const std::string& phiBranch){
+    if (phiBranch.rfind("CEPhiNeu", 0) == 0) return "CEPHI_NEUFRAME";
+    if (phiBranch.rfind("phiReDLab", 0) == 0) return "recon block phi about the lab z axis";
+    if (phiBranch.rfind("phiReLab", 0) == 0) return "recon phi about the lab z axis";
+    if (phiBranch.rfind("phiReD", 0) == 0) return "RECONPHIBL_ESTNEU";
+    if (phiBranch.rfind("phiRe", 0) == 0) return "RECONPHI_ESTNEU";
+    if (phiBranch.find("LastPhiLab") != std::string::npos) return "CE phi about the lab z axis";
+    return "Angle";
+}
 // phi histogram (50 bins) of t with the polarization fit N(phi) = N0 (1 + P A_eff cos(phi)): N0 = entries / bins (the protons that pass cut) and A_eff = sum_i N_i AP(theta_i) / N0 are fixed, only P is fitted.
 // theta_i is the own theta of each of those protons, no theta bins (AEffOfTheta, FitCore.h); thetaBranch is the theta of the plot in degrees, the CETHETA_NEUFRAME for a CEPHI_NEUFRAME and the RECONTHETA_ESTNEU for a RECONPHI_ESTNEU.
 // Used by PlotAngle.cpp (3_ReconCalcVals).
@@ -46,7 +56,7 @@ inline void PhiCosFit(TCanvas* canvas, TTree* t, const std::string& phiBranch, c
     }
     if (!h || h->GetEntries() < 10){canvas->SetRightMargin(0.30); canvas->SetTopMargin(0.1); return;}
     const double nFit = h->GetEntries();
-    h->SetTitle((title + Form(", %d phi bins of %.1f deg", nBins, 360.0 / nBins) + ";Angle (degrees);Count").c_str());
+    h->SetTitle((title + Form(", %d phi bins of %.1f deg", nBins, 360.0 / nBins) + ";" + PhiAxisName(phiBranch) + " (degrees);Count").c_str());
     h->SetLineColor(kRed); // CE protons are red
     const bool block = phiBranch.rfind("phiReD", 0) == 0; // the block phi fit leaves out the spike at 0 (kBlockPhiLo to kBlockPhiHi), the likelihood is normalised over that range
     const PFit uf = UnbinnedP(phiAll, aMean, block ? kBlockPhiLo : 0, block ? kBlockPhiHi : 360, nullptr, true, range.size() == 3 ? &phiRange : nullptr); // unbinned fit of every proton's phi (FitCore.h), A fixed to A_eff
