@@ -404,32 +404,50 @@ inline void AddFitEquation(TH1* h, const std::vector<std::string>& lines){
 // err is the error on P that every caller quotes: the likelihood error (errFit) and the error from A (errA = |P| * the relative error of A, see AMean) in quadrature.
 // A fixed to the mean of a sample has the error of that mean (the spread of A over the theta distribution of the sample, std(A) / sqrt(N)) and the beam spread (kBeamAFrac, see BeamAFrac); the A of
 // each proton (aEach) has the beam spread only.
-struct PFit {double p = 0, err = 0, errFit = 0, errA = 0; bool ok = false;};
-inline void AddAErrToP(PFit& r, double aRelErr){
-    r.errFit = r.err;
-    r.errA = std::fabs(r.p) * aRelErr;
-    r.err = std::sqrt(r.errFit * r.errFit + r.errA * r.errA);
-}
+// The error of P by source (the side box of the A_eff and P fits, PhiCosFit.h), all in quadrature in err: errFit the likelihood (statistics of the phi), errA the error of A carried over (errAStat
+// the spread of A over the theta distribution, errABeam the beam energy spread, errARange the est neutron theta range), errPhi the est neutron phi range (PhiRange). Each is |P| times a relative error.
+struct PFit {double p = 0, err = 0, errFit = 0, errA = 0, errPhi = 0, errAStat = 0, errABeam = 0, errARange = 0; bool ok = false;};
 
-// The mean A of a sample with its error: A = sum / n over the protons, StatErr = std(A) / sqrt(n) (the error of the mean over the theta distribution of the sample), and Err adds the beam
-// spread (kBeamAFrac) in quadrature, relative to the mean: this is the "+-" of the fixed A of a fit, and RelErr is what the P of that fit carries (AddAErrToP).
-// Add per proton, or add the sums of several parts (+=): n, sum and sum^2 add over slices.
+// The mean A of a sample with its error: A = sum / n over the protons, StatErr = std(A) / sqrt(n) (the error of the mean over the theta distribution of the sample), BeamErr the beam spread
+// (kBeamAFrac), RangeErr the est neutron theta range: every proton has A at the central theta (the value that is quoted) and at thetaMin and thetaMax of its est neutron range (Add with aLo, aHi),
+// and the range is half the difference of the means of A at the two ends. Err is the three in quadrature, RelErr is relative to the mean and is what the P of that fit carries (AddAErrToP).
+// Add per proton, or add the sums of several parts (+=): n, sum, sum^2, sLo and sHi add over slices. Add(a) alone (or a sum made without the range) has no range error.
 struct AMean {
-    double n = 0, sum = 0, sum2 = 0;
-    void Add(double a){n++; sum += a; sum2 += a * a;}
-    AMean& operator+=(const AMean& o){n += o.n; sum += o.sum; sum2 += o.sum2; return *this;}
+    double n = 0, sum = 0, sum2 = 0, sLo = 0, sHi = 0;
+    void Add(double a){Add(a, a, a);}
+    void Add(double a, double aLo, double aHi){n++; sum += a; sum2 += a * a; sLo += aLo; sHi += aHi;}
+    AMean& operator+=(const AMean& o){n += o.n; sum += o.sum; sum2 += o.sum2; sLo += o.sLo; sHi += o.sHi; return *this;}
     double Mean() const {return n > 0 ? sum / n : 0.0;}
     double StatErr() const {
         if (n < 2) return 0.0;
         const double m = Mean(), var = std::max(0.0, (sum2 / n - m * m) * n / (n - 1));
         return std::sqrt(var / n);
     }
-    double RelErr() const {
-        const double m = std::fabs(Mean()), s = m > 0 ? StatErr() / m : 0.0;
-        return std::sqrt(s * s + kBeamAFrac * kBeamAFrac);
-    }
-    double Err() const {return std::fabs(Mean()) * RelErr();}
+    double BeamErr() const {return std::fabs(Mean()) * kBeamAFrac;}
+    double RangeErr() const {return n > 0 ? std::fabs(sHi - sLo) / (2 * n) : 0.0;}
+    double Err() const {const double s = StatErr(), b = BeamErr(), r = RangeErr(); return std::sqrt(s * s + b * b + r * r);}
+    double RelErr() const {const double m = std::fabs(Mean()); return m > 0 ? Err() / m : kBeamAFrac;}
 };
+// The est neutron phi range: a proton whose est phi is only known within +-h (rad) has its cos(phi) modulation diluted by sin(h) / h, D is the mean of that over the protons of a fit, and P is
+// too small by the factor D: the error is |P| (1 / D - 1). h >= pi (the tube covers the axis) counts as D = 0 for that proton. Add per proton, or add the sums of parts (+=).
+struct PhiRange {
+    double n = 0, sum = 0;
+    void Add(double h){n++; sum += h > 1e-9 ? (h < TMath::Pi() ? std::sin(h) / h : 0.0) : 1.0;}
+    PhiRange& operator+=(const PhiRange& o){n += o.n; sum += o.sum; return *this;}
+    double D() const {return n > 0 ? sum / n : 1.0;}
+    double RelErr() const {const double d = D(); return d > 1e-6 ? 1 / d - 1 : 0.0;}
+};
+// P carries the errors of A, and with ph the phi range. aEachBeamOnly: A of each proton, so the beam spread only (the range of A is of the mean).
+inline void AddAErrToP(PFit& r, const AMean& a, const PhiRange* ph = nullptr, bool aEachBeamOnly = false){
+    r.errFit = r.err;
+    const double m = std::fabs(a.Mean()), ap = std::fabs(r.p);
+    r.errAStat = aEachBeamOnly || m <= 0 ? 0.0 : ap * a.StatErr() / m;
+    r.errABeam = ap * kBeamAFrac;
+    r.errARange = aEachBeamOnly || m <= 0 ? 0.0 : ap * a.RangeErr() / m;
+    r.errA = std::sqrt(r.errAStat * r.errAStat + r.errABeam * r.errABeam + r.errARange * r.errARange);
+    r.errPhi = ph ? ap * ph->RelErr() : 0.0;
+    r.err = std::sqrt(r.errFit * r.errFit + r.errA * r.errA + r.errPhi * r.errPhi);
+}
 inline AMean AMeanOf(const std::vector<double>& v){AMean a; for (double x : v) a.Add(x); return a;}
 // P of an unbinned fit by Newton's method from 0, limited to -1 to 1: derivs(p, d1, d2) gives dlnL/dP and d2lnL/dP2. Stops when P moves less than tol, or when d2 is not negative.
 template <class D>
@@ -446,7 +464,7 @@ inline double NewtonP(D derivs, double tol){
     return p;
 }
 // cosPhi: cos(phi) of every proton (a: its A, or null for aFix). parallel: the sums over the protons run on all threads (not when the caller is already one of the threads).
-inline PFit UnbinnedPFromCos(const double* cosPhi, Long64_t n, const double* a, const AMean& aMean, double loDeg, double hiDeg, bool parallel = true){
+inline PFit UnbinnedPFromCos(const double* cosPhi, Long64_t n, const double* a, const AMean& aMean, double loDeg, double hiDeg, bool parallel = true, const PhiRange* ph = nullptr){
     PFit r;
     const double aFix = aMean.Mean();
     if (n < 10 || (!a && std::fabs(aFix) < 1e-12)) return r;
@@ -470,14 +488,14 @@ inline PFit UnbinnedPFromCos(const double* cosPhi, Long64_t n, const double* a, 
     const double p = NewtonP([&](double pp, double& d1, double& d2){const Sums t = sums(pp); d1 = t.d1; d2 = t.d2;}, 1e-10);
     const Sums t = sums(p);
     r.p = p; r.err = t.d2 < 0 ? 1 / std::sqrt(-t.d2) : 0; r.ok = true;
-    AddAErrToP(r, a ? kBeamAFrac : aMean.RelErr()); // the A of each proton: the beam spread only
+    AddAErrToP(r, aMean, ph, a != nullptr); // the A of each proton: the beam spread only
     return r;
 }
 // aMean: the A fixed for every proton (its error goes into P), or, with aEach, the A of each proton (aMean is then not used: pass AMean())
-inline PFit UnbinnedP(const std::vector<double>& phiDeg, const AMean& aMean, double loDeg = 0, double hiDeg = 360, const std::vector<double>* aEach = nullptr, bool parallel = true){
+inline PFit UnbinnedP(const std::vector<double>& phiDeg, const AMean& aMean, double loDeg = 0, double hiDeg = 360, const std::vector<double>* aEach = nullptr, bool parallel = true, const PhiRange* ph = nullptr){
     std::vector<double> cs(phiDeg.size());
     for (size_t i = 0; i < cs.size(); i++) cs[i] = std::cos(phiDeg[i] * TMath::Pi() / 180);
-    return UnbinnedPFromCos(cs.data(), (Long64_t)cs.size(), aEach ? aEach->data() : nullptr, aMean, loDeg, hiDeg, parallel);
+    return UnbinnedPFromCos(cs.data(), (Long64_t)cs.size(), aEach ? aEach->data() : nullptr, aMean, loDeg, hiDeg, parallel, ph);
 }
 
 // The curve N0 (1 + P A cos phi) of the unbinned P in the histogram h (50 bins over 0 to 360, N0 = entries / bins), where the stats box and WritePlotNumbers (fit_values.csv) look for a fit.
@@ -504,7 +522,7 @@ inline void AddCosMoments(double* m, double phiDeg){
     double pw = 1;
     for (int k = 0; k < kPhiMoments; k++){pw *= c; m[k] += pw;}
 }
-inline PFit UnbinnedPFromMoments(const double* m, double n, const AMean& aMean, double loDeg = 0, double hiDeg = 360){
+inline PFit UnbinnedPFromMoments(const double* m, double n, const AMean& aMean, double loDeg = 0, double hiDeg = 360, const PhiRange* ph = nullptr){
     PFit r;
     const double aFix = aMean.Mean();
     if (n < 10 || std::fabs(aFix) < 1e-12) return r;
@@ -525,7 +543,7 @@ inline PFit UnbinnedPFromMoments(const double* m, double n, const AMean& aMean, 
     double d1, d2;
     derivs(p, d1, d2);
     r.p = p; r.err = d2 < 0 ? 1 / std::sqrt(-d2) : 0; r.ok = true;
-    AddAErrToP(r, aMean.RelErr());
+    AddAErrToP(r, aMean, ph);
     return r;
 }
 

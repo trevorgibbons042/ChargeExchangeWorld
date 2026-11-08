@@ -33,7 +33,7 @@ namespace
 }
 
 using Key = std::pair<int, int>;
-struct Angles {double LastPhi, LastTheta, LastMomentum, LastT, LastAP; int PDG; double FinalKE; ULong64_t entry = 0; double resDRms = 0; double FinalKED = 0; double LabPhi = 0, LabTheta = 0;}; // FinalKED: the detector KE, for the _DE trees; LabPhi, LabTheta: recon angles about the lab z axis (rad), no neutron estimate
+struct Angles {double LastPhi, LastTheta, LastMomentum, LastT, LastAP; int PDG; double FinalKE; ULong64_t entry = 0; double resDRms = 0; double FinalKED = 0; double LabPhi = 0, LabTheta = 0; double ThMin = 0, ThMax = 0, PhHalf = 0;}; // ThMin, ThMax, PhHalf: the est neutron range of the proton (rad, ReconAngleAll.cpp); FinalKED: the detector KE, for the _DE trees; LabPhi, LabTheta: recon angles about the lab z axis (rad), no neutron estimate
 
 struct Track {std::vector<Angles> points;};
 
@@ -94,18 +94,18 @@ static void CalcAPandTBoth(bool both){ // both: the true-KE trees and the detect
 
     std::vector<TrackMap> slotTracksAngles(dfAngles.GetNSlots());
     dfAngles.ForeachSlot([&](unsigned slot,
-    int eventID, int ParentID, double thetaRelN, double phiRelN, double thetaRelND, double phiRelND, double finalKE, int pdg, ULong64_t entry, double resDRms, double finalKED, double labPhi, double labTheta, double labPhiD, double labThetaD){
+    int eventID, int ParentID, double thetaRelN, double phiRelN, double thetaRelND, double phiRelND, double finalKE, int pdg, ULong64_t entry, double resDRms, double finalKED, double labPhi, double labTheta, double labPhiD, double labThetaD, double thMin, double thMax, double phHalf, double thMinD, double thMaxD, double phHalfD){
         if (pdg != 2212) {return;}
 
         auto &tRecon = slotTracksAngles[slot][{eventID, ParentID, 1}];
 
 
-        tRecon.points.push_back({phiRelN, thetaRelN, 0.0, 0.0, 0.0, pdg, finalKE, entry, 0.0, finalKED, labPhi, labTheta});
+        tRecon.points.push_back({phiRelN, thetaRelN, 0.0, 0.0, 0.0, pdg, finalKE, entry, 0.0, finalKED, labPhi, labTheta, thMin, thMax, phHalf});
 
         auto &tReconBlock = slotTracksAngles[slot][{eventID, ParentID, 2}];
 
-        tReconBlock.points.push_back({phiRelND, thetaRelND, 0.0, 0.0, 0.0, pdg, finalKE, entry, resDRms, finalKED, labPhiD, labThetaD});
-        },{"fEvent", "ParentID","thetaRelN", "phiRelN", "thetaRelND", "phiRelND", KeVar(""), "PDG","entryNo", "resDRms", KeVar("_DE"), "outPhi", "outTheta", "outDPhi", "outDTheta"});
+        tReconBlock.points.push_back({phiRelND, thetaRelND, 0.0, 0.0, 0.0, pdg, finalKE, entry, resDRms, finalKED, labPhiD, labThetaD, thMinD, thMaxD, phHalfD});
+        },{"fEvent", "ParentID","thetaRelN", "phiRelN", "thetaRelND", "phiRelND", KeVar(""), "PDG","entryNo", "resDRms", KeVar("_DE"), "outPhi", "outTheta", "outDPhi", "outDTheta", "thetaRelNMin", "thetaRelNMax", "phiRelNHalf", "thetaRelNDMin", "thetaRelNDMax", "phiRelNDHalf"});
     std::vector<TrackMap> tracksAngles = mergeSlots(slotTracksAngles);
     
 
@@ -141,6 +141,8 @@ static void CalcAPandTBoth(bool both){ // both: the true-KE trees and the detect
         double outThetaRe, outPhiRe, outMomRe, outTRe, outAPRe;
         double outThetaReD, outPhiReD, outMomReD, outTReD, outAPReD;
         double outThetaReLab, outPhiReLab, outThetaReDLab, outPhiReDLab; // recon angles about the lab z axis (degrees), no neutron estimate
+        double outThetaReMin, outThetaReMax, outAPReMin, outAPReMax, outPhiReHalf; // est neutron range of the recon proton: theta (deg) and the AP at its ends, phi half width (rad)
+        double outThetaReDMin, outThetaReDMax, outAPReDMin, outAPReDMax, outPhiReDHalf;
         double outThetaReDIFF, outPhiReDIFF, outTReDIFF, outAPReDIFF;
         double outThetaReDDIFF, outPhiReDDIFF, outTReDDIFF, outAPReDDIFF;
 
@@ -176,6 +178,11 @@ static void CalcAPandTBoth(bool both){ // both: the true-KE trees and the detect
         outTree2->Branch("momRe",  &outMomRe);
         outTree2->Branch("thetaReLab", &outThetaReLab);
         outTree2->Branch("phiReLab", &outPhiReLab);
+        outTree2->Branch("thetaReMin", &outThetaReMin);
+        outTree2->Branch("thetaReMax", &outThetaReMax);
+        outTree2->Branch("apReMin", &outAPReMin);
+        outTree2->Branch("apReMax", &outAPReMax);
+        outTree2->Branch("phiReHalf", &outPhiReHalf);
 
         outTree3->Branch("thetaReD", &outThetaReD);
         outTree3->Branch("phiReD", &outPhiReD);
@@ -184,6 +191,11 @@ static void CalcAPandTBoth(bool both){ // both: the true-KE trees and the detect
         outTree3->Branch("momReD", &outMomReD);
         outTree3->Branch("thetaReDLab", &outThetaReDLab);
         outTree3->Branch("phiReDLab", &outPhiReDLab);
+        outTree3->Branch("thetaReDMin", &outThetaReDMin);
+        outTree3->Branch("thetaReDMax", &outThetaReDMax);
+        outTree3->Branch("apReDMin", &outAPReDMin);
+        outTree3->Branch("apReDMax", &outAPReDMax);
+        outTree3->Branch("phiReDHalf", &outPhiReDHalf);
 
         outTree4->Branch("thetaReD", &outThetaReDIFF);
         outTree4->Branch("phiReD", &outPhiReDIFF);
@@ -245,6 +257,12 @@ static void CalcAPandTBoth(bool both){ // both: the true-KE trees and the detect
                 outTReD     = TFromAngle(pBeam, reD.LastTheta);
                 outAPReD    = APFromT(pBeam, outTReD, apScale);
         
+                // the est neutron range: theta at both ends, and the AP there (the same t and AP formulas as the central value); phi half width as it is
+                outThetaReMin = re.ThMin*180/TMath::Pi(); outThetaReMax = re.ThMax*180/TMath::Pi(); outPhiReHalf = re.PhHalf;
+                outAPReMin = APFromT(pBeam, TFromAngle(pBeam, re.ThMin), apScale); outAPReMax = APFromT(pBeam, TFromAngle(pBeam, re.ThMax), apScale);
+                outThetaReDMin = reD.ThMin*180/TMath::Pi(); outThetaReDMax = reD.ThMax*180/TMath::Pi(); outPhiReDHalf = reD.PhHalf;
+                outAPReDMin = APFromT(pBeam, TFromAngle(pBeam, reD.ThMin), apScale); outAPReDMax = APFromT(pBeam, TFromAngle(pBeam, reD.ThMax), apScale);
+
                 outPDG = re.PDG;
                 outFinalKE[0] = re.FinalKE; outFinalKE[1] = re.FinalKED;
         
