@@ -46,7 +46,7 @@ inline void PhiCosFit(TCanvas* canvas, TTree* t, const std::string& phiBranch, c
     if (auto* st = (TPaveStats*)h->FindObject("stats")){st->SetX1NDC(0.76); st->SetX2NDC(0.995); st->SetY1NDC(0.55); st->SetY2NDC(0.83);}
     TLatex tx; tx.SetNDC(); tx.SetTextSize(0.028);
     tx.DrawLatex(0.13, 0.90, "Unbinned fit  N(#phi) #propto N_{0} (1 + P #upoint A_{eff} cos#phi) (every proton, no bins), N_{0} = protons / bins, fixed");
-    tx.DrawLatex(0.13, 0.865, Form(aBranch.empty() ? "A_{eff} = #Sigma N_{i} AP(#theta_{i}) / N_{0} = %.4f #pm %.4f (fixed, per-proton #theta),   P = %.2f #pm %.2f" : "A_{eff} = mean model A_{P} (LastAP, per CE) = %.4f #pm %.4f (fixed),   P = %.2f #pm %.2f", aMean.Mean(), aMean.Err(), uf.p, uf.err));
+    tx.DrawLatex(0.13, 0.865, Form(aBranch.empty() ? "A_{eff} = #Sigma N_{i} AP(#theta_{i}) / N_{0} = %.4f #pm %.4f (fixed, per-proton #theta),   P = %.2f #pm %.2f" : "A_{eff} = #Sigma N_{i} AP(#theta_{i}) / N_{0} = %.4f #pm %.4f (fixed, AP = LastAP of each CE),   P = %.2f #pm %.2f", aMean.Mean(), aMean.Err(), uf.p, uf.err));
     tx.SetTextSize(0.026);
     for (size_t i = 0; i < notes.size(); i++) tx.DrawLatex(0.13, 0.83 - 0.034 * i, notes[i].c_str());
     canvas->Modified(); canvas->Update();
