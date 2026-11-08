@@ -448,6 +448,26 @@ inline void AddAErrToP(PFit& r, const AMean& a, const PhiRange* ph = nullptr, bo
     r.errPhi = ph ? ap * ph->RelErr() : 0.0;
     r.err = std::sqrt(r.errFit * r.errFit + r.errA * r.errA + r.errPhi * r.errPhi);
 }
+// The side box "Error by source" of every phi fit plot: the errors of A_eff and of P split by source, in quadrature in the totals the plot quotes (AMean, PFit). hasRange false: the fit has no
+// est neutron frame (true CE phi, lab phi), so the est neutron range terms are 0 and the box says so. NDC corners of the box (the right margin under the stats box).
+inline TPaveText* DrawErrorBySource(const AMean& a, const PFit& uf, bool hasRange, double x1 = 0.755, double y1 = 0.06, double x2 = 0.995, double y2 = 0.52, const char* title = "Error by source", double textSize = 0.024){
+    TPaveText* eb = new TPaveText(x1, y1, x2, y2, "NDC");
+    eb->SetTextAlign(12); eb->SetTextSize(textSize); eb->SetFillColor(kWhite); eb->SetBorderSize(1);
+    eb->AddText(Form("#bf{%s}", title));
+    eb->AddText(Form("#bf{A_{eff}} #pm %.4f", a.Err()));
+    eb->AddText(Form(" est n #theta range  %.4f", a.RangeErr()));
+    eb->AddText(Form(" statistics (#theta spread)  %.4f", a.StatErr()));
+    eb->AddText(Form(" energy range (beam)  %.4f", a.BeamErr()));
+    eb->AddText(Form("#bf{P} #pm %.3f", uf.err));
+    eb->AddText(Form(" est n #phi range  %.3f", uf.errPhi));
+    eb->AddText(Form(" est n #theta (via A)  %.3f", uf.errARange));
+    eb->AddText(Form(" #theta spread (via A)  %.3f", uf.errAStat));
+    eb->AddText(Form(" energy range (via A)  %.3f", uf.errABeam));
+    eb->AddText(Form(" statistics (likelihood)  %.3f", uf.errFit));
+    if (!hasRange) eb->AddText("no est neutron range here");
+    eb->Draw();
+    return eb;
+}
 inline AMean AMeanOf(const std::vector<double>& v){AMean a; for (double x : v) a.Add(x); return a;}
 // P of an unbinned fit by Newton's method from 0, limited to -1 to 1: derivs(p, d1, d2) gives dlnL/dP and d2lnL/dP2. Stops when P moves less than tol, or when d2 is not negative.
 template <class D>

@@ -832,23 +832,29 @@ void Plot3D(){
                     std::vector<double> th[3], ph[3]; // theta and phi of every proton of the sample
                     AMean aLastAP; // the CE recon protons (sample 0): the mean LastAP of their CE rows (LastApByKey), the A_eff of their phi fit
                     std::vector<double> phCE; // and the true CE phi (neutron frame) of those rows: the angles of their fit, as in 1_phiCE_cosfit
+                    AMean aRng[3]; PhiRange pRng[3]; // per sample: A_eff with its est neutron theta range, and the phi range
                     StartScan scanned[3]; // per sample, the phi histograms and A sums for every start theta, from one pass over the protons (ScanStartTheta, Plot3DCols.h), and the mean A
                     for (int s = 0; s < 3; s++){
                         std::string qs = samps[s].q + Form(" && rawOk(fEvent, TrackID, %d) && rawOk(fEvent, TrackID, %d)", kT, kPh);
                         if (j) qs += std::string(Form(" && rawVal(fEvent, TrackID, %d) >= %g && rawVal(fEvent, TrackID, %d) <= %g", kPh, kBlockPhiLo, kPh, kBlockPhiHi)); // block phi: no spike at 0 (block theta 0 to 1 deg is in the baseline)
                         const std::string colT = Form("rawVal(fEvent, TrackID, %d)", kT), colPh = Form("rawVal(fEvent, TrackID, %d)", kPh);
                         // the rows only feed histograms and sums, so a multi-cluster tree (a cut file of AnglesRaw) is read on all threads in any order
-                        std::vector<std::string> cols = {P3(colT), P3(colPh)};
-                        if (s == 0){cols.push_back("fEvent"); cols.push_back("ParentID");} // the key of the CE row of each proton, for its LastAP
+                        std::vector<std::string> cols = {P3(colT), P3(colPh), P3("rawVal(fEvent, TrackID, 20)"), P3("rawVal(fEvent, TrackID, 21)"), P3("rawVal(fEvent, TrackID, 22)")}; // theta, phi, then the est neutron range (theta min, max in deg, phi half width in rad)
+                        if (s == 0){cols.push_back("fEvent"); cols.push_back("ParentID");} // the key of the CE row of each proton, for its LastAP (columns 5, 6)
                         auto c = MultiCluster(samps[s].t) ? ColumnsUnordered(samps[s].t, cols, P3(qs)) : Columns(samps[s].t, cols, P3(qs));
                         th[s] = std::move(c[0]); ph[s] = std::move(c[1]);
+                        for (size_t i = 0; i < th[s].size(); i++){ // A_eff of the sample with the est neutron theta range, and its phi range (the errors by source)
+                            const double a = AEffOfTheta(th[s][i], apScalePhi), lo = c[2][i], hi = c[3][i];
+                            if (std::isfinite(lo) && std::isfinite(hi)){aRng[s].Add(a, AEffOfTheta(lo, apScalePhi), AEffOfTheta(hi, apScalePhi)); if (std::isfinite(c[4][i])) pRng[s].Add(c[4][i]);}
+                            else aRng[s].Add(a);
+                        }
                         if (s == 0){
                             const auto& apOf = LastApByKey();
-                            for (size_t i = 0; i < c[2].size(); i++){
-                                const auto it = apOf.find(((ULong64_t)(unsigned)(int)c[2][i] << 32) | (unsigned)(int)c[3][i]);
+                            for (size_t i = 0; i < c[5].size(); i++){
+                                const auto it = apOf.find(((ULong64_t)(unsigned)(int)c[5][i] << 32) | (unsigned)(int)c[6][i]);
                                 if (it != apOf.end()){aLastAP.Add(it->second.ap); phCE.push_back(it->second.phi);}
                             }
-                            if ((size_t)aLastAP.n != c[2].size()) printf("Plot3D %s: %.0f of %zu CE recon protons have a LastAP row (the rest are left out of A_eff)\n", ps.dir.c_str(), aLastAP.n, c[2].size());
+                            if ((size_t)aLastAP.n != c[5].size()) printf("Plot3D %s: %.0f of %zu CE recon protons have a LastAP row (the rest are left out of A_eff)\n", ps.dir.c_str(), aLastAP.n, c[5].size());
                         }
                         scanned[s] = ScanStartTheta(th[s], ph[s], apScalePhi, j ? kBlockPhiLo : 0, j ? kBlockPhiHi : 360, thHi);
                     }
@@ -858,24 +864,25 @@ void Plot3D(){
                         const int sLo = ceOnly ? 0 : 1, sHi = ceOnly ? 1 : 3;
                         TH1D* hP[3] = {nullptr, nullptr, nullptr};
                         double pol[3] = {0, 0, 0}, polErr[3] = {0, 0, 0}, hMax = 0;
-                        AMean aMean[3];
+                        AMean aMean[3]; PFit ufS[3]; bool hasR[3] = {false, false, false}; // the fit of each sample with its error components, and whether it has an est neutron range
                         for (int s = sLo; s < sHi; s++){
                             delete gDirectory->Get(Form("hPhiOv%d", s));
                             hP[s] = new TH1D(Form("hPhiOv%d", s), "", 50, 0, 360);
                             const bool trueCE = s == 0 && aLastAP.n > 0; // the CE recon protons: the true CE phi and the model A of their own CE (LastAP), like 1_phiCE_cosfit; the others have none, recon block phi and A at their recon block theta
                             const std::vector<double>& phFit = trueCE ? phCE : ph[s];
                             for (double x : phFit) hP[s]->Fill(x);
-                            aMean[s] = trueCE ? aLastAP : scanned[s].aAll;
+                            aMean[s] = trueCE ? aLastAP : aRng[s];
                             hP[s]->SetLineColor(samps[s].color); hP[s]->SetLineWidth(2);
                             if (hP[s]->GetEntries() >= 10){
-                                const PFit uf = UnbinnedP(phFit, aMean[s], j ? kBlockPhiLo : 0, j ? kBlockPhiHi : 360); // unbinned fit of every proton's phi (FitCore.h)
+                                const PFit uf = UnbinnedP(phFit, aMean[s], j ? kBlockPhiLo : 0, j ? kBlockPhiHi : 360, nullptr, true, trueCE ? nullptr : &pRng[s]); // unbinned fit of every proton's phi (FitCore.h)
+                                ufS[s] = uf; hasR[s] = !trueCE;
                                 AddUnbinnedFit(hP[s], Form("fPhiOv%d", s), uf, aMean[s].Mean(), aMean[s].Err(), false); // the fit stays in the histogram for stats.csv and fit_values.csv, drawn below
                                 pol[s] = uf.p; polErr[s] = uf.err;
                             }
                             hMax = std::max(hMax, hP[s]->GetMaximum());
                         }
                         canvas->Clear(); canvas->cd();
-                        gPad->SetLeftMargin(0.16); gPad->SetRightMargin(0.04); gPad->SetTopMargin(0.36); gPad->SetBottomMargin(0.13); // the text lines sit above the frame
+                        gPad->SetLeftMargin(0.16); gPad->SetRightMargin(0.25); gPad->SetTopMargin(0.36); gPad->SetBottomMargin(0.13); // the text lines sit above the frame
                         for (int s = sLo; s < sHi; s++){
                             hP[s]->SetStats(0); hP[s]->SetMinimum(0); hP[s]->SetMaximum(1.1 * hMax);
                             hP[s]->SetTitle(Form("%s%s, %s, %s phi distribution;%s (degrees);Count", (ceOnly ? "CE recon protons" : "all recon protons and all recon charged particles"), where.c_str(), cutTxt.c_str(), ceOnly && aLastAP.n > 0 ? "true CEPHI_NEUFRAME" : rbPh.c_str(), ceOnly && aLastAP.n > 0 ? "CEPHI_NEUFRAME" : rbPh.c_str()));
@@ -894,6 +901,10 @@ void Plot3D(){
                         }
                         tx.SetTextColor(kBlack);
                         if (j) tx.DrawLatex(0.18, 0.72, BlockPhiNote());
+                        for (int s = sLo; s < sHi; s++) if (hP[s]->GetEntries() >= 10){ // the errors of A_eff and P by source of each fit, in the right margin (two samples: two small boxes)
+                            if (sHi - sLo == 1) DrawErrorBySource(aMean[s], ufS[s], hasR[s], 0.755, 0.06, 0.995, 0.52, samps[s].name.c_str());
+                            else DrawErrorBySource(aMean[s], ufS[s], hasR[s], 0.755, 0.06 + 0.22 * (s - sLo), 0.995, 0.27 + 0.22 * (s - sLo), samps[s].name.c_str(), 0.0155);
+                        }
                         const std::string path = dirJ + "1_" + stem + "_cosfit" + (ceOnly ? "_CE" : "") + ".pdf";
                         canvas->Modified(); canvas->Update();
                         canvas->SaveAs(path.c_str());

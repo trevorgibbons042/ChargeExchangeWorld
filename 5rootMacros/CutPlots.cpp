@@ -156,7 +156,8 @@ static void CutSamples(){
     std::vector<ROOT::RDF::RResultHandle> handles;
 
     const std::vector<std::string> rawCols = {"fEvent", "TrackID", "PDG", "isFromCE", "inCE", "finalKE", "resRms", "resDRms", "impact", "impactD", "r2", "r2D", "nProtonsEv", "nZdcCharged", "nTrackerHitsEv", "nTrackerTracksEv",
-                                              "resHalfRatioD", "thetaRelN", "thetaRelND", "phiRelN", "phiRelND", "nHits", "firstXD", "firstYD", "z_bx_reconVertexOut", "ParentID", "nMaxChargedPerPlaneEv"};
+                                              "resHalfRatioD", "thetaRelN", "thetaRelND", "phiRelN", "phiRelND", "nHits", "firstXD", "firstYD", "z_bx_reconVertexOut", "ParentID", "nMaxChargedPerPlaneEv",
+                                              "thetaRelNDMin", "thetaRelNDMax", "phiRelNDHalf"}; // the last three: the est neutron range of the block recon proton (error by source of the phi fits)
     ROOT::RDataFrame raw("AnglesRaw", "cuts/cut_angles_all.root");
     const int maxHits = MaxTrackerHits(); // the even tracker hit counts 2 to 2 * nBlocks (FitCore.h), read once outside the event loops
     const auto onePerPlane = [](int n){return n >= 0 && n <= 1;}; // at most 1 charged particle in every tracker plane of the event (ParticleInfo; -1 in an AnglesRaw without it fails)
