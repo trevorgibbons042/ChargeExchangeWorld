@@ -5,15 +5,15 @@
 # cutdone: cuts/cut_angles_all.root is already there from a finished ReconAngleAll.cpp (the old 5-tree file or the new one). ConvertAngles.cpp then puts it in the one-tree
 # format instead of ReconAngleAll.cpp fitting every proton again (about an hour at 100M events); the old file stays as cut_angles_all_old5.root.
 # Needs output0_t*.root and settings.csv in the run folder.
-# A plot job name (CutPlots, Cuts, Fom, CEblock, SecCE, Pdfs) instead of cutdone submits no analysis job and starts the plot chain at that job (SubmitPlots.sh), e.g. bash SubmitEvents.sh Physics_801 Cuts.
+# A plot job name (CutPlots, Cuts, Fom, CEblock, SecCE, Smear, Pdfs) instead of cutdone submits no analysis job and starts the plot chain at that job (SubmitPlots.sh), e.g. bash SubmitEvents.sh Physics_801 Cuts.
 RUN=$1
-[ -n "$RUN" ] || { echo "usage: bash SubmitEvents.sh <run folder> [cutdone | CutPlots|Cuts|Fom|CEblock|SecCE|Pdfs]"; exit 1; }
+[ -n "$RUN" ] || { echo "usage: bash SubmitEvents.sh <run folder> [cutdone | CutPlots|Cuts|Fom|CEblock|SecCE|Smear|Pdfs]"; exit 1; }
 MODE=$2
 cd "$(dirname "$0")" || exit 1
 case "$MODE" in
     ""|cutdone) ;;
-    CutPlots|Cuts|Fom|CEblock|SecCE|Pdfs) exec bash SubmitPlots.sh "$RUN" "" "$MODE";;
-    *) echo "unknown option $MODE (cutdone, or a plot job: CutPlots Cuts Fom CEblock SecCE Pdfs)"; exit 1;;
+    CutPlots|Cuts|Fom|CEblock|SecCE|Smear|Pdfs) exec bash SubmitPlots.sh "$RUN" "" "$MODE";;
+    *) echo "unknown option $MODE (cutdone, or a plot job: CutPlots Cuts Fom CEblock SecCE Smear Pdfs)"; exit 1;;
 esac
 source ./submit_lib.sh
 mkdir -p "../build/root/$RUN/cuts"

@@ -120,7 +120,14 @@ static bool RunSub(int i){const char* e = std::getenv("P3_SUB"); return !e || !*
 // P3_SEC: splits the slow noCuts folder (0_cuts/1_noCuts, every fitted proton) into processes (Plot.pbs); empty: everything.
 //   part 3: 0 to 3 the histogram event loop and variable pdfs of the variables with index % 4 equal to it, 4 the block theta and phi resolution (9, 10), 5 recon minus recon block (11, 12)
 //   part 4: the RECONPHIBL_ESTNEU fits (2_phi_cosfit), one section only, so 4:0:2 has no P3_SEC split
+//   part 3, sub 3 (the KE scan folders): P3_SEC is the KE level, 0 to 3 for 80, 85, 90 and 95 percent (RunKeLevel), a process each
 static bool RunSec(int i){const char* e = std::getenv("P3_SEC"); return !e || !*e || std::atoi(e) == i;}
+// The KE level (80, 85, 90, 95 percent) of a part 3 sub 3 folder, from its name: ".../KECUT<pct>" or "..._KE<pct>". A folder name without one is not a KE folder, it always runs.
+static bool RunKeLevel(const std::string& dir){
+    size_t p = dir.rfind("KECUT");
+    p = p != std::string::npos ? p + 5 : (dir.rfind("_KE") != std::string::npos ? dir.rfind("_KE") + 3 : std::string::npos);
+    return p == std::string::npos || RunSec((std::atoi(dir.c_str() + p) - 80) / 5);
+}
 // the folder of the ZDC KE cut at pct % of the beam KE, under plots/6_cuts: 2_KECUT/KECUT80, KECUT85, KECUT90, KECUT95
 static std::string KeCutDir(int pct){return "2_KECUT/KECUT" + std::to_string(pct);}
 // P2Log: one line per step with the seconds since the first call, flushed, so the job log shows where part 2 spends its time (grep "^>>> p2")
@@ -789,7 +796,7 @@ void Plot3D(){
             for (const int pct : {85, 90, 95}) phiSets.push_back({KeCutDir(pct), " && fDEnergy > " + std::to_string(initialKE * pct / 100.0), events2, zdcBase, zdcBasePart, kThetaNote}); // run with KECUT80 (P3_CUT 0, P3_SUB 1)
             for (const auto& ps : phiSets){
                 if (const int pi = int(&ps - &phiSets[0]), kx = pi >= nPlain; !RunCut(pi < 4 || kx ? 0 : pi - 3) || ((pi < 4 || kx) && !RunSub(kx ? 1 : pi))) continue; // P3_CUT: 0 the first four sets (P3_SUB picks one) and the KECUT85 to 95 ones (kx, with KECUT80, sub 1), i the sampleCuts[i - 1] set
-                if (ps.dir.rfind("6_megaCut", 0) != 0 && ps.dir.rfind("7_megaCut2", 0) != 0 && ps.dir.rfind("9_megaCut3", 0) != 0) continue; // phi cos fits only in the mega cut folders
+                if (ps.dir.rfind("6_megaCut", 0) != 0 && ps.dir.rfind("7_megaCut2", 0) != 0 && ps.dir.rfind("9_megaCut3", 0) != 0 && ps.dir.rfind("10_nChargedTrackerHits", 0) != 0) continue; // phi cos fits only in the mega cut folders and in 10_nChargedTrackerHits (the extra hits cuts)
                 gSystem->mkdir((folder_KEcuts + ps.dir + "/2_phi_cosfit").c_str(), true);
                 const bool isZdc = ps.t == events2; // the ZDC folders hold the protons that hit the ZDC, the cut folders the fitted protons that pass the cut
                 struct Samp {TTree* t; std::string q, name; int color;}; // CE recon protons (red), all recon protons (pdg 2212, blue) and all recon charged particles (any pdg, green) of the folder, drawn together
@@ -1118,7 +1125,7 @@ void Plot3D(){
                 lapStart = now;
             };
             for (const auto& ic : infoCuts){
-                if (const int ii = int(&ic - &infoCuts[0]), kx = ii >= 4 + int(sampleCuts.size()); !RunCut(ii < 4 || kx ? 0 : ii - 3) || ((ii < 4 || kx) && !RunSub(kx ? 3 : ii))) continue; // P3_CUT: 0 the first four folders (P3_SUB picks one) and the KECUT85 to 95 ones (kx, with KECUT80, sub 3), i the sampleCuts[i - 1] folder
+                if (const int ii = int(&ic - &infoCuts[0]), kx = ii >= 4 + int(sampleCuts.size()); !RunCut(ii < 4 || kx ? 0 : ii - 3) || ((ii < 4 || kx) && !RunSub(kx ? 3 : ii)) || ((ii == 3 || kx) && !RunKeLevel(ic.first))) continue; // P3_CUT: 0 the first four folders (P3_SUB picks one) and the KECUT85 to 95 ones (kx, with KECUT80, sub 3), i the sampleCuts[i - 1] folder
                 lapStart = std::chrono::steady_clock::now();
                 const SampleCut* sc = nullptr;
                 for (const auto& c : sampleCuts) if (c.dir == ic.first) sc = &c;
@@ -1135,7 +1142,7 @@ void Plot3D(){
                 std::vector<int> slot(kInfoVars.size(), -1); // position of the variable in reqCE and reqAll
                 std::vector<std::pair<double, double>> range(kInfoVars.size());
                 for (size_t iv = 0; iv < kInfoVars.size(); iv++){
-                    if (!RunSec(int(iv % 4))) continue; // P3_SEC 0 to 3: the variables of one group
+                    if (noTheta && !RunSec(int(iv % 4))) continue; // P3_SEC 0 to 3: the variables of one group (the noCuts folder only, in the KE folders P3_SEC is the KE level)
                     const auto& v = kInfoVars[iv];
                     const std::string k = std::to_string(v.k), k2 = std::to_string(v.k2), kn = v.k2 < 0 ? k : k + "m" + k2; // kn: histogram name part, k2 given the name of its own
                     const std::string valExpr = v.k2 < 0 ? "rawVal(fEvent, TrackID, " + k + ")" : "(rawVal(fEvent, TrackID, " + k + ") - rawVal(fEvent, TrackID, " + k2 + "))";
