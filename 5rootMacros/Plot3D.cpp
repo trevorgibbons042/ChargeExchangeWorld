@@ -1,4 +1,5 @@
 #include <TColor.h>
+#include <unordered_map>
 #include <TH2D.h>
 #include <TMarker.h>
 #include <TGraphAsymmErrors.h>
@@ -130,6 +131,22 @@ static bool RunKeLevel(const std::string& dir){
 }
 // the folder of the ZDC KE cut at pct % of the beam KE, under plots/6_cuts: 2_KECUT/KECUT80, KECUT85, KECUT90, KECUT95
 static std::string KeCutDir(int pct){return "2_KECUT/KECUT" + std::to_string(pct);}
+// LastAP, the A the model weighted each CE with, of the CE row of every (fEvent, TrackID) (the last row of a key wins, like CalcAPandT.cpp): the A_eff of the CE recon protons phi fits is the mean of it over the protons,
+// matched on (fEvent, ParentID), as 1_phiCE_cosfit does. Read once per process (cuts/cut_CE.root, small).
+// It also holds the true CE angles of that row in the neutron frame (CEPHI_NEUFRAME, CETHETA_NEUFRAME, deg), the angles of 1_phiCE_cosfit.
+struct CeTruth {double ap, phi, theta;};
+static const std::unordered_map<ULong64_t, CeTruth>& LastApByKey(){
+    static std::unordered_map<ULong64_t, CeTruth> m;
+    static bool done = false;
+    if (done) return m;
+    done = true;
+    if (TTree* cev = OpenCut("cuts/cut_CE.root", "ChargeExchange_values")){
+        const auto c = Columns(cev, {"fEvent", "TrackID", "LastAP", "CEPhiNeu(LastTheta, LastPhiLab, CENDirX, CENDirY, CENDirZ) * 180 / TMath::Pi()", "CEThetaNeu(LastTheta, LastPhiLab, CENDirX, CENDirY, CENDirZ) * 180 / TMath::Pi()"});
+        m.reserve(c[0].size());
+        for (size_t i = 0; i < c[0].size(); i++) m[((ULong64_t)(unsigned)(int)c[0][i] << 32) | (unsigned)(int)c[1][i]] = {c[2][i], c[3][i], c[4][i]};
+    }
+    return m;
+}
 // P2Log: one line per step with the seconds since the first call, flushed, so the job log shows where part 2 spends its time (grep "^>>> p2")
 static void P2Log(const std::string& what){
     static const auto t0 = std::chrono::steady_clock::now();
@@ -813,14 +830,26 @@ void Plot3D(){
                     const std::string rbTh = j ? "RECONTHETABL_ESTNEU" : "RECONTHETA_ESTNEU", rbPh = j ? "RECONPHIBL_ESTNEU" : "RECONPHI_ESTNEU", stem = j ? "phiReD" : "phiRe";
                     const std::string dirJ = dirP; // the plots sit in 2_phi_cosfit itself
                     std::vector<double> th[3], ph[3]; // theta and phi of every proton of the sample
+                    AMean aLastAP; // the CE recon protons (sample 0): the mean LastAP of their CE rows (LastApByKey), the A_eff of their phi fit
+                    std::vector<double> phCE; // and the true CE phi (neutron frame) of those rows: the angles of their fit, as in 1_phiCE_cosfit
                     StartScan scanned[3]; // per sample, the phi histograms and A sums for every start theta, from one pass over the protons (ScanStartTheta, Plot3DCols.h), and the mean A
                     for (int s = 0; s < 3; s++){
                         std::string qs = samps[s].q + Form(" && rawOk(fEvent, TrackID, %d) && rawOk(fEvent, TrackID, %d)", kT, kPh);
                         if (j) qs += std::string(Form(" && rawVal(fEvent, TrackID, %d) >= %g && rawVal(fEvent, TrackID, %d) <= %g", kPh, kBlockPhiLo, kPh, kBlockPhiHi)); // block phi: no spike at 0 (block theta 0 to 1 deg is in the baseline)
                         const std::string colT = Form("rawVal(fEvent, TrackID, %d)", kT), colPh = Form("rawVal(fEvent, TrackID, %d)", kPh);
                         // the rows only feed histograms and sums, so a multi-cluster tree (a cut file of AnglesRaw) is read on all threads in any order
-                        auto c = MultiCluster(samps[s].t) ? ColumnsUnordered(samps[s].t, {P3(colT), P3(colPh)}, P3(qs)) : Columns(samps[s].t, {P3(colT), P3(colPh)}, P3(qs));
+                        std::vector<std::string> cols = {P3(colT), P3(colPh)};
+                        if (s == 0){cols.push_back("fEvent"); cols.push_back("ParentID");} // the key of the CE row of each proton, for its LastAP
+                        auto c = MultiCluster(samps[s].t) ? ColumnsUnordered(samps[s].t, cols, P3(qs)) : Columns(samps[s].t, cols, P3(qs));
                         th[s] = std::move(c[0]); ph[s] = std::move(c[1]);
+                        if (s == 0){
+                            const auto& apOf = LastApByKey();
+                            for (size_t i = 0; i < c[2].size(); i++){
+                                const auto it = apOf.find(((ULong64_t)(unsigned)(int)c[2][i] << 32) | (unsigned)(int)c[3][i]);
+                                if (it != apOf.end()){aLastAP.Add(it->second.ap); phCE.push_back(it->second.phi);}
+                            }
+                            if ((size_t)aLastAP.n != c[2].size()) printf("Plot3D %s: %.0f of %zu CE recon protons have a LastAP row (the rest are left out of A_eff)\n", ps.dir.c_str(), aLastAP.n, c[2].size());
+                        }
                         scanned[s] = ScanStartTheta(th[s], ph[s], apScalePhi, j ? kBlockPhiLo : 0, j ? kBlockPhiHi : 360, thHi);
                     }
                     // 1: phi distribution and cos fit of the three samples on one plot, N(phi) = N0 (1 + P <A> cos(phi)), N0 = entries / 50 bins fixed, <A> = mean model A of the sample fixed, only P fitted
@@ -833,11 +862,13 @@ void Plot3D(){
                         for (int s = sLo; s < sHi; s++){
                             delete gDirectory->Get(Form("hPhiOv%d", s));
                             hP[s] = new TH1D(Form("hPhiOv%d", s), "", 50, 0, 360);
-                            for (double x : ph[s]) hP[s]->Fill(x);
-                            aMean[s] = scanned[s].aAll;
+                            const bool trueCE = s == 0 && aLastAP.n > 0; // the CE recon protons: the true CE phi and the model A of their own CE (LastAP), like 1_phiCE_cosfit; the others have none, recon block phi and A at their recon block theta
+                            const std::vector<double>& phFit = trueCE ? phCE : ph[s];
+                            for (double x : phFit) hP[s]->Fill(x);
+                            aMean[s] = trueCE ? aLastAP : scanned[s].aAll;
                             hP[s]->SetLineColor(samps[s].color); hP[s]->SetLineWidth(2);
                             if (hP[s]->GetEntries() >= 10){
-                                const PFit uf = UnbinnedP(ph[s], aMean[s], j ? kBlockPhiLo : 0, j ? kBlockPhiHi : 360); // unbinned fit of every proton's phi (FitCore.h)
+                                const PFit uf = UnbinnedP(phFit, aMean[s], j ? kBlockPhiLo : 0, j ? kBlockPhiHi : 360); // unbinned fit of every proton's phi (FitCore.h)
                                 AddUnbinnedFit(hP[s], Form("fPhiOv%d", s), uf, aMean[s].Mean(), aMean[s].Err(), false); // the fit stays in the histogram for stats.csv and fit_values.csv, drawn below
                                 pol[s] = uf.p; polErr[s] = uf.err;
                             }
@@ -847,7 +878,7 @@ void Plot3D(){
                         gPad->SetLeftMargin(0.16); gPad->SetRightMargin(0.04); gPad->SetTopMargin(0.36); gPad->SetBottomMargin(0.13); // the text lines sit above the frame
                         for (int s = sLo; s < sHi; s++){
                             hP[s]->SetStats(0); hP[s]->SetMinimum(0); hP[s]->SetMaximum(1.1 * hMax);
-                            hP[s]->SetTitle(Form("%s%s, %s, %s phi distribution;Angle (degrees);Count", (ceOnly ? "CE recon protons" : "all recon protons and all recon charged particles"), where.c_str(), cutTxt.c_str(), rbPh.c_str()));
+                            hP[s]->SetTitle(Form("%s%s, %s, %s phi distribution;Angle (degrees);Count", (ceOnly ? "CE recon protons" : "all recon protons and all recon charged particles"), where.c_str(), cutTxt.c_str(), ceOnly && aLastAP.n > 0 ? "true CEPHI_NEUFRAME" : rbPh.c_str()));
                             hP[s]->Draw(s > sLo ? "hist same" : "hist");
                         }
                         for (int s = sLo; s < sHi; s++) if (hP[s]->GetEntries() >= 10){ // the fit curve of each set in its color, a function of its own: a clone of the one in the histogram crashed when the canvas was cleared
@@ -855,7 +886,7 @@ void Plot3D(){
                             fd->SetParameters(hP[s]->GetEntries() / 50, pol[s], aMean[s].Mean()); fd->SetLineColor(samps[s].color); fd->SetLineStyle(2); fd->SetLineWidth(3); fd->Draw("same");
                         }
                         TLatex tx; tx.SetNDC(); tx.SetTextSize(0.025); // small enough for the whole P = ... #pm ... of the longest line to stay on the page
-                        tx.DrawLatex(0.18, 0.90, ("Unbinned fit  N(#phi) #propto 1 + P #upoint A_{eff} cos#phi, dashed = fit, A_{eff} fixed at the " + rbTh + "").c_str());
+                        tx.DrawLatex(0.18, 0.90, ("Unbinned fit  N(#phi) #propto 1 + P #upoint A_{eff} cos#phi, dashed = fit, A_{eff} fixed at the " + (ceOnly ? std::string("LastAP of each CE (the model A)") : rbTh) + "").c_str());
                         tx.DrawLatex(0.18, 0.865, AEffEq()); // the definition of A_eff, on its own line: the header above fills the width
                         for (int s = sLo; s < sHi; s++){
                             tx.SetTextColor(samps[s].color);

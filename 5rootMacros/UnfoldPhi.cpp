@@ -292,6 +292,8 @@ static void UnfoldMegaCut3(double tMax){
 void UnfoldPhi(){
     FastJit();
     TH1::AddDirectory(kFALSE);
+    PlainFonts(); gStyle->SetOptStat(1111); gStyle->SetOptFit(11);
+    UnfoldMegaCut3(5.0 * ThetaScale()); // the two megaCut3 phi cosfits unfolded with the matrix of smear_cuts.sh; first, it does not need the full sample matrix below
     TFile* file = TFile::Open("cuts/smear_matrix.root", "READ");
     if (!file || file->IsZombie()){printf("UnfoldPhi: cuts/smear_matrix.root missing (run SmearMatrix.cpp)\n"); return;}
     const TH2D* r = (TH2D*)file->Get("R_reconB_neuF_to_reconB_labF_thetaphi"); const TH1D* tTrue = (TH1D*)file->Get("T_reconB_neuF_thetaphi"); const TH1D* tEst = (TH1D*)file->Get("T_reconB_labF_thetaphi");
@@ -299,8 +301,6 @@ void UnfoldPhi(){
     if (!r || !tTrue || !tEst || !apTrue || !apEst){printf("UnfoldPhi: a matrix is missing in smear_matrix.root (rerun SmearMatrix.cpp)\n"); return;}
     if (tTrue->GetNbinsX() != kBins){printf("UnfoldPhi: the matrix has %d bins, the macro expects %d\n", tTrue->GetNbinsX(), kBins); return;}
     gSystem->mkdir("plots/8_smear/3_phi_cosfit", kTRUE);
-    PlainFonts(); gStyle->SetOptStat(1111); gStyle->SetOptFit(11);
     UnfoldFswitch(*r, *tTrue, *tEst, *apTrue, *apEst, 5.0 * ThetaScale(), "plots/8_smear/3_phi_cosfit/1_M_recB_phi_cosfit_unfolded.pdf", "plots/8_smear/3_phi_cosfit/2_M_recB_phi_cosfit_trueNeutron.pdf");
-    UnfoldMegaCut3(5.0 * ThetaScale()); // the two megaCut3 phi cosfits unfolded, needs the matrix of smear_cuts.sh
 }
 
