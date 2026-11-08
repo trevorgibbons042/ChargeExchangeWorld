@@ -276,11 +276,13 @@ void SmearMatrix(){
     // The lab CE truth comes from ChargeExchange_values (dirs); the recon angles rotated by the TRUE neutron (the "recon neutron frame" states) are made from the lab recon angles of AnglesRaw (outTheta ...), matched on (fEvent, ParentID).
     std::unordered_map<ULong64_t, LabRecon> labRecon;
     if (TTree* raw = OpenCut("cuts/cut_angles_all.root", "AnglesRaw")){
-        // the CE protons of AnglesRaw only, read on all threads with the filter in the dataframe (Columns, TreeColumns.h), entry order: the last row of a key wins as before
-        const auto c = Columns(raw, {"fEvent", "ParentID", "outDTheta", "outDPhi", "outTheta", "outPhi", "tubeX0", "tubeY0", "tubeX1", "tubeY1", "tubeZ0", "tubeZ1"}, "PDG == 2212 && isFromCE");
+        // the CE protons of AnglesRaw only, read on all threads with the filter in the dataframe (ColumnsUnordered, TreeColumns.h: 4 s against 33 s for the entry ordered Columns on the 25 GeV 5block run).
+        // Every (fEvent, ParentID) key is one row (23822 rows, 23822 keys there), so the row order does not matter; a key with two rows is counted and printed below.
+        const auto c = ColumnsUnordered(raw, {"fEvent", "ParentID", "outDTheta", "outDPhi", "outTheta", "outPhi", "tubeX0", "tubeY0", "tubeX1", "tubeY1", "tubeZ0", "tubeZ1"}, "PDG == 2212 && isFromCE");
         labRecon.reserve(c[0].size());
         for (size_t i = 0; i < c[0].size(); i++)
             labRecon[EvKey((int)c[0][i], (int)c[1][i])] = {c[2][i] * TMath::RadToDeg(), Wrap360(c[3][i] * TMath::RadToDeg()), c[4][i] * TMath::RadToDeg(), Wrap360(c[5][i] * TMath::RadToDeg()), 0.5 * (c[6][i] + c[8][i]), 0.5 * (c[7][i] + c[9][i]), 0.5 * (c[10][i] + c[11][i])};
+        if (labRecon.size() != c[0].size()) printf("SmearMatrix: %zu CE proton rows share a (fEvent, ParentID) key with another row; one of them is kept, in no fixed order\n", c[0].size() - labRecon.size());
         printf(">>> SmearMatrix AnglesRaw CE protons (%zu) read took %.0f s\n", c[0].size(), Secs()); fflush(stdout);
     } else {printf("SmearMatrix: cut_angles_all.root AnglesRaw missing\n"); return;}
     TTreeReader rc(ce), rr(red), rre(rec);
