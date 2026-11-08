@@ -93,6 +93,7 @@ on Fom && fom=$(submit Fom fom "$w")
 on CEblock && ce=$(submit CEblock ceblock "$w")
 on SecCE && sec=$(submit SecCE secce "$w")
 on Smear && smear=$(submit Smear smear "$w")
+on Smear && smearcuts=$(submit SmearCuts smearcuts "${cuts:-$w}" 128) # the per-cut matrices of 6_cuts/*/1_additionalinfo: after the Cuts job, its cuts.txt files name the cuts in the titles
 # tidy, side box and crop once every lane has ended, so the pdfs of the lanes that worked are still finished when one failed
-ids=$(echo $cuts $fom $ce $sec $smear | tr ' ' ':')
+ids=$(echo $cuts $fom $ce $sec $smear $smearcuts | tr ' ' ':')
 if [ -n "$PDFS" ]; then DEPKIND=afterany submit Pdfs pdfs "${ids:-$w}"; fi

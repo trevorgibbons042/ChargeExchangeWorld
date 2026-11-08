@@ -44,6 +44,7 @@ case $STEP in
     ceblock)  macros=('PlotDiffPhiCuts.cpp(50, 180, "fDEnergy")' 'GraphBlocks.cpp' 'CETCompare.cpp') ;; # 4_CEblock
     secce)    macros=('SecondaryCE.cpp') ;; # 7_secondaryCE
     smear)    macros=('SmearMatrix.cpp') ;; # 8_smear
+    smearcuts) macros=() ;; # the SmearMatrix pages 2_matrix2 and 3_matrix3 of every 6_cuts folder's sample (smear_cuts.sh, below), after the Cuts job: its cuts.txt names the cut in the titles
     pdfs)     macros=() ;; # the python steps of plot.sh, after every lane
     *) echo "unknown step $STEP"; exit 1 ;;
 esac
@@ -121,6 +122,8 @@ for m in "${macros[@]}"; do
     time root -l -b -q "${m/.cpp/.cpp${ACLIC-+O}}" # compiled with ACLiC (+O) unless ACLIC= (empty)
 done
 [ -n "$precompile" ] && wait $precompile # the plot macros built beside the analysis
+
+if [ "$STEP" = smearcuts ]; then bash smear_cuts.sh; fi # SMEAR_JOBS processes side by side, each with NCPUS / SMEAR_JOBS threads
 
 if [ "$STEP" = pdfs ]; then
     python3 tidy_plots.py plots

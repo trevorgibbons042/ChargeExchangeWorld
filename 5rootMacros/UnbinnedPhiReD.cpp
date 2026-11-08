@@ -52,7 +52,7 @@ void UnbinnedPhiReD(){
     fb.SetLineColor(kBlack); fb.SetLineStyle(2); fb.SetLineWidth(3); fb.Draw("same");
     fu.SetLineColor(kBlue); fu.SetLineWidth(3); fu.Draw("same");
     TLatex tx; tx.SetNDC(); tx.SetTextSize(0.032);
-    tx.DrawLatex(0.16, 0.86, "N(#phi) #propto 1 + P #upoint A_{eff} cos#phi, A_{eff} fixed");
+    tx.DrawLatex(0.16, 0.86, Form("N(#phi) #propto 1 + P #upoint A_{eff} cos#phi, %s (fixed)", AEffEq()));
     tx.SetTextColor(kBlue); tx.DrawLatex(0.16, 0.81, Form("unbinned fit (blue): P = %.3f #pm %.3f,  %.0f protons, A_{eff} = %.4f #pm %.4f", p, err, n, aMean, aM.Err()));
     tx.SetTextColor(kBlack); tx.DrawLatex(0.16, 0.76, Form("binned #chi^{2} fit (dashed): P = %.3f #pm %.3f,  #chi^{2}/ndf = %.0f / %d", fb.GetParameter(1), fb.GetParError(1), h.Chisquare(&fb), 49));
     cv.SaveAs("UnbinnedPhiReD.pdf");

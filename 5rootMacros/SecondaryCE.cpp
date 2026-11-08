@@ -292,7 +292,7 @@ void SecondaryCE(){
         for (int g = 0; g < 2; g++){ // two lines per curve, kept inside the plot area (the legend box sits lower in the right margin)
             txPhi.SetTextColor(phiColor[g]);
             txPhi.DrawLatex(0.13, 0.875 - 0.10 * g, Form("%s,   P = %.3f #pm %.3f", phiName[g], pFit[g], pFitErr[g]));
-            txPhi.DrawLatex(0.13, 0.845 - 0.10 * g, Form("A_{eff} = %.4f #pm %.4f,   %lld CE protons", sAng[g].Mean(), sAng[g].Err(), nPhi[g]));        }
+            txPhi.DrawLatex(0.13, 0.845 - 0.10 * g, Form("%s = %.4f #pm %.4f,   %lld CE protons", AEffEq(), sAng[g].Mean(), sAng[g].Err(), nPhi[g]));        }
         WritePlotNumbers(&hPhi[0], outDir + phiFile, numbersStarted);
         canvas.SaveAs((outDir + phiFile).c_str());
     };
