@@ -736,6 +736,7 @@ void SmearMatrix(){
     for (int r = 0; r < 4; r++){rs[r].dThN->Write(); rs[r].dThL->Write(); rs[r].dPhN->Write(); rs[r].dPhL->Write();}
     for (int k = 0; k < 4; k++) for (int a = 0; a < 3; a++) hNew[k][a]->Write();
     for (TH1* h : hTSlice) h->Write();
+    for (int a = 0; a < 3; a++){hNeu[a]->Write(); tNeu[a]->Write();} // 3_matrix3: true neutron direction to estimated one (counts and the truth of each page)
     out.Close();
     printf(">>> SmearMatrix matrices, plots and csv took %.0f s\n", Secs()); fflush(stdout);
 }
