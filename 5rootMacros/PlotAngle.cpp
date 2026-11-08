@@ -376,8 +376,8 @@ void PlotAngle(std::string energy = "fKEnergy"){ // energy: "fKEnergy" (true KE)
         TTree* rawCE = OpenCut("cuts/cut_CE.root", "ChargeExchange_values");
         gROOT->cd();
         const std::string ceCut = "";
-        // A_eff of each fit is built inside PhiCosFit from the own theta of each proton of that fit (no theta bins): the CETHETA_NEUFRAME (LastTheta, rad) for the CEPHI_NEUFRAME, the RECONTHETA_ESTNEU for the RECONPHI_ESTNEU
-        PhiCosFit(canvas, rawCE, "CEPhiNeu(LastTheta, LastPhiLab, CENDirX, CENDirY, CENDirZ) * 180 / TMath::Pi()", "CEThetaNeu(LastTheta, LastPhiLab, CENDirX, CENDirY, CENDirZ) * 180 / TMath::Pi()", ceCut, "hPhiCEfit", "All CE protons (every carbon-block CE), CEPHI_NEUFRAME Distribution, no cuts", phiDir + "1_phiCE_cosfit.pdf");
+        // A_eff of each fit is built inside PhiCosFit from the own theta of each proton of that fit (no theta bins): the CETHETA_NEUFRAME (LastTheta, rad) for the CEPHI_NEUFRAME, the RECONTHETA_ESTNEU for the RECONPHI_ESTNEU. Only 1_phiCE_cosfit passes "LastAP": it takes the mean of the A the model weighted each CE with, as a closure check
+        PhiCosFit(canvas, rawCE, "CEPhiNeu(LastTheta, LastPhiLab, CENDirX, CENDirY, CENDirZ) * 180 / TMath::Pi()", "CEThetaNeu(LastTheta, LastPhiLab, CENDirX, CENDirY, CENDirZ) * 180 / TMath::Pi()", ceCut, "hPhiCEfit", "All CE protons (every carbon-block CE), CEPHI_NEUFRAME Distribution, no cuts", phiDir + "1_phiCE_cosfit.pdf", {}, "LastAP");
         // the same events at the recon angles (CE protons with a recon track)
         PhiCosFit(canvas, events, "phiRe", "thetaRe", "", "hPhiRefit", "Reconstructed CE protons, RECONPHI_ESTNEU Distribution, no cuts", phiDir + "2_phiRe_cosfit.pdf");
         // the same fit at the block position RECONPHI_ESTNEU (phiReD) and block theta (thetaReD)
