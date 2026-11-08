@@ -20,4 +20,6 @@ for d in "${dirs[@]}"; do
     (( ++n % nj == 0 )) && wait
 done
 wait
+# the unfolding of the megaCut3 phi cosfits (and of the full sample matrix) needs the matrices written above: after them, one process with all the cores for its toys
+case " ${dirs[*]} " in *" 9_megaCut3/1_1particlecut "*) ANA_NTHREADS=$NCPU run 'UnfoldPhi.cpp' ;; esac
 echo ">>> smear_cuts ($n folders) took $((SECONDS - total)) s"
