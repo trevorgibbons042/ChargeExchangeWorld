@@ -65,7 +65,7 @@ inline void PhiCosFit(TCanvas* canvas, TTree* t, const std::string& phiBranch, c
     TPaveText* eb = new TPaveText(0.755, 0.06, 0.995, 0.52, "NDC");
     eb->SetTextAlign(12); eb->SetTextSize(0.024); eb->SetFillColor(kWhite); eb->SetBorderSize(1);
     eb->AddText("#bf{Error by source}");
-    eb->AddText(Form("#bf{%s} #pm %.4f", AEffEq(), aMean.Err()));
+    eb->AddText(Form("#bf{A_{eff}} #pm %.4f", aMean.Err()));
     eb->AddText(Form(" est n #theta range  %.4f", aMean.RangeErr()));
     eb->AddText(Form(" statistics (#theta spread)  %.4f", aMean.StatErr()));
     eb->AddText(Form(" energy range (beam)  %.4f", aMean.BeamErr()));
