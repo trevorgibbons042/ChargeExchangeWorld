@@ -189,7 +189,7 @@ void PlotFomPolarization(std::string energy = "fKEnergy"){ // energy: "fKEnergy"
                 const std::string dir = FomRoot() + "/" + set.dir + "/" + kFitDir; // // with the total and slice phi fits of PlotPolarization.cpp
                 const std::string tag = typeTags[type];
                 gSystem->mkdir(dir.c_str(), true);
-                Map pMap = MakeMap(fileNum(set.block ? 3 : 5) + "P_fit_2d", "P_{fit}, unbinned fit 1 + A_{eff} P cos#phi, A_{eff} fixed", nSlices);
+                Map pMap = MakeMap(fileNum(set.block ? 3 : 5) + "P_fit_2d", "P_{fit}, unbinned fit 1 + A_{eff} P cos#phi, A_{eff} = #Sigma N_{i} AP(#theta_{i}) / N_{0} fixed", nSlices);
                 Map pctMap = MakeMap(fileNum(set.block ? 4 : 6) + "P_pct_error_2d", "|100 (P_{fit} - PPValue) / PPValue| (%)", nSlices);
                 pctMap.h.SetMinimum(0); pctMap.h.SetMaximum(100); // linear color scale 0 to 100 %, larger errors draw in the top color
                 FILE* out = fopen((dir + pMap.file + "_" + tag + ".csv").c_str(), "w");
@@ -267,9 +267,11 @@ void PlotFomPolarization(std::string energy = "fKEnergy"){ // energy: "fKEnergy"
                 }
                 TLatex tx; tx.SetNDC(); tx.SetTextSize(0.025); // small enough for the whole P = ... #pm ... of the longest line to stay on the page
                 tx.DrawLatex(0.15, 0.90, "Unbinned fit  N(#phi) #propto 1 + P #upoint A_{eff} cos#phi (every proton), dashed = fit");
+
+tx.DrawLatex(0.15, 0.865, AEffEq());
                 for (int type = 0; type < 3; type++) if (ovl[range][type].ok){
                     tx.SetTextColor(colors[type]);
-                    tx.DrawLatex(0.15, 0.855 - 0.045 * (type == 2 ? 1 : 0), Form("%s: %.0f entries, A_{eff} = %.4f #pm %.4f,  P = %.2f #pm %.2f", typeNames[type].c_str(), ovl[range][type].nPhi, ovl[range][type].aFix.Mean(), ovl[range][type].aFix.Err(), pFit[type], pErr[type]));
+                    tx.DrawLatex(0.15, 0.828 - 0.045 * (type == 2 ? 1 : 0), Form("%s: %.0f entries, A_{eff} = %.4f #pm %.4f,  P = %.2f #pm %.2f", typeNames[type].c_str(), ovl[range][type].nPhi, ovl[range][type].aFix.Mean(), ovl[range][type].aFix.Err(), pFit[type], pErr[type]));
                 }
                 tx.SetTextColor(kBlack);
                 if (set.block) tx.DrawLatex(0.15, 0.72, BlockPhiNote());
@@ -285,7 +287,7 @@ void PlotFomPolarization(std::string energy = "fKEnergy"){ // energy: "fKEnergy"
                     fd->SetParameters(ovl[range][0].nPhi / h->GetNbinsX(), pFit[0], ovl[range][0].aFix.Mean()); fd->SetLineColor(kBlack); fd->SetLineWidth(3); fd->Draw("same");
                     TLatex txc; txc.SetNDC(); txc.SetTextSize(0.03);
                     txc.DrawLatex(0.15, 0.90, "Unbinned fit  N(#phi) #propto 1 + P #upoint A_{eff} cos#phi (every proton)");
-                    txc.DrawLatex(0.15, 0.855, Form("%.0f entries, A_{eff} = %.4f #pm %.4f (per-proton #theta, sum of AP(#theta_{i}) / N),  P =%.2f #pm %.2f", ovl[range][0].nPhi, ovl[range][0].aFix.Mean(), ovl[range][0].aFix.Err(), pFit[0], pErr[0]));
+                    txc.DrawLatex(0.15, 0.855, Form("%.0f entries, %s = %.4f #pm %.4f (per-proton #theta),  P =%.2f #pm %.2f", ovl[range][0].nPhi, AEffEq(), ovl[range][0].aFix.Mean(), ovl[range][0].aFix.Err(), pFit[0], pErr[0]));
                     if (set.block) txc.DrawLatex(0.15, 0.81, BlockPhiNote());
                     c.Modified(); c.Update();
                     c.SaveAs((dir + std::to_string(2 * ((range == 0 ? (set.block ? 7 : 9) : (set.block ? 8 : 10)) - 1) + 2) + "_" + (range == 0 ? "phi_fit_all_theta" : "phi_fit_theta_0_to_1") + "_CE.pdf").c_str());

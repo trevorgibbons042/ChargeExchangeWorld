@@ -574,7 +574,7 @@ void Plot3D(){
                     canvas->Update();
                     if (auto* st = (TPaveStats*)h->FindObject("stats")){st->SetX1NDC(0.76); st->SetX2NDC(0.995); st->SetY1NDC(0.55); st->SetY2NDC(0.83);}
                     TLatex tx; tx.SetNDC(); tx.SetTextSize(0.028);
-                    tx.DrawLatex(0.13, 0.90, "Unbinned fit  N(#phi) #propto 1 + P #upoint A_{eff} cos#phi (every proton, no bins)");
+                    tx.DrawLatex(0.13, 0.90, Form("Unbinned fit  N(#phi) #propto 1 + P #upoint A_{eff} cos#phi (every proton, no bins),  %s", AEffEq()));
                     tx.DrawLatex(0.13, 0.865, Form("A_{eff} = %.4f #pm %.4f (fixed, model A at the %s),   P = %.2f #pm %.2f", aMean.Mean(), aMean.Err(), j ? "RECONTHETABL_ESTNEU" : "RECONTHETA_ESTNEU", *pol, *polErr));
                     canvas->Modified(); canvas->Update();
                     canvas->SaveAs(path.c_str());
@@ -856,9 +856,10 @@ void Plot3D(){
                         }
                         TLatex tx; tx.SetNDC(); tx.SetTextSize(0.025); // small enough for the whole P = ... #pm ... of the longest line to stay on the page
                         tx.DrawLatex(0.18, 0.90, ("Unbinned fit  N(#phi) #propto 1 + P #upoint A_{eff} cos#phi, dashed = fit, A_{eff} fixed at the " + rbTh + "").c_str());
+                        tx.DrawLatex(0.18, 0.865, AEffEq()); // the definition of A_eff, on its own line: the header above fills the width
                         for (int s = sLo; s < sHi; s++){
                             tx.SetTextColor(samps[s].color);
-                            tx.DrawLatex(0.18, 0.855 - 0.045 * (s - sLo), Form("%s: %.0f entries, A_{eff} = %.4f #pm %.4f,  P = %.3g #pm %.2g", samps[s].name.c_str(), hP[s]->GetEntries(), aMean[s].Mean(), aMean[s].Err(), pol[s], polErr[s]));
+                            tx.DrawLatex(0.18, 0.828 - 0.038 * (s - sLo), Form("%s: %.0f entries, A_{eff} = %.4f #pm %.4f,  P = %.3g #pm %.2g", samps[s].name.c_str(), hP[s]->GetEntries(), aMean[s].Mean(), aMean[s].Err(), pol[s], polErr[s]));
                         }
                         tx.SetTextColor(kBlack);
                         if (j) tx.DrawLatex(0.18, 0.72, BlockPhiNote());
@@ -919,9 +920,10 @@ void Plot3D(){
                             TLatex tx; tx.SetNDC(); tx.SetTextSize(0.033);
                             tx.DrawLatex(0.18, 0.90, Form("start theta %.2f deg: unbinned fit N(#phi) #propto 1 + P #upoint A_{eff} cos#phi, dashed = fit", key / 100.0));
                             tx.SetTextSize(0.026); // the sample lines (about 88 characters) at 0.033 ran off the right edge of the canvas and lost the end of P and its error
+                            tx.DrawLatex(0.18, 0.865, AEffEq());
                             for (int s = 0; s < 3; s++) if (pgOf[s]){
                                 tx.SetTextColor(samps[s].color);
-                                tx.DrawLatex(0.18, 0.855 - 0.045 * s, Form("%s: %.0f entries, A_{eff} = %.4f #pm %.4f,  P = %.3g #pm %.2g", samps[s].name.c_str(), pgOf[s]->h->GetEntries(), pgOf[s]->A, pgOf[s]->eA, pgOf[s]->P, pgOf[s]->eP));
+                                tx.DrawLatex(0.18, 0.828 - 0.038 * s, Form("%s: %.0f entries, A_{eff} = %.4f #pm %.4f,  P = %.3g #pm %.2g", samps[s].name.c_str(), pgOf[s]->h->GetEntries(), pgOf[s]->A, pgOf[s]->eA, pgOf[s]->P, pgOf[s]->eP));
                             }
                             tx.SetTextColor(kBlack);
                             if (j) tx.DrawLatex(0.18, 0.72, BlockPhiNote());

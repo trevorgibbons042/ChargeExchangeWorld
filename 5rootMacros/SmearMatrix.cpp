@@ -7,6 +7,7 @@
 #include <TLine.h>
 #include <TMath.h>
 #include <TMultiGraph.h>
+#include <TNamed.h>
 #include <TProfile.h>
 #include <TROOT.h>
 #include <TStyle.h>
@@ -21,7 +22,9 @@
 #include <chrono>
 #include <cstdio>
 #include <string>
+#include <cstdlib>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 #include "FitCore.h"
@@ -90,12 +93,49 @@ static void PageMargins(TCanvas& c){c.SetRightMargin(0.30); c.SetLeftMargin(0.14
 // only the recon block, true neutron frame vs estimated neutron frame, pages are plotted (the rest of 8_smear was dropped); the matrices stay in cuts/smear_matrix.root
 static constexpr const char* kPlotDir = "plots/8_smear/1_Fswitch/3_M_recB_Fswitch/";
 static constexpr const char* kPlotDir2 = "plots/8_smear/1_Fswitch/8_M_recB_est_to_lab/"; // recon block, estimated neutron frame (x) to recon block lab (y)
+// Per-cut mode, env SMEAR_CUT = a 6_cuts folder with a 1_additionalinfo (plot_cut.sh, plot.sh): the same matrices of only the CE protons of that cut's sample, and only the pages 2_matrix2 and 3_matrix3, written into
+// plots/6_cuts/<dir>/1_additionalinfo/. The full sample run (SMEAR_CUT unset) is unchanged. file: the AnglesRaw cut file of the cut (cuts/<file>.root, CutPlots.cpp (samples)); null: the ZDC protons of the CE children
+// (cut_ZdcCE.root), with ZDC KE > kePct % of the beam KE when kePct > 0. labelDir: the folder whose cuts.txt (Plot3D.cpp) names the cut; kePct then replaces the 80% of that text.
+struct CutSpec {const char* dir; const char* file; int kePct; const char* labelDir;};
+static const CutSpec* FindCutSpec(const std::string& dir){
+    static const CutSpec specs[] = {
+        {"1_hitZDC", nullptr, 0, ""}, {"2_KECUT/KECUT80", nullptr, 80, ""}, {"2_KECUT/KECUT85", nullptr, 85, ""}, {"2_KECUT/KECUT90", nullptr, 90, ""}, {"2_KECUT/KECUT95", nullptr, 95, ""},
+        {"3_ResCuts", "cut_ResCuts", 0, "3_ResCuts"},
+        {"4_nParticles/1_particleCut", "cut_nParticles1", 0, "4_nParticles/1_particleCut"}, {"4_nParticles/2_particleCut", "cut_nParticles2", 0, "4_nParticles/2_particleCut"},
+        {"5_nHits", "cut_nHits", 0, "5_nHits"},
+        {"8_nZdcParticles/1_1zdcparticlecut", "cut_nZdc1", 0, "8_nZdcParticles/1_1zdcparticlecut"},
+        {"9_megaCut3/1_1particlecut", "cut_megacut3_1", 0, "9_megaCut3/1_1particlecut"}, {"9_megaCut3/1_1particlecut_KE85", "cut_megacut3_1_ke85", 85, "9_megaCut3/1_1particlecut"},
+        {"9_megaCut3/1_1particlecut_KE90", "cut_megacut3_1_ke90", 90, "9_megaCut3/1_1particlecut"}, {"9_megaCut3/1_1particlecut_KE95", "cut_megacut3_1_ke95", 95, "9_megaCut3/1_1particlecut"},
+        {"10_nChargedTrackerHits/1_noExtraHits", "cut_nChHits", 0, "10_nChargedTrackerHits/1_noExtraHits"}, {"10_nChargedTrackerHits/2_maxOneExtraHit", "cut_nChHits2", 0, "10_nChargedTrackerHits/2_maxOneExtraHit"}};
+    for (const CutSpec& s : specs) if (dir == s.dir) return &s;
+    return nullptr;
+}
+// the cut as the titles name it: the first line of cuts.txt of the folder after "<dir>: " (Plot3D.cpp writes it from the cut itself), the folder name when there is none
+static std::string CutLabel(const CutSpec& s){
+    if (!s.file) return s.kePct ? std::string(Form("CE protons that hit the ZDC, ZDC KE > %d%% of initial KE", s.kePct)) : std::string("CE protons that hit the ZDC");
+    std::string label = s.dir;
+    if (FILE* f = fopen(Form("plots/6_cuts/%s/cuts.txt", s.labelDir), "r")){
+        char buf[4096];
+        if (fgets(buf, sizeof buf, f)){std::string l = buf; while (!l.empty() && (l.back() == '\n' || l.back() == '\r')) l.pop_back(); const size_t p = l.find(": "); label = p == std::string::npos ? l : l.substr(p + 2);}
+        fclose(f);
+    }
+    if (s.kePct) if (const size_t p = label.find("80%"); p != std::string::npos) label.replace(p, 3, std::to_string(s.kePct) + "%");
+    return label;
+}
+static std::string& CutOut(){static std::string s; return s;}  // plots/6_cuts/<dir>/1_additionalinfo/ in the per-cut mode, empty otherwise
+static std::string& CutNote(){static std::string s; return s;} // the cut text of the titles in the per-cut mode, empty otherwise ("no other cuts")
+static constexpr const char* kPlotDir3 = "plots/8_smear/3_matrix3/"; // true neutron direction vs estimated neutron direction pages
 static constexpr int kResidualTypes = 0; // 6_residuals (residuals, dilution, csv) dropped; 4 brings them back
 static void SavePlot2D(TH2D* h, const std::string& pathIn, const std::string& title, double axMax = 0, const char* zTitle = "P(recon | true)"){
     std::string path; // the matrix pages sit in plots/8_smear/1_matrix (true neutron frame to estimated neutron frame) and 2_matrix2 (estimated neutron frame to lab)
-    if (pathIn.rfind(kPlotDir, 0) == 0) path = std::string("plots/8_smear/1_matrix/") + pathIn.substr(std::string(kPlotDir).size());
+    if (!CutOut().empty()){ // per-cut mode: only 2_matrix2 and 3_matrix3, in the 1_additionalinfo of the cut folder
+        if (pathIn.rfind(kPlotDir2, 0) == 0) path = CutOut() + "2_matrix2/" + pathIn.substr(std::string(kPlotDir2).size());
+        else if (pathIn.rfind(kPlotDir3, 0) == 0) path = CutOut() + "3_matrix3/" + pathIn.substr(std::string(kPlotDir3).size());
+        else return;
+    }
+    else if (pathIn.rfind(kPlotDir, 0) == 0) path = std::string("plots/8_smear/1_matrix/") + pathIn.substr(std::string(kPlotDir).size());
     else if (pathIn.rfind(kPlotDir2, 0) == 0) path = std::string("plots/8_smear/2_matrix2/") + pathIn.substr(std::string(kPlotDir2).size());
-    else if (pathIn.rfind("plots/8_smear/3_matrix3/", 0) == 0) path = pathIn; // true neutron theta vs estimated neutron theta, lab frame
+    else if (pathIn.rfind(kPlotDir3, 0) == 0) path = pathIn; // true neutron theta vs estimated neutron theta, lab frame
     else return;
     TCanvas c("cSmear2D", "Plots", 1500, 1200);
     PageMargins(c);
@@ -165,6 +205,14 @@ void SmearMatrix(){
     TH1::AddDirectory(kFALSE); // the histograms are written to the file by hand at the end, so closing it does not delete the stack ones
     const double tMax = ThetaMaxDeg();
     const int nTheta = (int)std::lround(tMax / kStep);
+    const CutSpec* cutSpec = nullptr; // per-cut mode (SMEAR_CUT): the sample of one 6_cuts folder, see FindCutSpec
+    if (const char* envCut = std::getenv("SMEAR_CUT"); envCut && *envCut){
+        cutSpec = FindCutSpec(envCut);
+        if (!cutSpec){printf("SmearMatrix: SMEAR_CUT=%s is not a 6_cuts folder with a 1_additionalinfo\n", envCut); return;}
+        CutOut() = std::string("plots/6_cuts/") + cutSpec->dir + "/1_additionalinfo/";
+        CutNote() = CutLabel(*cutSpec);
+        printf(">>> SmearMatrix per-cut mode: %s, cut text: %s\n", cutSpec->dir, CutNote().c_str()); fflush(stdout);
+    }
     double maxTilt = 0; // deg, the largest neutron tilt from z over the CE rows (0: no random beam angle)
 
     TTree* ce = OpenCut("cuts/cut_APandT.root", "CE");
@@ -188,8 +236,13 @@ void SmearMatrix(){
         printf(">>> SmearMatrix ChargeExchange_values read took %.0f s\n", Secs()); fflush(stdout);
     }
 
-    gSystem->mkdir("plots/8_smear/1_matrix", kTRUE); gSystem->mkdir("plots/8_smear/2_matrix2", kTRUE); gSystem->mkdir("plots/8_smear/3_matrix3", kTRUE);
-    TFile out("cuts/smear_matrix.root", "RECREATE");
+    std::string rootName = "cuts/smear_matrix.root"; // the per-cut mode writes its own file, so UnfoldPhi.cpp keeps reading the full sample one
+    if (cutSpec){
+        gSystem->mkdir((CutOut() + "2_matrix2").c_str(), kTRUE); gSystem->mkdir((CutOut() + "3_matrix3").c_str(), kTRUE);
+        std::string tag = cutSpec->dir; std::replace(tag.begin(), tag.end(), '/', '_');
+        rootName = "cuts/smear_matrix_" + tag + ".root";
+    } else {gSystem->mkdir("plots/8_smear/1_matrix", kTRUE); gSystem->mkdir("plots/8_smear/2_matrix2", kTRUE); gSystem->mkdir("plots/8_smear/3_matrix3", kTRUE);}
+    TFile out(rootName.c_str(), "RECREATE");
     const int nFlatT = kSlices * kPhiFlat;
     TH2D hRTheta("R_theta", "", nTheta, 0, tMax, nTheta, 0, tMax);
     TH1D hTTheta("T_theta", "", nTheta, 0, tMax), hMTheta("M_theta", "", nTheta, 0, tMax); // true theta of every row in range; recon theta of every row in range
@@ -285,6 +338,19 @@ void SmearMatrix(){
         if (labRecon.size() != c[0].size()) printf("SmearMatrix: %zu CE proton rows share a (fEvent, ParentID) key with another row; one of them is kept, in no fixed order\n", c[0].size() - labRecon.size());
         printf(">>> SmearMatrix AnglesRaw CE protons (%zu) read took %.0f s\n", c[0].size(), Secs()); fflush(stdout);
     } else {printf("SmearMatrix: cut_angles_all.root AnglesRaw missing\n"); return;}
+    std::unordered_set<ULong64_t> keep; // per-cut mode: the (fEvent, ParentID) of the CE protons of the sample; ParentID of a proton is the TrackID of its CE row
+    if (cutSpec){
+        TTree* st = cutSpec->file ? OpenCut(std::string("cuts/") + cutSpec->file + ".root", "AnglesRaw") : OpenCut("cuts/cut_ZdcCE.root", "ParticleInfo");
+        if (!st) return;
+        std::string flt = "fEvent >= 0";
+        if (cutSpec->file) flt = "PDG == 2212 && isFromCE";
+        else if (cutSpec->kePct) flt = Form("fDEnergy > %.6f", kBeamKE * cutSpec->kePct / 100.0);
+        const auto k = Columns(st, {"fEvent", "ParentID"}, flt);
+        keep.reserve(k[0].size());
+        for (size_t i = 0; i < k[0].size(); i++) keep.insert(EvKey((int)k[0][i], (int)k[1][i]));
+        printf(">>> SmearMatrix sample %s: %zu protons, %zu distinct (fEvent, ParentID)\n", cutSpec->dir, k[0].size(), keep.size()); fflush(stdout);
+        if (keep.empty()){printf("SmearMatrix: no CE protons in the sample of %s, nothing to plot\n", cutSpec->dir); return;}
+    }
     TTreeReader rc(ce), rr(red), rre(rec);
     TTreeReaderValue<int> ev(rc, "fEvent"), tr(rc, "TrackID"), ev2(rr, "fEvent"), tr2(rr, "TrackID");
     TTreeReaderValue<double> thCE(rc, "thetaCE"), phCE(rc, "phiCE"), thR(rr, "thetaReD"), phR(rr, "phiReD"), thRe(rre, "thetaRe"), phRe(rre, "phiRe");
@@ -293,6 +359,7 @@ void SmearMatrix(){
         if (*ev != *ev2 || *tr != *tr2){printf("SmearMatrix: CE and CalcValsReD rows do not line up at row %ld\n", nRows); return;}
         auto it = dirs.find(EvKey(*ev, *tr));
         if (it == dirs.end()){nNoDir++; continue;}
+        if (cutSpec && !keep.count(EvKey(*ev, *tr))) continue; // not a CE proton of this cut's sample
         const double thT = *thCE, phT = Wrap360(*phCE), thCEv = it->second.thLab, phLab = it->second.phLab; // CE truth in the true real neutron frame (thetaCE, phiCE) and in the lab
         const double thRec = *thR, phRec = Wrap360(*phR);
         const bool tIn = thT >= 0 && thT < tMax, rIn = thRec >= 0 && thRec < tMax;
@@ -390,7 +457,8 @@ void SmearMatrix(){
     TH1D hSiCETheta("SiCE_theta", "", nTheta, 0, tMax), hSiCEFlat("SiCE_thetaphi", "", nFlatT, 0, nFlatT), hSiCEFlatRe("SiCE_thetaphi_recon", "", nFlatT, 0, nFlatT);
     TH2D hSiCEThPh("SiCE_theta_phi", "", nTheta, 0, tMax, kPhiFine, 0, 360);
     long nSiCE = 0;
-    if (TTree* raw = OpenCut("cuts/cut_angles_all.root", "AnglesRaw")){
+    if (cutSpec) printf("SmearMatrix: per-cut mode, the SiCE protons (the full AnglesRaw read) are left out\n"); // the per-cut pages are CE only: the second pass over AnglesRaw is saved
+    else if (TTree* raw = OpenCut("cuts/cut_angles_all.root", "AnglesRaw")){
         // the non-CE protons with a theta in range (block or recon), read on all threads; the histograms do not depend on the row order (ColumnsUnordered, TreeColumns.h); NaN (no tube) fails the comparisons
         const std::string inRange = Form("(thetaRelND * %.17g >= 0 && thetaRelND * %.17g < %.17g) || (thetaRelN * %.17g >= 0 && thetaRelN * %.17g < %.17g)", TMath::RadToDeg(), TMath::RadToDeg(), tMax, TMath::RadToDeg(), TMath::RadToDeg(), tMax);
         const auto sc = ColumnsUnordered(raw, {"thetaRelND", "phiRelND", "thetaRelN", "phiRelN"}, "PDG == 2212 && isFromCE == 0 && (" + inRange + ")");
@@ -453,13 +521,14 @@ void SmearMatrix(){
     gStyle->SetOptStat(0);
     PlainFonts(); gStyle->SetPalette(kViridis); gStyle->SetNumberContours(255); gStyle->SetNdivisions(505, "X"); // as PlotAngle.cpp
     const std::string sd = Form("beam tilt max %.2f deg", maxTilt);
-    const std::string cutPair = Form("CE recon protons, both thetas 0 to %.1f deg, no other cuts", tMax);
+    const std::string cutTxt = CutNote().empty() ? std::string("no other cuts") : CutNote(); // the cut of the per-cut mode (SMEAR_CUT), else none
+    const std::string cutPair = Form("CE recon protons, both thetas 0 to %.1f deg, %s", tMax, cutTxt.c_str());
     // the same four matrices as proton counts per bin (x_2_ next to x_), no column left blank
     // beam angle only (no detector): the lab angle the proton has about z against its angle about the neutron
-    const std::string cutBeam = Form("CE protons, both thetas 0 to %.1f deg, no other cuts", tMax);
+    const std::string cutBeam = Form("CE protons, both thetas 0 to %.1f deg, %s", tMax, cutTxt.c_str());
     {   // 3_matrix3: probability pages 1-3, counts pages 4-6, of the true neutron direction (CENDir) to the estimated one (beam origin to tube centre), both in the lab frame
         const char* angName[3] = {"theta", "phi", "thetaphi"};
-        const std::string cutNeu = Form("%s, CE protons with a tube, true and estimated neutron theta 0 to %.0f deg (%ld outside), no other cuts", sd.c_str(), kNeuMax, nNeuOut);
+        const std::string cutNeu = Form("%s, CE protons with a tube, true and estimated neutron theta 0 to %.0f deg (%ld outside), %s", sd.c_str(), kNeuMax, nNeuOut, cutTxt.c_str());
         for (int a = 0; a < 3; a++){
             TH2D* pr = (TH2D*)hNeu[a]->Clone(Form("N_true_to_est_%d_norm", a));
             NormColumns(pr, tNeu[a]);
@@ -491,7 +560,7 @@ void SmearMatrix(){
     TH2D* nDThRe = (TH2D*)hRDetThetaRe.Clone("R_det_theta_recon_norm"); TH2D* nDPhRe = (TH2D*)hRDetPhiRe.Clone("R_det_phi_all_recon_norm"); TH2D* nDFlRe = (TH2D*)hRDetFlatRe.Clone("R_det_thetaphi_recon_norm");
     NormColumns(nDTh, &hTDetTheta); NormColumns(nDPh, &hTDetPhi); NormColumns(nDFl, &hTDetFlat);
     NormColumns(nDThRe, &hTDetTheta); NormColumns(nDPhRe, &hTDetPhi); NormColumns(nDFlRe, &hTDetFlat);
-    const std::string cutDet = Form("CE protons, both thetas 0 to %.1f deg, no other cuts", tMax);
+    const std::string cutDet = Form("CE protons, both thetas 0 to %.1f deg, %s", tMax, cutTxt.c_str());
     // physics step, CE true neutron frame to recon estimated neutron frame (the truth is the CE theta, phi of the true neutron frame, T_theta, T_phi_all, T_thetaphi)
     TH2D* nNRTh = (TH2D*)hRThetaRe.Clone("R_theta_recon_norm"); TH2D* nNRPh = (TH2D*)hRPhiRe.Clone("R_phi_all_recon_norm"); TH2D* nNRFl = (TH2D*)hRFlatRe.Clone("R_thetaphi_recon_norm");
     NormColumns(nNRTh, &hTTheta); NormColumns(nNRPh, &hTPhi); NormColumns(nNRFl, &hTFlat);
@@ -658,6 +727,7 @@ void SmearMatrix(){
     }
 
     out.cd();
+    if (cutSpec) TNamed("cut_text", CutNote().c_str()).Write(); // the cut as the titles name it, read by UnfoldPhi.cpp for its titles
     for (TH1* h : std::vector<TH1*>{&hRTheta, &hTTheta, &hMTheta, &hRPhi, &hTPhi, &hRFlat, &hTFlat, &hMFlat, nTheta2, nFlat2, nPhi2, &hSiCETheta, &hSiCEFlat, &hSiCEThPh, &hRBeamTheta, &hRBeamPhi, nBTh, nBPh, &hRBeamFlat, nBFl, &hMFlatRe, &hSiCEFlatRe, &hAPTheta, &hTDetTheta, &hTDetPhi, &hTDetFlat, &hRDetTheta, &hRDetPhi, &hRDetFlat, &hRDetThetaRe, &hRDetPhiRe, &hRDetFlatRe, nDTh, nDPh, nDFl, nDThRe, nDPhRe, nDFlRe, &hTRecTheta, &hTRecPhi, &hRBlockTheta, &hRBlockPhi, &hRBlockFlat, nBlTh, nBlPh, nBlFl, nChain, &hRThetaRe, &hRPhiRe, &hRFlatRe, nNRTh, nNRPh, nNRFl}) h->Write();
     for (TH1* h : hRSlice) h->Write();
     for (TH1* h : chain1D) h->Write();

@@ -90,6 +90,9 @@ inline double APFromT(double pbeam, double t, double apScale){
     return std::max(-1.0, apScale * -kAPA * (1 - std::exp(-kAPk * pbeam / 1000.0)) * std::sqrt(std::max(t, 0.0)));
 }
 
+// The A_eff equation as the plots print it (TLatex), so every plot that quotes an A_eff writes the same definition.
+inline const char* AEffEq(){return "A_{eff} = #Sigma N_{i} AP(#theta_{i}) / N_{0}";}
+
 // AP at the own theta of a proton (thetaDeg, its lab polar angle, no theta bins): the term AP(theta_i) of A_eff = sum_i N_i AP(theta_i) / N0 of the P fits,
 // N(phi) = N0 (1 + P A_eff cos(phi)). Add it per proton to an AMean: Mean() is A_eff over the protons of the fit, N0 = their number.
 inline double AEffOfTheta(double thetaDeg, double apScale){

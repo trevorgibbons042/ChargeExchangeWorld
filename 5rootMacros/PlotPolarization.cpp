@@ -97,6 +97,7 @@ static bool FitSlice(const std::vector<double>& phis, Slice& s, bool draw, const
         box->AddText("Fit function:");
         box->AddText("Unbinned fit: N(#phi) #propto 1 + AP #times P #times cos#phi");
         box->AddText(gApName.c_str());
+        box->AddText(AEffEq());
         box->AddText(Form("A_{eff} = %.4f #pm %.4f  (fixed)", s.ap, s.am.Err()));
         box->AddText(Form("P = %.3f #pm %.3f", s.p, s.pErr));
         box->AddText(Form("entries = %.0f", s.nPhi));

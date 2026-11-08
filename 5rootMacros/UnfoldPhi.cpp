@@ -14,6 +14,8 @@
 #include <TStyle.h>
 #include <TSystem.h>
 #include <TF1.h>
+#include <TNamed.h>
+#include <ROOT/TThreadExecutor.hxx>
 
 #include <algorithm>
 #include <cmath>
@@ -22,6 +24,8 @@
 #include <vector>
 
 #include "FitCore.h"
+#include "CutOpen.h"
+#include "TreeColumns.h"
 
 // Iterative Bayesian (D'Agostini) unfolding of the recon block phi of the CE protons from the estimated neutron frame back to the true neutron frame with the frame switch matrix M_recB_Fswitch
 // (R_reconB_neuF_to_reconB_labF_thetaphi, truth T_reconB_neuF_thetaphi; the matrix names say "labF" for the estimated frame), flat prior, kIterDraw iterations, then the P fit of PlotAngle.cpp on the phi:
@@ -147,28 +151,28 @@ static void DrawCurve(const Curve& cv, const std::string& path, const std::strin
     if (auto* st = (TPaveStats*)h->FindObject("stats")){st->SetX1NDC(0.76); st->SetX2NDC(0.995); st->SetY1NDC(0.55); st->SetY2NDC(0.83);}
     TLatex tx; tx.SetNDC(); tx.SetTextSize(0.028);
     tx.DrawLatex(0.13, 0.90, "Binned fit  N(#phi) #propto N_{0} (1 + P #upoint A_{eff} cos#phi) (weighted least squares on the phi bins)");
-    tx.DrawLatex(0.13, 0.865, Form("A_{eff} = #Sigma N_{i} AP(#theta_{i}) / N_{tot} = %.4f (fixed, %.2f deg theta slices),   P = %.2f #pm %.2f", cv.a, tMax / kSlices, cv.r.p, cv.r.err));
+    tx.DrawLatex(0.13, 0.865, Form("%s = %.4f (fixed, %.2f deg theta slices),   P = %.2f #pm %.2f", AEffEq(), cv.a, tMax / kSlices, cv.r.p, cv.r.err));
     c.Modified(); c.Update();
     c.SaveAs(path.c_str());
 }
 
-// Frame switch unfolding: the recon block phi counts of the estimated neutron frame (TDet) back to the true neutron frame (T) with the frame switch matrix R, then the two pages, the unfolded curve and the truth curve
-static void UnfoldFswitch(const TH2D& RBeam, const TH1D& T, const TH1D& TDet, const TProfile& apTrue, const TProfile& apEst, double tMax, const std::string& pathUnfolded, const std::string& pathTruth){
-    const Response resp = MakeResponse(RBeam, T);
-    const std::vector<double> lab = ContentsOf(TDet), truthNeutron = ContentsOf(T);
-    const auto nominal = Bayes(resp, lab, kIterMax);
-    TRandom3 rng(12345);
-    std::vector<double> toyPhi((size_t)kIterMax * kToys * kPhiBins);
-    for (int t = 0; t < kToys; t++){
+// Unfolds the measured counts meas (flattened (theta slice, phi bin), estimated neutron frame) for the first nIter iterations: the phi histogram of each iteration, its error (the spread of kToys Poisson toys of
+// meas; the statistical error of the matrix is not in it), the A_eff of that curve (apTrue, the AP profile of the true neutron frame) and its P fit (the error of P from the toys). The kToys toys are
+// independent: they run on all the threads (ANA_NTHREADS, NThreads()), each toy with its own seeded generator, so the result does not depend on the thread count.
+static void UnfoldIterations(const Response& resp, const std::vector<double>& meas, const TProfile& apTrue, int nIter, double (*phiU)[kPhiBins], double (*sigU)[kPhiBins], double* aU, PResult* pU){
+    const auto nominal = Bayes(resp, meas, nIter);
+    std::vector<double> toyPhi((size_t)nIter * kToys * kPhiBins);
+    ROOT::TThreadExecutor pool(NThreads());
+    pool.Foreach([&](int t){
+        TRandom3 rng(12345 + t);
         std::vector<double> mt(kBins);
-        for (int j = 0; j < kBins; j++) mt[j] = rng.Poisson(lab[j]);
-        const auto u = Bayes(resp, mt, kIterMax);
+        for (int j = 0; j < kBins; j++) mt[j] = rng.Poisson(meas[j]);
+        const auto u = Bayes(resp, mt, nIter);
         double sl[kSlices];
-        for (int it = 0; it < kIterMax; it++) PhiOf(u[it], &toyPhi[((size_t)it * kToys + t) * kPhiBins], sl);
-    }
-    double phiU[kIterMax][kPhiBins], sigU[kIterMax][kPhiBins], aU[kIterMax], sliceN[kSlices];
-    PResult pU[kIterMax];
-    for (int it = 0; it < kIterMax; it++){
+        for (int it = 0; it < nIter; it++) PhiOf(u[it], &toyPhi[((size_t)it * kToys + t) * kPhiBins], sl);
+    }, ROOT::TSeqI(kToys));
+    double sliceN[kSlices];
+    for (int it = 0; it < nIter; it++){
         PhiOf(nominal[it], phiU[it], sliceN);
         aU[it] = AEffOf(sliceN, apTrue);
         for (int b = 0; b < kPhiBins; b++){
@@ -186,6 +190,15 @@ static void UnfoldFswitch(const TH2D& RBeam, const TH1D& T, const TH1D& TDet, co
         }
         if (ok > 1){const double mean = sp / ok; pU[it].err = std::sqrt(std::max(0.0, sp2 / ok - mean * mean));}
     }
+}
+
+// Frame switch unfolding: the recon block phi counts of the estimated neutron frame (TDet) back to the true neutron frame (T) with the frame switch matrix R, then the two pages, the unfolded curve and the truth curve
+static void UnfoldFswitch(const TH2D& RBeam, const TH1D& T, const TH1D& TDet, const TProfile& apTrue, const TProfile& apEst, double tMax, const std::string& pathUnfolded, const std::string& pathTruth){
+    const Response resp = MakeResponse(RBeam, T);
+    const std::vector<double> lab = ContentsOf(TDet), truthNeutron = ContentsOf(T);
+    double phiU[kIterMax][kPhiBins], sigU[kIterMax][kPhiBins], aU[kIterMax];
+    PResult pU[kIterMax];
+    UnfoldIterations(resp, lab, apTrue, kIterMax, phiU, sigU, aU, pU);
     // the y axis of the two pages is the same
     double phiL[kPhiBins], phiN[kPhiBins], sigN[kPhiBins], slL[kSlices], slN[kSlices], top = 0;
     PhiOf(lab, phiL, slL); PhiOf(truthNeutron, phiN, slN);
@@ -227,6 +240,55 @@ static void UnfoldFswitch(const TH2D& RBeam, const TH1D& T, const TH1D& TDet, co
     }
 }
 
+// The measured counts of a sample: the recon block angles in the estimated neutron frame (thetaRelND, phiRelND of AnglesRaw: RECONTHETABL_ESTNEU, RECONPHIBL_ESTNEU) in the flattened (theta slice, phi bin)
+// numbers of the matrix (SmearMatrix.cpp FlatBin), the rows that pass filter. Read on all threads, the order does not matter.
+static std::vector<double> MeasuredOf(TTree* t, const std::string& filter, double tMax){
+    std::vector<double> m(kBins, 0.0);
+    const auto c = ColumnsUnordered(t, {"thetaRelND * 57.29577951308232", "phiRelND * 57.29577951308232"}, filter);
+    for (size_t i = 0; i < c[0].size(); i++){
+        const double th = c[0][i], ph = std::fmod(std::fmod(c[1][i], 360.0) + 360.0, 360.0);
+        if (!(th >= 0 && th < tMax)) continue; // NaN (no tube) fails
+        m[std::min(kSlices - 1, (int)(th / (tMax / kSlices))) * kPhiBins + std::min(kPhiBins - 1, (int)(ph / (360.0 / kPhiBins)))] += 1;
+    }
+    return m;
+}
+
+// The unfolding of 1_phiReD_cosfit.pdf (all recon protons) and 1_phiReD_cosfit_CE.pdf (the CE recon protons) of 6_cuts/9_megaCut3/1_1particlecut, each into its own pdf beside them: the recon block angles in the
+// estimated neutron frame of cut_megacut3_1.root unfolded to the true neutron frame with the matrix of that cut (M_recB_Fswitch in cuts/smear_matrix_9_megaCut3_1_1particlecut.root: SmearMatrix.cpp with SMEAR_CUT,
+// smear_cuts.sh), kIterDraw iterations, flat prior. The block phi spike at 0 stays in the measured counts (it is in the matrix too). The matrix describes CE protons only, so the all recon protons page
+// says the non-CE protons are not in it.
+static void UnfoldMegaCut3(double tMax){
+    const char* matrixFile = "cuts/smear_matrix_9_megaCut3_1_1particlecut.root";
+    TFile* file = TFile::Open(matrixFile, "READ");
+    if (!file || file->IsZombie()){printf("UnfoldPhi: %s missing, no megaCut3 unfolding (run smear_cuts.sh: SmearMatrix.cpp with SMEAR_CUT=9_megaCut3/1_1particlecut)\n", matrixFile); return;}
+    const TH2D* r = (TH2D*)file->Get("R_reconB_neuF_to_reconB_labF_thetaphi"); const TH1D* tTrue = (TH1D*)file->Get("T_reconB_neuF_thetaphi"); const TProfile* apTrue = (TProfile*)file->Get("AP_reconB_neuF");
+    const TNamed* cutText = (TNamed*)file->Get("cut_text");
+    if (!r || !tTrue || !apTrue || tTrue->GetNbinsX() != kBins){printf("UnfoldPhi: a matrix is missing or has not %d bins in %s (rerun SmearMatrix.cpp with SMEAR_CUT)\n", kBins, matrixFile); return;}
+    TTree* raw = OpenCut("cuts/cut_megacut3_1.root", "AnglesRaw");
+    if (!raw) return;
+    const std::string dir = "plots/6_cuts/9_megaCut3/1_1particlecut/2_phi_cosfit/";
+    gSystem->mkdir(dir.c_str(), kTRUE);
+    const Response resp = MakeResponse(*r, *tTrue);
+    const std::string cuts = cutText ? cutText->GetTitle() : "9_megaCut3/1_1particlecut";
+    struct Sample {const char *filter, *pdf, *name, *note;};
+    const Sample samples[2] = {{"PDG == 2212", "1_phiReD_cosfit_unfolded.pdf", "all recon protons", ", the matrix describes CE protons only: the non-CE protons are not in it"},
+                               {"PDG == 2212 && isFromCE", "1_phiReD_cosfit_CE_unfolded.pdf", "CE recon protons", ""}};
+    for (int s = 0; s < 2; s++){
+        const std::vector<double> meas = MeasuredOf(raw, samples[s].filter, tMax);
+        double n = 0; for (double x : meas) n += x;
+        if (!(n > 0)){printf("UnfoldPhi: no %s in cut_megacut3_1.root with a recon block theta 0 to %.1f deg\n", samples[s].name, tMax); continue;}
+        double phiU[kIterMax][kPhiBins], sigU[kIterMax][kPhiBins], aU[kIterMax];
+        PResult pU[kIterMax];
+        UnfoldIterations(resp, meas, *apTrue, kIterDraw, phiU, sigU, aU, pU); // only the iterations that are drawn
+        const int d = kIterDraw - 1;
+        double top = 0;
+        for (int b = 0; b < kPhiBins; b++) top = std::max(top, phiU[d][b] + sigU[d][b]);
+        printf("UnfoldPhi megaCut3 %s (%.0f protons): P unfolded to the true neutron frame (%d it) %.3f +- %.3f\n", samples[s].name, n, kIterDraw, pU[d].p, pU[d].err);
+        const Curve cv = {"unfolded", std::string("recon block phi, ") + samples[s].name + ", estimated neutron frame unfolded to the true neutron frame", phiU[d], sigU[d], pU[d], aU[d], kBlack, true};
+        DrawCurve(cv, dir + samples[s].pdf, Form("mega%d", s), cuts, Form(", unfolded with M_recB_Fswitch of this cut, %d iterations, flat prior, block phi spike at 0 kept%s", kIterDraw, samples[s].note), top, tMax);
+    }
+}
+
 void UnfoldPhi(){
     FastJit();
     TH1::AddDirectory(kFALSE);
@@ -239,5 +301,6 @@ void UnfoldPhi(){
     gSystem->mkdir("plots/8_smear/3_phi_cosfit", kTRUE);
     PlainFonts(); gStyle->SetOptStat(1111); gStyle->SetOptFit(11);
     UnfoldFswitch(*r, *tTrue, *tEst, *apTrue, *apEst, 5.0 * ThetaScale(), "plots/8_smear/3_phi_cosfit/1_M_recB_phi_cosfit_unfolded.pdf", "plots/8_smear/3_phi_cosfit/2_M_recB_phi_cosfit_trueNeutron.pdf");
+    UnfoldMegaCut3(5.0 * ThetaScale()); // the two megaCut3 phi cosfits unfolded, needs the matrix of smear_cuts.sh
 }
 
