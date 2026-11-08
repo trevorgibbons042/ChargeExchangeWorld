@@ -43,14 +43,26 @@ case $STEP in
     fom)      macros=('PlotAngle.cpp("fDEnergy")' 'PlotCEFraction.cpp' 'PlotPolarization.cpp("fDEnergy")' 'PlotFomPolarization.cpp("fDEnergy")') ;; # 3_ReconCalcVals, 5_fomCalc
     ceblock)  macros=('PlotDiffPhiCuts.cpp(50, 180, "fDEnergy")' 'GraphBlocks.cpp' 'CETCompare.cpp') ;; # 4_CEblock
     secce)    macros=('SecondaryCE.cpp') ;; # 7_secondaryCE
+    smear)    macros=('SmearMatrix.cpp') ;; # 8_smear
     pdfs)     macros=() ;; # the python steps of plot.sh, after every lane
     *) echo "unknown step $STEP"; exit 1 ;;
 esac
 
 # Build every macro of the step once, before the parallel processes (CutPlots, Plot3D): two processes never build the same .so (as in plot.sh)
 if [ -n "$ACLIC" ]; then
-    for m in "${macros[@]}"; do root -l -b -q -e ".L ${m%%(*}$ACLIC" > /dev/null 2>&1; done
+    for m in "${macros[@]}"; do root -l -b -q -e ".L ${m%%(*}$ACLIC" > /dev/null 2>&1 & done # one process per macro, side by side: each macro builds its own .so
+    wait
 fi
+# The analysis steps also build the macros of the plot jobs that run after them (Plot3D alone took 78 s of the Cuts job), beside the analysis: ReconAngleAll waits on the disk and leaves
+# most of the cores idle. The plot jobs then find the .so files up to date. Waited for before the job ends, the plot jobs start after it.
+precompile=
+case $STEP in
+    analysis|analysisconvert)
+        if [ -n "$ACLIC" ]; then
+            ( for m in Plot3D QualityStudy PlotKEOverlay PlotAngle PlotCEFraction PlotPolarization PlotFomPolarization PlotDiffPhiCuts GraphBlocks CETCompare SecondaryCE SmearMatrix; do nice -n 10 root -l -b -q -e ".L $m.cpp$ACLIC" > /dev/null 2>&1 & done; wait ) &
+            precompile=$!
+        fi ;;
+esac
 
 for m in "${macros[@]}"; do
     echo "=== $m $(date +%H:%M:%S)"
@@ -78,15 +90,16 @@ for m in "${macros[@]}"; do
         # the independent parts of Plot3D (P3_PART, P3_CUT, Plot3D.cpp) side by side, one process each: part 1, and parts 2, 3 and 4 once per cut (0 to 10; part 4 also 11 to 16, the KE scan sets of 7_megaCut2 and 9_megaCut3; parts 3 and 4 of cut 0 once per folder, 0:0 to 0:3, P3_SUB), then part 5 ranks the cuts. One process per cut keeps part 3 (the 1_additionalinfo plots) from running all cuts one after the other
         # the cores are split evenly over the processes (128 cpus: 46 processes of 2 threads), part 5 and QualityStudy then take all of them
         # PARTS (joined with +) picks some of them, for SubmitPlots.sh redoing one folder
-        parts=(1::0 1::1 1::2 1::3 3:0:0 3:0:1:0 3:0:1:1 3:0:1:2 3:0:1:3 3:0:1:4 3:0:1:5 3:0:2 3:0:3 3:1 3:2 3:3 3:4 3:5 3:6 3:7 3:8 3:9 3:10 4:5 4:6 4:8 4:11 4:12 4:13 4:14 4:15 4:16 2:0 2:1 2:2 2:3 2:4 2:5 2:6 2:7 2:8 2:9 2:10)
+        parts=(1::0 1::1 1::2 1::3 3:0:0 3:0:1:0 3:0:1:1 3:0:1:2 3:0:1:3 3:0:1:4 3:0:1:5 3:0:2 3:0:3:0 3:0:3:1 3:0:3:2 3:0:3:3 3:1 3:2 3:3 3:4 3:5 3:6 3:7 3:8 3:9 3:10 4:5 4:6 4:8 4:11 4:12 4:13 4:14 4:15 4:16 2:0 2:1 2:2 2:3 2:4 2:5 2:6 2:7 2:8 2:9 2:10)
         [ -n "$PARTS" ] && parts=(${PARTS//+/ })
-        # threads per process (all of PARTS unset), from the walls of the 137.5 GeV 9block run at 2 threads: a process of w s gets about 2w/300 threads, so each should land near 5 minutes. The table adds up to 119 of 128, the phi scans of 6/7/9_megaCut (4:5, 4:6, 4:8: 4 threads) and their KE scans (4:11 to 4:16: 2) the new weights, not timed yet; a part not listed gets 1
+        # threads per process (all of PARTS unset), from the walls of the 137.5 GeV 9block run at 2 threads: a process of w s gets about 2w/300 threads, so each should land near 5 minutes. The table adds up to 82 of 128 (part 2 writes csv rows only and runs on the default 1 thread: 2:0 used 48% of one core) and thr_for doubles it (OVERSUB), so the cores of finished parts go to the parts still running; the phi scans of 6/7/9_megaCut (4:5, 4:6, 4:8: 4 threads) and their KE scans (4:11 to 4:16: 2) the new weights, not timed yet; a part not listed gets 1
         thr_for(){
             local t
             case "$1" in
-                3:0:1:[0-3]) t=3 ;; 3:0:1:[45]) t=2 ;; 3:0:0|3:0:2|3:0:3) t=4 ;; 3:1) t=2 ;;
-                2:[1-9]|2:10) t=4 ;; 1::0) t=3 ;; 1::[123]) t=4 ;; 4:[568]) t=4 ;; 4:1[1-6]) t=2 ;; *) t=1 ;;
+                3:0:1:[0-3]) t=3 ;; 3:0:1:[45]) t=2 ;; 3:0:0|3:0:2) t=4 ;; 3:0:3:[0-3]) t=2 ;; 3:1) t=2 ;;
+                1::0) t=3 ;; 1::[123]) t=4 ;; 4:[568]) t=4 ;; 4:1[1-6]) t=2 ;; *) t=1 ;;
             esac
+            t=$(( t * ${OVERSUB:-2} )) # OVERSUB=1 gives the plain table
             echo $(( t * ${NCPUS:-128} / 128 > 0 ? t * ${NCPUS:-128} / 128 : 1 ))
         }
         export ANA_NTHREADS=$(( ${NCPUS:-128} / ${#parts[@]} > 0 ? ${NCPUS:-128} / ${#parts[@]} : 1 )) # PARTS set (a redo): the cores split evenly
@@ -107,10 +120,11 @@ for m in "${macros[@]}"; do
     fi
     time root -l -b -q "${m/.cpp/.cpp${ACLIC-+O}}" # compiled with ACLiC (+O) unless ACLIC= (empty)
 done
+[ -n "$precompile" ] && wait $precompile # the plot macros built beside the analysis
 
 if [ "$STEP" = pdfs ]; then
     python3 tidy_plots.py plots
     python3 cut_side_box.py plots
     python3 crop_pdfs.py plots
-    cp settings.csv plots/ # the sim settings of this run beside its plots
 fi
+mkdir -p plots; cp settings.csv plots/ # the sim settings of this run beside its plots, after every step (a run without the pdfs step has them too)

@@ -3,14 +3,14 @@
 # Quick redo of one cut: CUT_ONLY=megacut3 bash SubmitPlots.sh <run> "" CutPlots 6_cuts/9_megaCut3 rewrites only the cut_megacut3* files (CutPlots.cpp) and then replots only that folder.
 # Usage: bash SubmitPlots.sh <folder in build/root> [job ids CutPlots waits for, colon separated] [first job] [plots/ folder to redo], e.g. bash SubmitPlots.sh Physics_xs1e10
 # The Pdfs job is only submitted with PDFS=1 in the environment or with Pdfs as the first job (the examples below that mention it need one of them).
-# first job: CutPlots (default), Cuts, Fom, CEblock, SecCE or Pdfs. The jobs before it are not submitted (their files are already in cuts/), so e.g. "Cuts" runs Cuts, Fom, CEblock, SecCE and Pdfs: bash SubmitPlots.sh Physics_801 "" Cuts
+# first job: CutPlots (default), Cuts, Fom, CEblock, SecCE, Smear or Pdfs. The jobs before it are not submitted (their files are already in cuts/), so e.g. "Cuts" runs Cuts, Fom, CEblock, SecCE, Smear and Pdfs: bash SubmitPlots.sh Physics_801 "" Cuts
 # plots/ folder to redo: one folder of plots/ (a leading plots/ is dropped), e.g. bash SubmitPlots.sh Physics_801 "" CutPlots 6_cuts/3_ResCuts. It is deleted, then only the jobs that write it run (none of CutPlots), then Pdfs.
 #   1_position, 2_energy          Plot3D part 1
 #   6_cuts, 6_cuts/<cut folder>   Plot3D parts 2, 3, 4 of that cut (all cuts for 6_cuts), part 5 (rank csv files), QualityStudy for 3_ResCuts, 4_nParticles, 5_nHits
-#   3_ReconCalcVals, 5_fomCalc    the Fom lane      4_CEblock  the CEblock lane      7_secondaryCE  the SecCE lane
+#   3_ReconCalcVals, 5_fomCalc    the Fom lane      4_CEblock  the CEblock lane      7_secondaryCE  the SecCE lane      8_smear  the Smear lane
 # Needs cut_*.root and settings.csv already in the run folder (CutEvents.cpp, ReconAngleAll.cpp, CalcAPandT.cpp, CountCE.cpp done), or the job ids of the jobs that write them (SubmitEvents.sh).
 RUN=$1
-ORDER="CutPlots Cuts Fom CEblock SecCE Pdfs"
+ORDER="CutPlots Cuts Fom CEblock SecCE Smear Pdfs"
 # the Pdfs job (tidy_plots.py, cut_side_box.py, crop_pdfs.py) is not submitted unless it is asked for: PDFS=1 in the environment, or Pdfs as the first job
 [ "${3:-}" = Pdfs ] && PDFS=1
 FROM=${3:-CutPlots}
@@ -51,7 +51,7 @@ if [ -n "$TARGET" ]; then
         6_cuts)
             idx=$(cut_indexes "$rest") || { echo "unknown cut folder: 6_cuts/$rest"; exit 1; }
             for i in $idx; do
-                if [ "$i" = 0 ]; then PARTS+="2:0+3:0:0+3:0:1:0+3:0:1:1+3:0:1:2+3:0:1:3+3:0:1:4+3:0:1:5+3:0:2+3:0:3+" # cut 0 holds four folders (P3_SUB), a process each; the slow noCuts ones (3:0:1, 4:0:2) split further (P3_SEC, Plot3D.cpp)
+                if [ "$i" = 0 ]; then PARTS+="2:0+3:0:0+3:0:1:0+3:0:1:1+3:0:1:2+3:0:1:3+3:0:1:4+3:0:1:5+3:0:2+3:0:3:0+3:0:3:1+3:0:3:2+3:0:3:3+" # cut 0 holds four folders (P3_SUB), a process each; the slow noCuts ones (3:0:1, 4:0:2) and the KE scan ones (3:0:3, one process per KE level 80 85 90 95) split further (P3_SEC, Plot3D.cpp)
                 else PARTS+="2:$i+3:$i+"; case $i in 5|6|8) PARTS+="4:$i+" ;; esac; fi
             done
             [ -z "$rest" ] && PARTS+="4:11+4:12+4:13+4:14+4:15+4:16+" # all of 6_cuts: also the KE scan sets of Plot3D.cpp part 4 (cuts 11 to 16)
@@ -61,7 +61,8 @@ if [ -n "$TARGET" ]; then
         3_ReconCalcVals|5_fomCalc) LANE=fom ;;
         4_CEblock) LANE=ceblock ;;
         7_secondaryCE) LANE=secce ;;
-        *) echo "unknown plots folder $top (one of: 1_position 2_energy 3_ReconCalcVals 4_CEblock 5_fomCalc 6_cuts 7_secondaryCE)"; exit 1 ;;
+        8_smear) LANE=smear ;;
+        *) echo "unknown plots folder $top (one of: 1_position 2_energy 3_ReconCalcVals 4_CEblock 5_fomCalc 6_cuts 7_secondaryCE 8_smear)"; exit 1 ;;
     esac
     [ -d "../build/root/$RUN/plots/$TARGET" ] || { echo "no folder ../build/root/$RUN/plots/$TARGET"; exit 1; }
     rm -rf "../build/root/$RUN/plots/$TARGET" || exit 1 # the old plots go, so nothing stale stays beside the new ones
@@ -93,6 +94,7 @@ on Cuts && cuts=$(submit Cuts cuts "$w" 128) # Plot3D runs nine processes side b
 on Fom && fom=$(submit Fom fom "$w")
 on CEblock && ce=$(submit CEblock ceblock "$w")
 on SecCE && sec=$(submit SecCE secce "$w")
+on Smear && smear=$(submit Smear smear "$w")
 # tidy, side box and crop once every lane has ended, so the pdfs of the lanes that worked are still finished when one failed
-ids=$(echo $cuts $fom $ce $sec | tr ' ' ':')
+ids=$(echo $cuts $fom $ce $sec $smear | tr ' ' ':')
 if [ -n "$PDFS" ]; then DEPKIND=afterany submit Pdfs pdfs "${ids:-$w}"; fi

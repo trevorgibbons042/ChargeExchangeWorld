@@ -22,6 +22,7 @@
 #include <vector>
 
 #include "FitCore.h"
+#include "TreeColumns.h"
 
 // Troubleshooting plot of the vertex tube of ReconAngleAll.cpp (the tube* and *N branches of AnglesRaw). Not part of run.sh or plot.sh: run it by hand from a run folder, after ReconAngleAll.
 //   root -l -b -q 'PlotTubeDebug.cpp'                    two example CE protons (different tube blocks, 5+ tracker hits)
@@ -33,16 +34,27 @@
 
 // The tracker block hits of a track from the raw ParticleInfo: u = block position (fDx for a = 0, fDy for a = 1) at z = fDz.
 // ut, zt: the same hits at their true position (fX or fY at fZ).
-static void TubeHits(TChain& pi, int ev, int tr, int a, std::vector<double>& u, std::vector<double>& z, std::vector<double>& ut, std::vector<double>& zt){
+// All the picked tracks are read in one pass over ParticleInfo on all threads (TubeHitsLoad, Columns), then TubeHits only looks them up. A TTree::Draw per track and axis scanned the whole chain on one thread each time.
+typedef std::array<std::vector<double>, 6> HitCols; // fDx, fDy, fDz, fX, fY, fZ
+static std::map<std::pair<int, int>, HitCols>& HitCache(){static std::map<std::pair<int, int>, HitCols> c; return c;}
+static void TubeHitsLoad(TChain& pi, const std::vector<std::pair<int, int>>& tracks){
+    std::string filter;
+    for (const auto& p : tracks) filter += (filter.empty() ? "" : "||") + std::string("(fEvent==") + std::to_string(p.first) + "&&TrackID==" + std::to_string(p.second) + ")";
+    const auto c = Columns(&pi, {"fEvent", "TrackID", "fDx", "fDy", "fDz", "fX", "fY", "fZ"}, "boundaryType==0&&(" + filter + ")");
+    for (size_t i = 0; i < c[0].size(); i++){
+        HitCols& h = HitCache()[{(int)c[0][i], (int)c[1][i]}];
+        for (int k = 0; k < 6; k++) h[k].push_back(c[2 + k][i]);
+    }
+}
+static void TubeHits(TChain&, int ev, int tr, int a, std::vector<double>& u, std::vector<double>& z, std::vector<double>& ut, std::vector<double>& zt){
     u.clear(); z.clear(); ut.clear(); zt.clear();
-    const std::string cut = "fEvent==" + std::to_string(ev) + "&&TrackID==" + std::to_string(tr) + "&&boundaryType==0";
-    pi.Draw(a ? "fDy:fDz" : "fDx:fDz", cut.c_str(), "goff");
-    for (Long64_t i = 0; i < pi.GetSelectedRows(); i++){u.push_back(pi.GetV1()[i]); z.push_back(pi.GetV2()[i]);}
-    pi.Draw(a ? "fY:fZ" : "fX:fZ", cut.c_str(), "goff");
-    for (Long64_t i = 0; i < pi.GetSelectedRows(); i++){ut.push_back(pi.GetV1()[i]); zt.push_back(pi.GetV2()[i]);}
+    const auto it = HitCache().find({ev, tr});
+    if (it == HitCache().end()) return;
+    u = it->second[a]; z = it->second[2]; ut = it->second[3 + a]; zt = it->second[5];
 }
 
 void PlotTubeDebug(int event = -1, int trackID = -1, int nTracks = 2, int minHits = 5){
+    ROOT::EnableImplicitMT(NThreads());
     const auto s = ReadSettings();
     const StackLayout layout = StackZ(s);
     const double half = s.at("CarbonThickness") * 500.0, zdc = 7700.0;
@@ -91,6 +103,11 @@ void PlotTubeDebug(int event = -1, int trackID = -1, int nTracks = 2, int minHit
     }
     if (picks.empty()){Error("PlotTubeDebug", "no track with a tube found for these arguments"); return;}
     const int nEx = (int)picks.size();
+    {
+        std::vector<std::pair<int, int>> want;
+        for (const Long64_t i : picks){t->GetEntry(i); want.push_back({evn, trk});}
+        TubeHitsLoad(pi, want);
+    }
 
     // the full-view panels of every track share one axis range per x and per y, the zoom panels one span (x and y alike, each starts where its data is)
     double fullMax[2] = {0, 0}, zoomSpan[2] = {0, 0};
