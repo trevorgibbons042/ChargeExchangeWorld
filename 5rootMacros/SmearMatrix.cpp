@@ -160,6 +160,7 @@ static void SaveResidual(TH1D* hNeutron, TH1D* hLab, const char* angle, const st
 
 void SmearMatrix(){
     Secs();
+    ROOT::EnableImplicitMT(NThreads()); // Columns / ColumnsUnordered (TreeColumns.h) read on all the threads only after this (NThreads: ANA_NTHREADS, FitCore.h); without it the two AnglesRaw reads ran on one core, 74 s and 83 s on LCRC
     FastJit();
     TH1::AddDirectory(kFALSE); // the histograms are written to the file by hand at the end, so closing it does not delete the stack ones
     const double tMax = ThetaMaxDeg();
