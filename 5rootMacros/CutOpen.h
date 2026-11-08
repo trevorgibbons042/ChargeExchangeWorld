@@ -14,7 +14,7 @@
 //   cut_ParentTracker.root ParticleInfo: the children of a carbon CE track that are protons at the first tracker (boundaryType == 0)
 //   cut_AllEvProtons.root  ParticleInfo: the protons at the ZDC of every event
 //   cut_ZdcCE.root, cut_ZdcAllEv.root   cut_ParentZdc.root / cut_AllEvProtons.root plus the Plot3D columns of the reconstructed track (Plot3DCols.h)
-//   cut_ResCuts, cut_nParticles1, cut_nParticles2, cut_nHits, cut_nChHits, cut_nChHits2, cut_megacut_1..4, cut_megacut2_1..4, cut_megacut3_1..4, cut_nZdc1 .root  AnglesRaw: the fitted protons that pass one cut of 6_cuts (CutPlots.cpp (samples))
+//   cut_ResCuts, cut_nParticles1, cut_nParticles2, cut_nHits, cut_nChHits, cut_nChHits2, cut_megacut3_1..4, cut_nZdc1 .root  AnglesRaw: the fitted protons that pass one cut of 6_cuts (CutPlots.cpp (samples))
 //   cut_base.root           AnglesRaw: the fitted protons of the theta baseline (RECONTHETA_ESTNEU and block theta 0 to 1 deg), the sample every cut above starts from; QualityStudy reads it (CutPlots.cpp (samples))
 //   cut_hitZDC_AllEv.root   ParticleInfo: the ZDC protons of every event with a reconstructed track (CutPlots.cpp (samples))
 

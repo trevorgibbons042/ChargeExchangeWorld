@@ -124,7 +124,7 @@ inline std::map<std::string, double> ReadSettings(const std::string& path = "set
     return settings;
 }
 
-// The tracker hit cuts (5_nHits, 6_megaCut, 7_megaCut2, 9_megaCut3) keep the even counts 2, 4, ... 2 * nBlocks (1 block: 2; 3 blocks: 2, 4, 6; 7 blocks: 2 to 14), one pair of hits per block.
+// The tracker hit cuts (5_nHits, 9_megaCut3) keep the even counts 2, 4, ... 2 * nBlocks (1 block: 2; 3 blocks: 2, 4, 6; 7 blocks: 2 to 14), one pair of hits per block.
 // MaxTrackerHits reads settings.csv, so call it once outside an event loop and pass the value to EvenHits.
 inline int MaxTrackerHits(){return 2 * (int)std::lround(ReadSettings().at("nBlocks"));}
 inline bool EvenHits(int n, int maxHits){return n >= 2 && n <= maxHits && n % 2 == 0;}

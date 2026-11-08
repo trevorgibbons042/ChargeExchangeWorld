@@ -1,7 +1,6 @@
-// KE cut overlays of the megaCut folders, in plots/6_cuts/<6_megaCut|7_megaCut2|9_megaCut3>/KE_overlay/ (the RECONPHIBL_ESTNEU fits of 1_1particlecut/2_phi_cosfit).
+// KE cut overlays of the megaCut folder, in plots/6_cuts/9_megaCut3/KE_overlay/ (the RECONPHIBL_ESTNEU fits of 1_1particlecut/2_phi_cosfit).
 // One pdf per curve of Plot3D.cpp part 4 (P vs start theta, its percent error, the ratios 5 to 13), each with the ZDC KE cuts of the folder on top of each other:
-//   7_megaCut2, 9_megaCut3: 80% (the folder itself) and 85, 90, 95% (its _KE85, _KE90, _KE95 folders, cut_megacut2_p_ke85.root ... from CutPlots.cpp)
-//   6_megaCut: its own sample without a ZDC KE cut, then the 7_megaCut2 curves (6_megaCut plus ZDC KE > x is the megacut2 sample, so those folders hold its 80 to 95% curves)
+//   9_megaCut3: 80% (the folder itself) and 85, 90, 95% (its _KE85, _KE90, _KE95 folders, cut_megacut3_p_ke85.root ... from CutPlots.cpp)
 // Reads the csv files the part 4 plots write next to their pdfs (P_vs_start_theta.csv: plot,sample,start_theta_deg,value,error,pct_kept; ratios_vs_start_theta.csv: plot,start_theta_deg,value),
 // so no fit is redone. All recon protons, all recon charged particles and the CE recon protons of the P plots, and the proton and particle ratios, are separate pdfs because they are separate plots there.
 // Run from the run folder after every part 4 and before tidy_plots.py, which moves the csv files (the 6_cuts lane of plot.sh, the Plot3D step of Plot.pbs).
@@ -81,13 +80,10 @@ double KePTrue(){
 
 void KeOverlayFolder(const std::string& family, const std::string& name){
     const std::string base = "plots/6_cuts/";
-    const bool ke6 = family == "6_megaCut";
-    const std::string fam = ke6 ? "7_megaCut2" : family; // the folders that hold the KE levels
     std::vector<KeLevel> levels;
-    if (ke6) levels.push_back({"no ZDC KE cut", family + "/" + name, kBlack});
-    levels.push_back({"ZDC KE > 80%", fam + "/" + name, kRed});
+    levels.push_back({"ZDC KE > 80%", family + "/" + name, kRed});
     const int colors[3] = {kBlue, kGreen + 2, kMagenta + 1}, pcts[3] = {85, 90, 95};
-    for (int i = 0; i < 3; i++) levels.push_back({Form("ZDC KE > %d%%", pcts[i]), fam + "/" + name + Form("_KE%d", pcts[i]), colors[i]});
+    for (int i = 0; i < 3; i++) levels.push_back({Form("ZDC KE > %d%%", pcts[i]), family + "/" + name + Form("_KE%d", pcts[i]), colors[i]});
 
     const std::string csvDir = "/2_phi_cosfit/";
     const std::string outDir = base + family + "/KE_overlay/"; // the overlays sit in the megaCut folder itself
@@ -95,9 +91,8 @@ void KeOverlayFolder(const std::string& family, const std::string& name){
     std::vector<std::string> cutLines = {Form("%s/%s:", family.c_str(), name.c_str()),
         name[2] == '1' ? "at most 1 recon particle in the event" : "at most 2 recon particles in the event",
         "even tracker hits, 2 to 2 x nBlocks", "at most 1 charged particle per tracker plane", "RECONTHETA_ESTNEU, block theta 0 to 1 deg"};
-    if (family != "6_megaCut") cutLines.push_back("a recon ZDC proton, ZDC KE cut of the legend");
-    if (family == "9_megaCut3"){cutLines.push_back("no other charged tracker hit in the event (nTrackerHitsEv == nHits)"); cutLines.push_back("exactly 1 charged ZDC particle");}
-    if (ke6) cutLines.push_back("the other curves also have the ZDC KE cut");
+    cutLines.push_back("a recon ZDC proton, ZDC KE cut of the legend");
+    cutLines.push_back("no other charged tracker hit in the event (nTrackerHitsEv == nHits)"); cutLines.push_back("exactly 1 charged ZDC particle");
 
     for (const bool isP : {true, false}){
         std::vector<KeCurves> data;
@@ -166,7 +161,7 @@ void KeOverlayFolder(const std::string& family, const std::string& name){
 
 void PlotKEOverlay(){
     gStyle->SetOptStat(0);
-    for (const char* family : {"7_megaCut2", "9_megaCut3"}) // 6_megaCut has no ZDC KE cut, so no overlay
+    for (const char* family : {"9_megaCut3"})
         for (const char* name : {"1_1particlecut"})
             KeOverlayFolder(family, name);
 }
