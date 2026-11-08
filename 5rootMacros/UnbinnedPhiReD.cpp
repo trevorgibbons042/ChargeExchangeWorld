@@ -47,7 +47,7 @@ void UnbinnedPhiReD(){
     cv.SetLeftMargin(0.14); cv.SetTopMargin(0.17); cv.SetRightMargin(0.04);
     h.SetStats(0); h.SetMinimum(0); h.SetMaximum(1.25 * h.GetMaximum());
     h.SetLineColor(kRed);
-    h.SetTitle("Reconstructed CE protons, RECONPHIBL_ESTNEU Distribution, fit phi 0.5 to 359.5 deg (spike at 0 left out), no other cuts;Angle (degrees);Count");
+    h.SetTitle("Reconstructed CE protons, RECONPHIBL_ESTNEU Distribution, fit phi 0.5 to 359.5 deg (spike at 0 left out), no other cuts;RECONPHIBL_ESTNEU (degrees);Count");
     h.Draw("hist");
     fb.SetLineColor(kBlack); fb.SetLineStyle(2); fb.SetLineWidth(3); fb.Draw("same");
     fu.SetLineColor(kBlue); fu.SetLineWidth(3); fu.Draw("same");

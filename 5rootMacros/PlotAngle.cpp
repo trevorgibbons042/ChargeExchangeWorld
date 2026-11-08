@@ -270,16 +270,16 @@ void PlotAngle(std::string energy = "fKEnergy"){ // energy: "fKEnergy" (true KE)
     auto reDiff = [&](const std::string& re, const std::string& block){return "(CalcValsRe" + suffix + "." + re + "-" + block + ")";}; // recon minus recon block
     auto wrap360 = [](const std::string& d){return "(" + d + "-360*(" + d + ">180)+360*(" + d + "<-180))";}; // phi difference into -180..180
     std::vector<PlotSpec> specsCE = {
-        {events,  "thetaCE" + thetaHist("hThetaCE"),  "Reconstructed CE protons, CETHETA_NEUFRAME Distribution", ang, false, "1_theta/1_thetaCE.pdf"},
-        {events2, "thetaRe" + thetaHist("hThetaRe"),  "Reconstructed CE protons, RECONTHETA_ESTNEU Distribution", ang, false, "1_theta/2_thetaRe.pdf"},
+        {events,  "thetaCE" + thetaHist("hThetaCE"),  "Reconstructed CE protons, CETHETA_NEUFRAME Distribution", "CETHETA_NEUFRAME (degrees);Count", false, "1_theta/1_thetaCE.pdf"},
+        {events2, "thetaRe" + thetaHist("hThetaRe"),  "Reconstructed CE protons, RECONTHETA_ESTNEU Distribution", "RECONTHETA_ESTNEU (degrees);Count", false, "1_theta/2_thetaRe.pdf"},
         // theta matrices, x is the truth (CETHETA_NEUFRAME) and y the reconstructed value; the file names keep the old Diff names
         {events4, Form("CalcValsRe%s.thetaRe:CE%s.thetaCE>>hThetaDiff(100,0,%g,100,0,%g)", suffix.c_str(), suffix.c_str(), ThetaAxisMax(), ThetaAxisMax()), "Reconstructed CE protons, RECONTHETA_ESTNEU vs CETHETA_NEUFRAME", "CETHETA_NEUFRAME (degrees);RECONTHETA_ESTNEU (degrees)", false, "1_theta/4_thetaDiff.pdf", "colz"},
-        {events3, "thetaReD" + thetaHist("hThetaBlock"), "Reconstructed CE protons, RECONTHETABL_ESTNEU Distribution", ang, false, "1_theta/3_thetaBlock.pdf"},
+        {events3, "thetaReD" + thetaHist("hThetaBlock"), "Reconstructed CE protons, RECONTHETABL_ESTNEU Distribution", "RECONTHETABL_ESTNEU (degrees);Count", false, "1_theta/3_thetaBlock.pdf"},
         {events3, Form("thetaReD:CE%s.thetaCE>>hThetaBlockDiff(100,0,%g,100,0,%g)", suffix.c_str(), ThetaAxisMax(), ThetaAxisMax()), "Reconstructed CE protons, RECONTHETABL_ESTNEU vs CETHETA_NEUFRAME", "CETHETA_NEUFRAME (degrees);RECONTHETABL_ESTNEU (degrees)", false, "1_theta/5_thetaBlockDiff.pdf", "colz"},
-        {events,  "phiCE>>hPhiCE(100,0,360)",    "Reconstructed CE protons, CEPHI_NEUFRAME Distribution", ang, false, "2_phi/1_phiCE.pdf"},
-        {events2, "phiRe>>hPhiRe(100,0,360)",    "Reconstructed CE protons, RECONPHI_ESTNEU Distribution", ang, false, "2_phi/2_phiRe.pdf"},
+        {events,  "phiCE>>hPhiCE(100,0,360)",    "Reconstructed CE protons, CEPHI_NEUFRAME Distribution", "CEPHI_NEUFRAME (degrees);Count", false, "2_phi/1_phiCE.pdf"},
+        {events2, "phiRe>>hPhiRe(100,0,360)",    "Reconstructed CE protons, RECONPHI_ESTNEU Distribution", "RECONPHI_ESTNEU (degrees);Count", false, "2_phi/2_phiRe.pdf"},
         {events4, "phiReD>>hPhiDiff(100,-180,180)",   "Reconstructed CE protons, difference between CEPHI_NEUFRAME and RECONPHI_ESTNEU", diff, true, "2_phi/4_phiDiff.pdf"},
-        {events3, "phiReD>>hPhiBlock(100,0,360)",   "Reconstructed CE protons, RECONPHIBL_ESTNEU Distribution", ang, false, "2_phi/3_phiBlock.pdf"},
+        {events3, "phiReD>>hPhiBlock(100,0,360)",   "Reconstructed CE protons, RECONPHIBL_ESTNEU Distribution", "RECONPHIBL_ESTNEU (degrees);Count", false, "2_phi/3_phiBlock.pdf"},
         {events5, "phiReD>>hPhiBlockDiff(100,-180,180)",   "Reconstructed CE protons, difference between CEPHI_NEUFRAME and RECONPHIBL_ESTNEU", diff, true, "2_phi/5_phiBlockDiff.pdf"},
         {events,  "tCE>>hTCE(100,0,0.05)", "Reconstructed CE protons, t from CETHETA_NEUFRAME Distribution", "t;Count", false, "3_t/1_tCE.pdf"},
         {events2, "tRe>>hTRe(100,0,0.05)", "Reconstructed CE protons, t from RECONTHETA_ESTNEU Distribution", "t;Count", false, "3_t/2_tRe.pdf"},

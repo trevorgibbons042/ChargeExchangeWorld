@@ -581,7 +581,7 @@ void Plot3D(){
             t->TAttLine::Copy(*(TAttLine*)h); t->TAttFill::Copy(*(TAttFill*)h); t->TAttMarker::Copy(*(TAttMarker*)h);
             if (!path.empty()) h->Draw();
             if (h && h->GetEntries() >= 10){
-                h->SetTitle((title + ";Angle (degrees);Count").c_str());
+                h->SetTitle((title + ";" + (j ? "RECONPHIBL_ESTNEU" : "RECONPHI_ESTNEU") + " (degrees);Count").c_str());
                 const PFit uf = UnbinnedP(cols[1], aMean, j ? kBlockPhiLo : 0, j ? kBlockPhiHi : 360); // unbinned fit of the phi of every proton (FitCore.h), the histogram only shows it
                 AddUnbinnedFit(h, "fPhiCosCut", uf, aMean.Mean(), aMean.Err(), !path.empty());
                 h->SetMinimum(0); h->SetMaximum(1.1 * h->GetMaximum());
@@ -878,7 +878,7 @@ void Plot3D(){
                         gPad->SetLeftMargin(0.16); gPad->SetRightMargin(0.04); gPad->SetTopMargin(0.36); gPad->SetBottomMargin(0.13); // the text lines sit above the frame
                         for (int s = sLo; s < sHi; s++){
                             hP[s]->SetStats(0); hP[s]->SetMinimum(0); hP[s]->SetMaximum(1.1 * hMax);
-                            hP[s]->SetTitle(Form("%s%s, %s, %s phi distribution;Angle (degrees);Count", (ceOnly ? "CE recon protons" : "all recon protons and all recon charged particles"), where.c_str(), cutTxt.c_str(), ceOnly && aLastAP.n > 0 ? "true CEPHI_NEUFRAME" : rbPh.c_str()));
+                            hP[s]->SetTitle(Form("%s%s, %s, %s phi distribution;%s (degrees);Count", (ceOnly ? "CE recon protons" : "all recon protons and all recon charged particles"), where.c_str(), cutTxt.c_str(), ceOnly && aLastAP.n > 0 ? "true CEPHI_NEUFRAME" : rbPh.c_str(), ceOnly && aLastAP.n > 0 ? "CEPHI_NEUFRAME" : rbPh.c_str()));
                             hP[s]->Draw(s > sLo ? "hist same" : "hist");
                         }
                         for (int s = sLo; s < sHi; s++) if (hP[s]->GetEntries() >= 10){ // the fit curve of each set in its color, a function of its own: a clone of the one in the histogram crashed when the canvas was cleared
@@ -939,7 +939,7 @@ void Plot3D(){
                             for (int s = 0; s < 3; s++) if (pgOf[s]){
                                 TH1D* h = pgOf[s]->h;
                                 h->SetLineColor(samps[s].color); h->SetLineWidth(2); h->SetStats(0); h->SetMinimum(0); h->SetMaximum(1.1 * hMax);
-                                h->SetTitle(Form("%s%s, %s, %s phi distribution, %s theta %.2f%s;Angle (degrees);Count", allNames.c_str(), where.c_str(), cutTxt.c_str(), rbPh.c_str(), rbTh.c_str(), key / 100.0, upTxt.c_str()));
+                                h->SetTitle(Form("%s%s, %s, %s phi distribution, %s theta %.2f%s;%s (degrees);Count", allNames.c_str(), where.c_str(), cutTxt.c_str(), rbPh.c_str(), rbTh.c_str(), key / 100.0, upTxt.c_str(), rbPh.c_str()));
                                 h->Draw(first ? "hist" : "hist same"); first = false;
                             }
                             std::vector<TF1*> fds;
