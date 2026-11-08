@@ -95,6 +95,7 @@ static void SavePlot2D(TH2D* h, const std::string& pathIn, const std::string& ti
     std::string path; // the matrix pages sit in plots/8_smear/1_matrix (true neutron frame to estimated neutron frame) and 2_matrix2 (estimated neutron frame to lab)
     if (pathIn.rfind(kPlotDir, 0) == 0) path = std::string("plots/8_smear/1_matrix/") + pathIn.substr(std::string(kPlotDir).size());
     else if (pathIn.rfind(kPlotDir2, 0) == 0) path = std::string("plots/8_smear/2_matrix2/") + pathIn.substr(std::string(kPlotDir2).size());
+    else if (pathIn.rfind("plots/8_smear/3_matrix3/", 0) == 0) path = pathIn; // true neutron theta vs estimated neutron theta, lab frame
     else return;
     TCanvas c("cSmear2D", "Plots", 1500, 1200);
     PageMargins(c);
@@ -186,7 +187,7 @@ void SmearMatrix(){
         printf(">>> SmearMatrix ChargeExchange_values read took %.0f s\n", Secs()); fflush(stdout);
     }
 
-    gSystem->mkdir("plots/8_smear/1_matrix", kTRUE); gSystem->mkdir("plots/8_smear/2_matrix2", kTRUE);
+    gSystem->mkdir("plots/8_smear/1_matrix", kTRUE); gSystem->mkdir("plots/8_smear/2_matrix2", kTRUE); gSystem->mkdir("plots/8_smear/3_matrix3", kTRUE);
     TFile out("cuts/smear_matrix.root", "RECREATE");
     const int nFlatT = kSlices * kPhiFlat;
     TH2D hRTheta("R_theta", "", nTheta, 0, tMax, nTheta, 0, tMax);
@@ -262,7 +263,9 @@ void SmearMatrix(){
     }
 
     // dilution per reco theta slice: sums of cos(dphi), cos(dphi)^2, count, for the neutron truth and the lab truth (in ResSet)
-    long nRows = 0, nNoDir = 0, nPair = 0;
+    long nRows = 0, nNoDir = 0, nPair = 0, nNeuOut = 0;
+    // lab theta (deg) of the true neutron direction (CENDirX/Y/Z, x) against the estimated neutron direction (beam origin to the tube centre at the block middle, y), one entry per CE proton row
+    TH2D hNeuTheta("N_true_vs_est_theta", "", 50, 0, 1.0, 50, 0, 1.0);
 
     // thetaCE, phiCE and thetaRe, thetaReD, phiRe, phiReD of cut_APandT.root are the CE in the TRUE neutron frame (CETHETA_NEUFRAME) and the recon angles in the ESTIMATED neutron frame (RECONTHETA_ESTNEU, RECONTHETABL_ESTNEU).
     // The lab CE truth comes from ChargeExchange_values (dirs); the recon angles rotated by the TRUE neutron (the "recon neutron frame" states) are made from the lab recon angles of AnglesRaw (outTheta ...), matched on (fEvent, ParentID).
@@ -309,6 +312,9 @@ void SmearMatrix(){
                 thRcLab = lr->second.th; phRcLab = lr->second.ph; thRecLab = lr->second.thB; phRecLab = lr->second.phB;
                 if (std::isfinite(lr->second.ez)){
                     const NDir est = {lr->second.ex, lr->second.ey, lr->second.ez, 0, 0};
+                    const double thNeuT = std::acos(std::max(-1.0, std::min(1.0, it->second.z / std::sqrt(it->second.x * it->second.x + it->second.y * it->second.y + it->second.z * it->second.z)))) * TMath::RadToDeg();
+                    const double thNeuE = std::acos(std::max(-1.0, std::min(1.0, est.z / std::sqrt(est.x * est.x + est.y * est.y + est.z * est.z)))) * TMath::RadToDeg();
+                    if (thNeuT < 1.0 && thNeuE < 1.0) hNeuTheta.Fill(thNeuT, thNeuE); else nNeuOut++;
                     RelToNeutron(thCEv, phLab, est, thCEe, phCEe);
                     double thChk, phChk; RelToNeutron(thRcLab, phRcLab, est, thChk, phChk);
                     if (std::isfinite(thRc) && thRc > 0.05){maxChkTh = std::max(maxChkTh, std::fabs(thChk - thRc)); maxChkPh = std::max(maxChkPh, std::fabs(Wrap180(phChk - phRc)));}
@@ -439,6 +445,7 @@ void SmearMatrix(){
     // the same four matrices as proton counts per bin (x_2_ next to x_), no column left blank
     // beam angle only (no detector): the lab angle the proton has about z against its angle about the neutron
     const std::string cutBeam = Form("CE protons, both thetas 0 to %.1f deg, no other cuts", tMax);
+    SaveCounts(hNeuTheta, "plots/8_smear/3_matrix3/1_neutron_theta_true_vs_est.pdf", Form("Neutron theta, true (CENDir) vs estimated (beam origin to tube centre), lab frame, %s, CE protons with a tube, both thetas 0 to 1 deg (%ld outside), no other cuts;True neutron theta, lab (deg);Estimated neutron theta, lab (deg)", sd.c_str(), nNeuOut));
     SavePlot2D(nBTh, "plots/8_smear/1_Fswitch/1_M_CE_Fswitch/1_M_CE_Fswitch_theta.pdf", Form("M_CE_Fswitch: Response of the beam angle, CE theta (neutron estimate frame), %s, %s;CE theta, real neutron frame (deg);CE theta, neutron estimate frame (deg)", sd.c_str(), cutBeam.c_str()), ThetaAxisMax());
     SaveCounts(hRBeamTheta, "plots/8_smear/1_Fswitch/1_M_CE_Fswitch/4_M_CE_Fswitch_theta_counts.pdf", Form("M_CE_Fswitch: Protons per bin, beam angle, CE theta (neutron estimate frame), %s, %s;CE theta, real neutron frame (deg);CE theta, neutron estimate frame (deg)", sd.c_str(), cutBeam.c_str()), ThetaAxisMax());
     SavePlot2D(nBPh, "plots/8_smear/1_Fswitch/1_M_CE_Fswitch/2_M_CE_Fswitch_phi.pdf", Form("M_CE_Fswitch: Response of the beam angle, CE phi (neutron estimate frame), %s, %s;CE phi, real neutron frame (deg);CE phi, neutron estimate frame (deg)", sd.c_str(), cutBeam.c_str()));
