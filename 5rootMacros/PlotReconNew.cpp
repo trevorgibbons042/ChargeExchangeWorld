@@ -16,6 +16,8 @@
 
 #include "FitCore.h"
 #include "PhiCosFit.h"
+#include "CutOpen.h"
+#include <map>
 
 // 9_ReconNew: the event recon of ReconAngleAll.cpp(true) (cuts/cut_angles_new.root): one fit per event through the tracker planes with exactly 1 charged hit, no cut of any kind.
 // Every plot overlays the three kinds of event (evClass): CE only (every fitted hit a CE child proton), CE mix (CE child hits and other particles), non-CE (no CE child hit).
@@ -29,7 +31,7 @@ struct NewVar {
     const char* name; const char* title; int bins; double lo, hi; bool logY;
     std::function<double(const NewRow&)> value;
 };
-constexpr double kKeCutPercent = 92.0; // the KE cut: summed (smeared) KE on the last tracker above this percent of the beam KE (92% of 25 GeV = 23000 MeV)
+constexpr double kKeCutPercent = 80.0; // the KE cut: summed (smeared) KE on the last tracker above this percent of the beam KE (80% of 25 GeV = 20000 MeV)
 // the three curves are cumulative: CE only, CE only + CE mix, and every event (total recon particles)
 const char* ClassLabel(int c){return c == 0 ? "CE recon" : c == 1 ? "CE + CE mix recon" : "total recon particles";}
 int ClassColor(int c){return c == 0 ? CbCE() : c == 1 ? CbProton() : CbAll();}
@@ -191,8 +193,42 @@ void PlotReconNew(){
         const char* sampleFile[3] = {"CE", "CEandMix", "all"};
         const std::vector<std::string> range = {"thetaRelNDMin * TMath::RadToDeg()", "thetaRelNDMax * TMath::RadToDeg()", "phiRelNDHalf"};
         const std::vector<std::string> range2 = {"thetaRelNDBMin * TMath::RadToDeg()", "thetaRelNDBMax * TMath::RadToDeg()", "phiRelNDBHalf"};
+        // The CE sample is fitted at the actual CE angle (ChargeExchange_values: the true phi and theta of the CE proton in the true neutron frame, CEPHI_NEUFRAME) and its own LastAP, not at the recon angle in the est neutron frame:
+        // the events are the CE recon events that pass this folder's cuts (evClass 0 and cutExpr, matched by fEvent), only the angle of each is the true one. The rows go to a small file so Columns reads them on all the threads.
+        TTree* ceT = OpenCut("cuts/cut_CE.root", "ChargeExchange_values");
+        gROOT->cd();
         for (int k = 0; k < 3; k++){
             number++;
+            if (k == 0 && ceT){
+                const auto ce = Columns(ceT, {"fEvent", "CEPhiNeu(LastTheta, LastPhiLab, CENDirX, CENDirY, CENDirZ) * 180 / TMath::Pi()", "CEThetaNeu(LastTheta, LastPhiLab, CENDirX, CENDirY, CENDirZ) * 180 / TMath::Pi()", "LastAP"});
+                std::map<long long, size_t> byEvent;
+                for (size_t i = 0; i < ce[0].size(); i++) byEvent.emplace((long long)ce[0][i], i);
+                const auto ev = Columns(t, {"fEvent"}, std::string(sampleCut[0]) + " && " + cutExpr)[0];
+                const std::string trueFile = Form("cuts/cut_ceTrueNew_%d.root", mode);
+                {
+                    TFile out(trueFile.c_str(), "RECREATE");
+                    double ph = 0, th = 0, ap = 0;
+                    TTree tt("CETrue", "CE recon events at the true CE angle");
+                    tt.Branch("CEPhiNeuTrue", &ph); tt.Branch("CEThetaNeuTrue", &th); tt.Branch("LastAP", &ap);
+                    for (const double e : ev){
+                        const auto it = byEvent.find((long long)e);
+                        if (it == byEvent.end()) continue; // no carbon-block CE row for this event
+                        ph = ce[1][it->second]; th = ce[2][it->second]; ap = ce[3][it->second];
+                        tt.Fill();
+                    }
+                    tt.Write();
+                }
+                TFile* tf = TFile::Open(trueFile.c_str());
+                TTree* tt = tf ? (TTree*)tf->Get("CETrue") : nullptr;
+                if (tt){
+                    PhiCosFit(&c, tt, "CEPhiNeuTrue", "CEThetaNeuTrue", "", Form("hPhiNew_%d_%d", mode, k),
+                              std::string(sampleName[k]) + ", CEPHI_NEUFRAME Distribution, the actual CE angle, A_{eff} from the CE #theta and LastAP" + cutText, Form("%s/%d_phiBlock_cosfit_%s.pdf", dir.c_str(), number, sampleFile[k]),
+                              {}, "LastAP", {}, {}, ClassColor(k));
+                    made++;
+                    tf->Close();
+                    continue;
+                }
+            }
             PhiCosFit(&c, t, "phiRelND * TMath::RadToDeg()", "thetaRelND * TMath::RadToDeg()", std::string(sampleCut[k]) + " && " + cutExpr, Form("hPhiNew_%d_%d", mode, k),
                       std::string(sampleName[k]) + ", RECONPHIBL_ESTNEU Distribution, A_{eff} at the recon block #theta" + cutText, Form("%s/%d_phiBlock_cosfit_%s.pdf", dir.c_str(), number, sampleFile[k]),
                       {}, "", range, range2, ClassColor(k));
