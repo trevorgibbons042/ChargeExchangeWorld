@@ -88,11 +88,15 @@ void PlotReconNew(){
     int made = 0;
     // plots/9_ReconNew_1/1_noCuts (every event; its KE plot alone shows the events above the KE cut) and plots/9_ReconNew_1/2_KECUT80 (every plot with the 80% KE cut).
     const int maxPlanes = MaxTrackerHits(); // 2 * nBlocks, the most planes a track can cross
-    // 3_KECUTnPlanesUsedEven: the KE cut and a whole-event cut on the planes in the fit, an even number and at most 2 * nBlocks (EvenHits, FitCore.h)
-    // 4_KECUTnPlanesUsedEvenTheta0_1: those two cuts and the block fit theta in the est neutron frame (the thetaBlock plot) from 0 to 1 degree
-    for (const int mode : {0, 1, 2, 3, 4}){
-    const bool ke80 = mode >= 1, evenPlanes = mode >= 2, theta01 = mode >= 3, avgOne = mode == 4; // 5_: the cuts of 4_ and on average one charged tracker hit per hit plane (nTrackerHitsEv == planes hit, the avgTrackerHitsPerPlane plot at 1)
-    const std::string dir = mode == 0 ? "plots/9_ReconNew_1/1_noCuts" : mode == 1 ? "plots/9_ReconNew_1/2_KECUT" + kePct : mode == 2 ? "plots/9_ReconNew_1/3_KECUTnPlanesUsedEven" : mode == 3 ? "plots/9_ReconNew_1/4_KECUTnPlanesUsedEvenTheta0_1" : "plots/9_ReconNew_1/5_KECUTnPlanesUsedEvenTheta0_1avgTrackerHitsPerPlane1";
+    // Every folder after 2_ has one cut of its own, 6_megaCut has them all:
+    // 3_nPlanesUsedEven: a whole-event cut on the planes in the fit, an even number and at most 2 * nBlocks (EvenHits, FitCore.h)
+    // 4_Theta0_1: the block fit theta in the est neutron frame (the thetaBlock plot) from 0 to 1 degree
+    // 5_avgTrackerHitsPerPlane1: on average one charged tracker hit per hit plane (nTrackerHitsEv == planes hit, the avgTrackerHitsPerPlane plot at 1)
+    // 6_megaCut: the KE cut, the even planes, theta 0 to 1 degree and the average of 1 hit per plane, all together
+    for (const int mode : {0, 1, 2, 3, 4, 5}){
+    const bool mega = mode == 5;
+    const bool ke80 = mode == 1 || mega, evenPlanes = mode == 2 || mega, theta01 = mode == 3 || mega, avgOne = mode == 4 || mega;
+    const std::string dir = mode == 0 ? "plots/9_ReconNew_1/1_noCuts" : mode == 1 ? "plots/9_ReconNew_1/2_KECUT" + kePct : mode == 2 ? "plots/9_ReconNew_1/3_nPlanesUsedEven" : mode == 3 ? "plots/9_ReconNew_1/4_Theta0_1" : mode == 4 ? "plots/9_ReconNew_1/5_avgTrackerHitsPerPlane1" : "plots/9_ReconNew_1/6_megaCut";
     gSystem->mkdir(dir.c_str(), true);
     // the whole-event cuts of this folder
     const auto passes = [&](const NewRow& x){
@@ -102,10 +106,12 @@ void PlotReconNew(){
         if (avgOne && !(x.nPlanesHit > 0 && x.nTrackerHits == x.nPlanesHit)) return false;
         return true;
     };
-    const std::string cutText = avgOne ? ", KE cut above " + kePct + "% of the beam KE, planes in the fit even and at most " + std::to_string(maxPlanes) + ", theta 0 to 1 degree, average tracker hits per hit plane = 1"
-        : theta01 ? ", KE cut above " + kePct + "% of the beam KE, planes in the fit even and at most " + std::to_string(maxPlanes) + ", theta 0 to 1 degree"
-        : evenPlanes ? ", KE cut above " + kePct + "% of the beam KE, planes in the fit even and at most " + std::to_string(maxPlanes)
-        : ke80 ? ", KE cut above " + kePct + "% of the beam KE" : ", no cuts";
+    std::string cutText; // every cut of the folder, named in the title; "no cuts" when there is none
+    if (ke80) cutText += ", KE cut above " + kePct + "% of the beam KE";
+    if (evenPlanes) cutText += ", planes in the fit even and at most " + std::to_string(maxPlanes);
+    if (theta01) cutText += ", theta 0 to 1 degree";
+    if (avgOne) cutText += ", average tracker hits per hit plane = 1";
+    if (cutText.empty()) cutText = ", no cuts";
     int number = 0;
     for (const auto& v : vars){
         number++;
@@ -142,7 +148,7 @@ void PlotReconNew(){
         }
         double top = 0;
         for (int k = 0; k < 3; k++) top = std::max(top, h[k]->GetMaximum());
-        const bool logY = v.logY || (keVar && mode == 0); // the KE plot without cuts is log, in the KE cut folders it is linear
+        const bool logY = v.logY || (keVar && !ke80); // the KE plot is log without the KE cut, linear in the folders that have it
         c.Clear(); c.SetLogy(logY);
         const std::string path = Form("%s/%d_%s.pdf", dir.c_str(), number, v.name);
         // PlotTitle numbers the title from the file name; "no cuts" in the title: the sample is every event with 2 or more planes of exactly 1 hit
@@ -340,5 +346,5 @@ void PlotReconNew(){
         made++;
     }
     }
-    printf(">>> PlotReconNew: %d plots in plots/9_ReconNew_1 (1_noCuts, 2_KECUT%s, 3_, 4_ and 5_)\n", made, kePct.c_str());
+    printf(">>> PlotReconNew: %d plots in plots/9_ReconNew_1 (1_noCuts, 2_KECUT%s, 3_ to 5_ one cut each, 6_megaCut)\n", made, kePct.c_str());
 }
