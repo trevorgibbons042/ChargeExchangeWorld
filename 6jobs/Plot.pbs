@@ -33,6 +33,7 @@ case $STEP in
     cutplots6) macros=('CutPlots.cpp') ;; # Submit6Cuts.sh CutPlots: the same CutPlots, for a run whose recon is done
     recon)    macros=('ReconAngleAll.cpp' 'ReconAngleAll.cpp(true)') ;; # the proton recon, then the event recon of plots/9_ReconNew_1 (cuts/cut_angles_new.root, needs TrackerHitsAll from the sim)
     reconnew) macros=('CutEvents.cpp' 'ReconAngleAll.cpp(true)' 'PlotReconNew.cpp') ;; # only plots/9_ReconNew_1: CutEvents first (cut_CE.root, which the recon opens), then the event recon (cuts/cut_angles_new.root), then its plots; nothing else of the chain
+    plotnew)  macros=('PlotReconNew.cpp') ;; # only the plots of plots/9_ReconNew_1, cuts/cut_angles_new.root is there from reconnew
     calc)     macros=('CalcAPandT.cpp') ;; # true KE, then detector KE
     countce)  macros=('CountCE.cpp') ;;
     cuttrees) macros=('CutPlots.cpp') ;; # the KE cut lists, cut_ZdcCE.root and cut_ZdcAllEv.root, and one cut file per cut of 6_cuts, all read by the plot lanes

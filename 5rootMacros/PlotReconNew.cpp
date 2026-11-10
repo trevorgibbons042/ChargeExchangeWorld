@@ -69,6 +69,15 @@ void PlotReconNew(){
     TCanvas c("cReconNew", "", 900, 650);
     c.SetRightMargin(0.04);
     const Long64_t n = t->GetEntries();
+    // one multithreaded read (Columns) of the 19 branches used here (not every branch of the tree), then every plot loop below runs over this vector in memory: 48 passes of GetEntry over all branches took hours at 100M events
+    std::vector<NewRow> rows(n);
+    NThreads(); // ROOT::EnableImplicitMT: Columns reads the tree on all the threads
+    const auto cols = Columns(t, {"outTheta", "outDTheta", "outPhi", "outDPhi", "thetaRelND", "phiRelND", "impactD", "r2D", "resDRms", "finalKED", "nHits", "nPlanesUsed", "evClass", "nCEUsed", "nOtherUsed", "nProtonUsed", "nPionUsed", "nKaonUsed", "nNucleusUsed"});
+    for (Long64_t i = 0; i < n; i++){
+        NewRow& x = rows[i]; size_t k = 0;
+        x.outTheta = cols[k++][i]; x.outDTheta = cols[k++][i]; x.outPhi = cols[k++][i]; x.outDPhi = cols[k++][i]; x.thetaRelND = cols[k++][i]; x.phiRelND = cols[k++][i]; x.impactD = cols[k++][i]; x.r2D = cols[k++][i]; x.resDRms = cols[k++][i]; x.finalKED = cols[k++][i];
+        x.nHits = (int)cols[k++][i]; x.nPlanesUsed = (int)cols[k++][i]; x.evClass = (int)cols[k++][i]; x.nCEUsed = (int)cols[k++][i]; x.nOtherUsed = (int)cols[k++][i]; x.nProtonUsed = (int)cols[k++][i]; x.nPionUsed = (int)cols[k++][i]; x.nKaonUsed = (int)cols[k++][i]; x.nNucleusUsed = (int)cols[k++][i];
+    }
     const double keCut = kKeCutPercent / 100.0 * ReadSettings().at("BeamKE"); // whole events whose summed (smeared) KE on the last tracker is not above kKeCutPercent of the beam KE are not drawn or counted
     const std::string kePct = Form("%.0f", kKeCutPercent);
     int made = 0;
@@ -102,7 +111,7 @@ void PlotReconNew(){
         }
         double nClass[3] = {0, 0, 0};
         for (Long64_t i = 0; i < n; i++){
-            t->GetEntry(i);
+            const NewRow& r = rows[i];
             if (r.evClass < 0 || r.evClass > 2) continue;
             const double x = v.value(r);
             if (!passes(r)) continue;
@@ -146,7 +155,7 @@ void PlotReconNew(){
         }
         double nEv[3] = {0, 0, 0};
         for (Long64_t i = 0; i < n; i++){
-            t->GetEntry(i);
+            const NewRow& r = rows[i];
             if (r.evClass < 0 || r.evClass > 2 || !passes(r)) continue;
             nEv[r.evClass]++;
             b[r.evClass]->AddBinContent(1, r.nCEUsed); b[r.evClass]->AddBinContent(2, r.nProtonUsed);
