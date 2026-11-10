@@ -2,7 +2,7 @@
 #include "G4Event.hh"
 #include "6detector.hh" //gEventTrackerHits, gEventTrackerTracks
 
-MyEventAction::MyEventAction(MyRunAction*)
+MyEventAction::MyEventAction(MyRunAction* runAction) : fRunAction(runAction)
 {};
 
 MyEventAction::~MyEventAction(){};
@@ -11,6 +11,8 @@ void MyEventAction::BeginOfEventAction(const G4Event*)
 {
     fNZdcAll = 0; fNZdcCharged = 0; fZdcKEAll = 0.; fZdcKECharged = 0.;
     gEventTrackerHits = 0; gEventTrackerTracks = 0;
+    gEventHitZ = &fRunAction->hitZ; gEventHitKE = &fRunAction->hitKE;
+    gEventHitZ->clear(); gEventHitKE->clear();
 }
 
 //one EventSummary row per event (ntuple 2, booked in 7run.cc): the particles that reached the ZDC, with no tracker or reconstruction requirement

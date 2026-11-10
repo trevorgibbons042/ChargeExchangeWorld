@@ -1,4 +1,5 @@
 #include <tuple>
+#include "Palette.h"
 #include <map>
 #include <ROOT/RDataFrame.hxx>
 #include <set>
@@ -134,7 +135,7 @@ static void DrawGroup(TCanvas* canvas, const std::string& groupDir, const std::v
                     else {h->Fill(x[r]); if (s.fit) xFit.push_back(x[r]);}
                 }
                 const bool is1D = h->GetDimension() == 1;
-                if (is1D) h->SetLineColor(kRed); else RedPalette(); // CE protons are red
+                if (is1D) h->SetLineColor(CbCE()); else RedPalette(); // CE protons are red
                 h->Draw(s.opt.c_str()); // the histogram is the pad's current object, as after TTree::Draw
                 h->SetTitle(PlotTitle(s.file, title + ";" + s.axes).c_str());
                 if (s.fit && h->GetEntries() >= 10) FitCore(h, xFit);

@@ -29,7 +29,7 @@ bash ScanBlocksEach.sh <template macro> <thickness of each block m> [dz m]
 Same scan as `ScanBlocks.sh`, but every block gets the given thickness, so the total grows with the count (n x thickness). The run folder becomes `<folder>_<thickness>mEach/<E>GeV/<n>block`, and `ScanBlockAnalysis.sh <folder>_<thickness>mEach` analyses them. Example: `bash ScanBlocksEach.sh run_0.mac 0.4`.
 
 ```
-bash ScanBlockAnalysis.sh <scan folder in build/root> [cutdone | plot job]
+bash ScanBlockAnalysis.sh <scan folder in build/root> [plot job]
 ```
 
 Runs `SubmitEvents.sh` on every run folder two levels below the scan folder (`<scan folder>/<E>GeV/<n>block`), found by their `settings.csv`. The second argument goes to each call. Example: `bash ScanBlockAnalysis.sh Physics_801_0.4m`.
@@ -42,15 +42,7 @@ bash SubmitEvents.sh <run>
 
 Submits one Analysis job that runs CutEvents, ReconAngleAll, CalcAPandT, CountCE and CutPlots one after the other, then the plot jobs from `SubmitPlots.sh` (starting at Cuts). It copies `5rootMacros/` into the run folder first. The run folder needs `output0_t*.root` and `settings.csv`.
 
-If `cuts/cut_angles_all.root` already exists from an earlier ReconAngleAll run, skip the refit:
-
-```
-bash SubmitEvents.sh <run> cutdone
-```
-
-ConvertAngles then rewrites the file into the one-tree format. The old file is kept as `cut_angles_all_old5.root`.
-
-To start the chain at a plot job, give its name (`CutPlots`, `Cuts`, `Fom`, `CEblock`, `SecCE`, `Smear` or `Pdfs`) instead of `cutdone`. No analysis job is submitted, and that job and the ones after it in the list run:
+To start the chain at a plot job, give its name (`CutPlots`, `Cuts`, `Fom`, `CEblock`, `SecCE`, `Smear` or `Pdfs`) as the second argument. No analysis job is submitted, and that job and the ones after it in the list run:
 
 ```
 bash SubmitEvents.sh <run> Cuts
@@ -101,7 +93,7 @@ qsub -v RUN=<run>,SCRIPT=run_norecon.sh Analysis.pbs
 qsub -v RUN=<run>,STEP=<step>,NCPUS=16 Plot.pbs
 ```
 
-Steps: `cutevents`, `recon`, `convert`, `calc`, `countce`, `cuttrees`, `cuts`, `fom`, `ceblock`, `secce`, `smear`, `pdfs`. Copy the macros into the run folder first.
+Steps: `cutevents`, `recon`, `calc`, `countce`, `cuttrees`, `cuts`, `fom`, `ceblock`, `secce`, `smear`, `pdfs`. Copy the macros into the run folder first.
 
 ## 6_cuts only
 

@@ -5,6 +5,7 @@
 #include <ROOT/RDataFrame.hxx>
 #include <ROOT/TTreeProcessorMT.hxx>
 #include <TDatabasePDG.h>
+#include <TRandom3.h>
 #include <TParticlePDG.h>
 
 #include <algorithm>
@@ -60,36 +61,35 @@ static void PrefetchFiles(const std::vector<std::string>& names, std::size_t lo,
         while (f) f.read(buf.data(), (std::streamsize)buf.size());
     }
 }
-static constexpr double kWeightFar = 0.25;
+// Weight of the point with the given rank in z (0 = the lowest z): graded, the later a hit the less it counts. Ranks 0 and 1 weight 1, rank 2 weight 0.5, every later one 0.25.
+static double WeightOfRank(std::size_t rank){return rank < 2 ? 1.0 : (rank == 2 ? 0.5 : 0.25);}
 
 // Weighted least-squares line x = x0 + bx z, y = y0 + by z through the points of t: all of them, or with block the detector block points (zD != 0) at their block positions.
-// The 2 points with the lowest z of the set have weight 1, every other point kWeightFar.
+// Each point is weighted by its rank in z (WeightOfRank): 1, 1, 0.5, 0.25, 0.25, ...
 // Leaves the four outputs alone (NAN from the caller) with fewer than 2 points or no spread in z.
 static void LineFit(const Track& t, bool block, double& x0, double& y0, double& bx, double& by){
     const std::vector<double>& X = block ? t.xD : t.x; const std::vector<double>& Y = block ? t.yD : t.y; const std::vector<double>& Z = block ? t.zD : t.z;
-    const std::size_t none = t.size();
-    std::size_t first = none, second = none; // the 2 points with the lowest z
-    std::size_t N = 0;
+    // the points of the set sorted by z once (ties by index, a stable sort of the ascending indices): the position in this list is the rank of the point. A list per thread, so no allocation per fit.
+    thread_local std::vector<std::size_t> idx;
+    idx.clear();
     for (std::size_t i = 0; i < t.size(); i++) {
         if (block && t.zD[i] == 0.0) {continue;}
-        N++;
-        if (first == none || Z[i] < Z[first]) {second = first; first = i;}
-        else if (second == none || Z[i] < Z[second]) {second = i;}
+        idx.push_back(i);
     }
-    if (N < 2) {return;}
-    const auto weight = [&](std::size_t i){return (i == first || i == second) ? 1.0 : kWeightFar;};
+    if (idx.size() < 2) {return;}
+    std::stable_sort(idx.begin(), idx.end(), [&](std::size_t a, std::size_t b){return Z[a] < Z[b];});
     double sw = 0.0, meanX = 0.0, meanY = 0.0, meanZ = 0.0;
-    for (std::size_t i = 0; i < t.size(); i++) {
-        if (block && t.zD[i] == 0.0) {continue;}
-        const double w = weight(i);
+    for (std::size_t k = 0; k < idx.size(); k++) {
+        const std::size_t i = idx[k];
+        const double w = WeightOfRank(k);
         sw += w; meanX += w * X[i]; meanY += w * Y[i]; meanZ += w * Z[i];
     }
     meanX /= sw; meanY /= sw; meanZ /= sw;
 
     double Szz = 0.0, Szx = 0.0, Szy = 0.0;
-    for (std::size_t i = 0; i < t.size(); i++) {
-        if (block && t.zD[i] == 0.0) {continue;}
-        const double w = weight(i), dz = Z[i] - meanZ;
+    for (std::size_t k = 0; k < idx.size(); k++) {
+        const std::size_t i = idx[k];
+        const double w = WeightOfRank(k), dz = Z[i] - meanZ;
         Szz += w * dz * dz;
         Szx += w * dz * (X[i] - meanX);
         Szy += w * dz * (Y[i] - meanY);
@@ -148,7 +148,11 @@ static double ImpactToAxis(double x0, double y0, double bx, double by){
 }
 
 // One pass fits every proton and writes the tree AnglesRaw with the true (finalKE) and the smeared (finalKED) KE at the ZDC, NAN for a track that never hit the ZDC.
-void ReconAngleAll(){
+// eventMode (9_ReconNew): one fit per event instead of one per proton, written to cuts/cut_angles_new.root (tree AnglesRaw, the same columns plus nPlanesUsed, nCEUsed, nOtherUsed, evClass).
+// The fit uses only the tracker planes with exactly 1 charged hit in the event (EventSummary hitTrackerZ, any particle, same or different ones), at least 2 such planes, the hit being the one of a saved track
+// (positions come from TrackerHitsAll, every charged track that entered a tracker, so every 1-hit plane has its position). evClass: 0 every used hit is a CE child proton (CE only), 1 CE child and other particles (CE mix), 2 no CE child (non-CE).
+// finalKE / finalKED are the summed KE of all the charged hits on the last tracker (highest z) of the event, whole events are cut on it, NAN with no hit. No cut is applied here.
+void ReconAngleAll(bool eventMode = false){
     using Clock = std::chrono::steady_clock;
     const auto tStart = Clock::now();
     auto secs = [](Clock::time_point a, Clock::time_point b){return std::chrono::duration<double>(b - a).count();};
@@ -199,14 +203,50 @@ void ReconAngleAll(){
         }
     }
 
+    // eventMode: per event the tracker planes (z in um) with exactly 1 charged hit, sorted, and the summed KE of the charged hits on the last tracker.
+    struct EvHits {std::vector<long> single; double lastKE = NAN; std::vector<double> lastKEs;}; // lastKEs: the KE of each charged hit on the last tracker, lastKE their sum
+    // ZDC energy smearing of the sim (9stepping.cc), applied to every hit on the last tracker: Gaussian of sigma KE * sqrt(a^2 / KE[GeV] + b^2), floored at 0, a = resStochastic, b = resConstant
+    const double zdcResA = settings.count("resStochastic") ? settings.at("resStochastic") : 0.0, zdcResB = settings.count("resConstant") ? settings.at("resConstant") : 0.0;
+    std::vector<EvHits> evHitsOf;
+    if (eventMode){
+        TChain es("EventSummary");
+        es.Add("output0_t*.root");
+        if (es.LoadTree(0) < 0 || !es.GetBranch("hitTrackerZ")){Error("ReconAngleAll", "no EventSummary hitTrackerZ (run a sim built after the per-tracker hit columns)"); return;}
+        ROOT::RDataFrame dfEs(es);
+        std::vector<std::vector<std::pair<int, EvHits>>> slotRows(dfEs.GetNSlots());
+        dfEs.ForeachSlot([&](unsigned slot, int eventID, const ROOT::RVec<double>& hz, const ROOT::RVec<double>& hke){
+            EvHits h;
+            std::vector<long> zl(hz.size());
+            for (std::size_t i = 0; i < hz.size(); i++) zl[i] = std::lround(hz[i] * 1000.0);
+            std::vector<long> sorted = zl;
+            std::sort(sorted.begin(), sorted.end());
+            for (std::size_t a = 0, b; a < sorted.size(); a = b) {
+                for (b = a + 1; b < sorted.size() && sorted[b] == sorted[a]; b++) {}
+                if (b - a == 1) h.single.push_back(sorted[a]);
+            }
+            if (!sorted.empty()) {
+                double sum = 0.0;
+                for (std::size_t i = 0; i < zl.size(); i++) if (zl[i] == sorted.back()) {sum += hke[i]; h.lastKEs.push_back(hke[i]);}
+                h.lastKE = sum;
+            }
+            slotRows[slot].push_back({eventID, std::move(h)});
+        }, {"fEvent", "hitTrackerZ", "hitTrackerKE"});
+        int maxEvent = -1;
+        for (const auto& rows : slotRows) for (const auto& r : rows) maxEvent = std::max(maxEvent, r.first);
+        evHitsOf.assign(maxEvent + 1, EvHits());
+        for (auto& rows : slotRows) for (auto& r : rows) evHitsOf[r.first] = std::move(r.second);
+    }
+
     // One proton tree: every recon proton before the quality cut (QualityStudy.cpp). The old trees Angles, AnglesCE and their _DE copies are views of it
     // (AngleSelection, CutFiles.h): inCE picks the rows, finalKE / finalKED the true / smeared ZDC KE.
     // The file is written through a TBufferMerger: the shards fill their own trees on all the threads (see the write below).
-    ROOT::TBufferMerger merger("cuts/cut_angles_all.root", "RECREATE");
+    ROOT::TBufferMerger merger(eventMode ? "cuts/cut_angles_new.root" : "cuts/cut_angles_all.root", "RECREATE");
 
     // A group of raw files at a time (ANA_FILES_PER_PASS, default 8): an event, and so every track, lives in a single output0_t<thread>.root, so the tracks of a group are complete
     // and only that group's proton points are held in memory (all files at once does not fit at 100M events). One file alone cannot keep all the threads busy.
-    TChain rawFiles("ParticleInfo");
+    // eventMode reads TrackerHitsAll (the tracker entries of every charged track that hit a tracker, 7run.cc), the proton recon ParticleInfo (tracks with 2+ planes, CE protons, ZDC rows)
+    const char* rawTree = eventMode ? "TrackerHitsAll" : "ParticleInfo";
+    TChain rawFiles(rawTree);
     rawFiles.Add("output0_t*.root");
     const unsigned filesPerPass = std::getenv("ANA_FILES_PER_PASS") ? std::max(1, std::atoi(std::getenv("ANA_FILES_PER_PASS"))) : 8;
     std::vector<std::string> rawNames;
@@ -215,7 +255,7 @@ void ReconAngleAll(){
     for (size_t first = 0; first < rawNames.size(); first += filesPerPass) {
         std::thread prefetch; // the files of the next group, read into the page cache while this group is processed
         if (first + filesPerPass < rawNames.size()) prefetch = std::thread(PrefetchFiles, std::cref(rawNames), first + filesPerPass, std::min(rawNames.size(), first + 2 * (size_t)filesPerPass));
-        TChain group("ParticleInfo");
+        TChain group(rawTree);
         for (size_t i = first; i < std::min(rawNames.size(), first + filesPerPass); i++) group.Add(rawNames[i].c_str());
         ROOT::RDataFrame df0(group);
         auto df = WithEntryNumber(df0, df0.GetNSlots()); // entryNo: the row of ParticleInfo in its file (rdfentry_ is wrong under MT on a tree with several clusters); orders the points of a track
@@ -253,6 +293,8 @@ void ReconAngleAll(){
             double xVertex, yVertex, zVertex, zBxRecon, zByRecon, zBxReconDIFF, zByReconDIFF;
             double resRms, resDRms, impact, impactD, r2, r2D, firstXD, firstYD, resHalfRatioD;
             int tubeBlock, inTubeZ;
+            int nPlanesUsed = 0, nCEUsed = 0, nOtherUsed = 0, evClass = -1; // eventMode only: planes in the fit, CE child hits and other hits among them, 0 CE only / 1 CE mix / 2 non-CE
+            int nProtonUsed = 0, nPionUsed = 0, nKaonUsed = 0, nNucleusUsed = 0; // eventMode only: of the other (non-CE child) hits, those of a proton (pdg 2212), a pi+ or pi-, a K+ or K-, and a nucleus (pdg above 1000000000: d, t, He, ...); the rest of nOtherUsed is any other charged particle
             double tubeZ0, tubeZ1, tubeDist, tubeDistD, tubeRadius, tubeX0, tubeY0, tubeX1, tubeY1, thetaNMin, thetaNMax, phiNMid, phiNHalf;
             double thetaRelN, thetaRelNMin, thetaRelNMax, phiRelN, phiRelNHalf, thetaRelND, thetaRelNDMin, thetaRelNDMax, phiRelND, phiRelNDHalf; // proton angles in the frame of the estimated neutron
             double thetaRelNDBMin, thetaRelNDBMax, phiRelNDBHalf, thetaLabDBMin, thetaLabDBMax, phiLabDBHalf; // the range of the block direction from the hit grid alone (the slope error of the block fit): in the est neutron frame, and about the lab z axis (outDTheta, outDPhi)
@@ -304,6 +346,7 @@ void ReconAngleAll(){
             // the tracks ParticleInfo holds, every one of them hit 2+ planes or is a CE proton)
             std::vector<int> nProtonsInEvent(runs.size()), nMaxPerPlaneInEvent(runs.size()), nPlanesHitInEvent(runs.size()); // nPlanesHitInEvent: the distinct tracker planes those tracks entered
             std::vector<std::pair<long, ULong64_t>> planeTracks;
+            std::vector<std::pair<std::size_t, std::size_t>> evGroups; // the runs (i, j) of each event, the jobs of eventMode
             for (std::size_t i = 0, j; i < runs.size(); i = j) {
                 for (j = i + 1; j < runs.size() && (keys[runs[j].first].track >> 32) == (keys[runs[i].first].track >> 32); j++) {}
                 planeTracks.clear();
@@ -318,15 +361,43 @@ void ReconAngleAll(){
                     best = std::max(best, int(b - a)); nPlanes++;
                 }
                 for (std::size_t k = i; k < j; k++) {nProtonsInEvent[k] = int(j - i); nMaxPerPlaneInEvent[k] = best; nPlanesHitInEvent[k] = nPlanes;}
+                evGroups.emplace_back(i, j);
             }
 
             std::vector<Row> &rows = shardRows[shard];
             Track t; // the points of the track in z order, repeats of the same position dropped; one Track for the whole shard, emptied for every track
             std::vector<std::size_t> blockHits; // tracker hits by z, reused the same way
-            for (std::size_t run = 0; run < runs.size(); run++) {
-                const auto key = std::make_tuple(at(runs[run].first).eventID, at(runs[run].first).trackID, at(runs[run].first).pdg);
+            const std::size_t nJobs = eventMode ? evGroups.size() : runs.size(); // a job is one proton track, in eventMode one event
+            for (std::size_t job = 0; job < nJobs; job++) {
+                const std::size_t run = eventMode ? evGroups[job].first : job; // eventMode: the first track of the event, for the per-event counts
+                auto key = std::make_tuple(at(runs[run].first).eventID, at(runs[run].first).trackID, at(runs[run].first).pdg);
                 t.clear();
-                for (std::size_t i = runs[run].first; i < runs[run].second; i++) {
+                int nCEUsed = 0, nOtherUsed = 0, nProtonUsed = 0, nPionUsed = 0, nKaonUsed = 0, nNucleusUsed = 0; double lastKE = NAN;
+                if (eventMode) {
+                    // the planes of the event with exactly 1 charged hit, each taken from the saved track that holds that hit; a plane no saved track holds (or twice) is left out
+                    const int ev = std::get<0>(key);
+                    key = std::make_tuple(ev, -1, 0);
+                    if (ev < 0 || (std::size_t)ev >= evHitsOf.size() || evHitsOf[ev].single.size() < 2) continue;
+                    const EvHits& eh = evHitsOf[ev];
+                    lastKE = eh.lastKE;
+                    std::vector<std::pair<long, std::size_t>> cand; // plane (um), index of the point in sorted order
+                    for (std::size_t k = evGroups[job].first; k < evGroups[job].second; k++) for (std::size_t p = runs[k].first; p < runs[k].second; p++) {
+                        if (at(p).zD == 0.0) continue;
+                        const long plane = std::lround(at(p).zD * 1000.0);
+                        if (std::binary_search(eh.single.begin(), eh.single.end(), plane)) cand.emplace_back(plane, p);
+                    }
+                    std::sort(cand.begin(), cand.end());
+                    const auto ce = ceTracks.find(ev);
+                    for (std::size_t a = 0, b; a < cand.size(); a = b) {
+                        for (b = a + 1; b < cand.size() && cand[b].first == cand[a].first; b++) {}
+                        if (b - a != 1) continue;
+                        const Point &p = at(cand[a].second);
+                        t.push(p.x, p.y, p.z, p.xD, p.yD, p.zD, p.parentID, p.entry);
+                        if (ce != ceTracks.end() && ce->second.count(p.parentID)) nCEUsed++;
+                        else {nOtherUsed++; if (p.pdg == 2212) nProtonUsed++; else if (p.pdg == 211 || p.pdg == -211) nPionUsed++; else if (p.pdg == 321 || p.pdg == -321) nKaonUsed++; else if (p.pdg >= 1000000000) nNucleusUsed++;}
+                    }
+                }
+                for (std::size_t i = runs[run].first; !eventMode && i < runs[run].second; i++) {
                     const Point &p = at(i);
                     if (i > runs[run].first) {
                         const Point &q = at(i - 1);
@@ -379,6 +450,19 @@ void ReconAngleAll(){
                 auto ce = ceTracks.find(r.eventID);
                 r.isFromCE = (ce != ceTracks.end() && ce->second.count(r.parentID)) ? 1 : 0;
                 r.inCE = (ce != ceTracks.end()) ? 1 : 0;
+                if (eventMode) {
+                    r.nPlanesUsed = int(t.size()); r.nCEUsed = nCEUsed; r.nOtherUsed = nOtherUsed; r.nProtonUsed = nProtonUsed; r.nPionUsed = nPionUsed; r.nKaonUsed = nKaonUsed; r.nNucleusUsed = nNucleusUsed;
+                    r.evClass = nCEUsed == 0 ? 2 : (nOtherUsed == 0 ? 0 : 1);
+                    r.isFromCE = r.evClass == 0 ? 1 : 0;
+                    // the summed KE of the charged hits on the last tracker (not a ZDC KE): finalKE true, finalKED each hit smeared like the ZDC (seeded by the event, so a rerun gives the same numbers)
+                    r.finalKE = lastKE; r.finalKED = lastKE;
+                    if (std::isfinite(lastKE)) {
+                        TRandom3 rng(1000003u + (unsigned)r.eventID);
+                        double sum = 0.0;
+                        for (const double ke : evHitsOf[r.eventID].lastKEs) sum += std::max(0.0, rng.Gaus(ke, ke * std::sqrt(zdcResA * zdcResA / (ke / 1000.0) + zdcResB * zdcResB)));
+                        r.finalKED = sum;
+                    }
+                }
 
                 FitQuality(t, fit.x0, fit.y0, fit.bx, fit.by, false, r.resRms, r.r2);
                 FitQuality(t, fit.x0D, fit.y0D, fit.bxD, fit.byD, true, r.resDRms, r.r2D);
@@ -419,17 +503,17 @@ void ReconAngleAll(){
                         r.inTubeZ = (r.zVertex >= r.tubeZ0 && r.zVertex <= r.tubeZ1) ? 1 : 0;
                         r.tubeDist  = std::hypot(r.xVertex - (fit.x0 + fit.bx * r.zVertex),   r.yVertex - (fit.y0 + fit.by * r.zVertex));
                         // The tube line is the weighted block-position fit itself (x0D, bxD, y0D, byD, LineFit): the 2 hits right after the CE block (the first 2 in z, the first hit is already
-                        // behind the block) have weight 1, every later hit kWeightFar, since the later hits have scattered more. A hit of weight w has error hitSigmaMm / sqrt(w), so
+                        // behind the block) have weight 1, the third 0.5 and every later hit 0.25 (WeightOfRank), since the later hits have scattered more. A hit of weight w has error hitSigmaMm / sqrt(w), so
                         // sigma^2 = s^2 (1/W + (z - zMean)^2 / Sxx) with W = sum w, Sxx = sum w (z - zMean)^2, taken at the block centre. NAN with fewer than 2 hits or no spread in zD.
                         double sw = 0.0, zMean = 0.0;
                         for (std::size_t k = 0; k < blockHits.size(); k++) {
-                            const double w = k < 2 ? 1.0 : kWeightFar;
+                            const double w = WeightOfRank(k);
                             sw += w; zMean += w * t.zD[blockHits[k]];
                         }
                         zMean /= sw;
                         double sxx = 0.0;
                         for (std::size_t k = 0; k < blockHits.size(); k++) {
-                            const double w = k < 2 ? 1.0 : kWeightFar, dzh = t.zD[blockHits[k]] - zMean;
+                            const double w = WeightOfRank(k), dzh = t.zD[blockHits[k]] - zMean;
                             sxx += w * dzh * dzh;
                         }
                         if (blockHits.size() >= 2 && sxx > 0.0) {
@@ -565,7 +649,7 @@ void ReconAngleAll(){
             tree->Branch("resHalfRatioD", &cur.resHalfRatioD);
             // vertex tube: tubeBlock the index of the carbon block just upstream of the first tracker hit (-1 none), tubeZ0 / tubeZ1 its front and back face (mm),
             // inTubeZ the true vertex z lies in the block, tubeDist / tubeDistD the transverse distance (mm) of the true vertex from the true / D line at the vertex z;
-            // every line fit (x0Out.. and x0DOut..) is weighted: the 2 lowest-z points weight 1, the rest kWeightFar (0.25). The tube centre at a face is x0DOut + bxDOut * tubeZ (tubeX0.. hold it),
+            // every line fit (x0Out.. and x0DOut..) is weighted: graded by rank in z (WeightOfRank): 1, 1, 0.5, 0.25, 0.25, ... The tube centre at a face is x0DOut + bxDOut * tubeZ (tubeX0.. hold it),
             // tubeDist / tubeDistD the distance of the true vertex from the true / block fit, tubeRadius the 2 sigma fit error (mm) of the block fit at the block centre (tubeDistD <= tubeRadius: vertex inside the tube)
             tree->Branch("tubeBlock", &cur.tubeBlock);
             tree->Branch("inTubeZ", &cur.inTubeZ);
@@ -602,6 +686,16 @@ void ReconAngleAll(){
             tree->Branch("tubeRadius", &cur.tubeRadius);
             tree->Branch("tubeDist", &cur.tubeDist);
             tree->Branch("tubeDistD", &cur.tubeDistD);
+            if (eventMode) {
+                tree->Branch("nPlanesUsed", &cur.nPlanesUsed);
+                tree->Branch("nCEUsed", &cur.nCEUsed);
+                tree->Branch("nOtherUsed", &cur.nOtherUsed);
+                tree->Branch("evClass", &cur.evClass);
+                tree->Branch("nProtonUsed", &cur.nProtonUsed);
+                tree->Branch("nPionUsed", &cur.nPionUsed);
+                tree->Branch("nKaonUsed", &cur.nKaonUsed);
+                tree->Branch("nNucleusUsed", &cur.nNucleusUsed);
+            }
             for (const Row &r : shardRows[shard]) {
                 cur = r;
                 tree->Fill();

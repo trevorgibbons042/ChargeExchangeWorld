@@ -1,4 +1,5 @@
 #include <TCanvas.h>
+#include "Palette.h"
 #include <TGraph.h>
 #include <TLegend.h>
 #include <TMultiGraph.h>
@@ -27,7 +28,7 @@ void PlotCEFraction(){
     ROOT::EnableImplicitMT(NThreads()); // implicit MT for the file reads (NThreads: ANA_NTHREADS, FitCore.h)
     gStyle->SetOptStat(0);
     const auto &sets = Sets(), &kes = Kes();
-    const auto &colors = kColors;
+    const int* colors = FomColors();
     const auto &setName = SetNames();
     auto cutNote = [](const std::string&){return std::string("no KE cut");};
 
@@ -88,7 +89,7 @@ void PlotCEFraction(){
             TGraph g;
             for (int b = 0; b < nBins; b++) g.SetPoint(g.GetN(), (b + 0.5) * binW, 100.0 * nCE[b] / nNeutrons);
             c.SetLogy(0);
-            drawGraph(g, "100 #times N_{CE} / N_{neutrons} per #theta bin (0.05 deg), " + cutNote(set) + ", N_{CE} = CE recon protons, " + setName.at(set), "100 #times N_{CE} / N_{neutrons} (%)", kGreen + 2); // 3_: green
+            drawGraph(g, "100 #times N_{CE} / N_{neutrons} per #theta bin (0.05 deg), " + cutNote(set) + ", N_{CE} = CE recon protons, " + setName.at(set), "100 #times N_{CE} / N_{neutrons} (%)", CbAll()); // 3_: green
             c.SaveAs((dir + "ke_gt80/3_ce_percent_of_neutrons_per_bin.pdf").c_str());
 
             // The same, times A_y^2 at the bin center: t from theta (TFromAngle), A_y from t (APFromT, the model formula) with the run's APScale
@@ -99,7 +100,7 @@ void PlotCEFraction(){
                 const double ap = APFromT(kBeamMomentum, TFromAngle(kBeamMomentum, theta * TMath::Pi() / 180), apScale);
                 gA2.SetPoint(gA2.GetN(), theta, ap * ap * 100.0 * nCE[b] / nNeutrons);
             }
-            drawGraph(gA2, "100 #times N_{CE} / N_{neutrons} #times A_{y}^{2}(#theta) per #theta bin (0.05 deg), " + cutNote(set) + ", N_{CE} = CE recon protons, " + setName.at(set), "A_{y}^{2} #times 100 #times N_{CE} / N_{neutrons} (%)", kGreen + 2); // 4_: green
+            drawGraph(gA2, "100 #times N_{CE} / N_{neutrons} #times A_{y}^{2}(#theta) per #theta bin (0.05 deg), " + cutNote(set) + ", N_{CE} = CE recon protons, " + setName.at(set), "A_{y}^{2} #times 100 #times N_{CE} / N_{neutrons} (%)", CbAll()); // 4_: green
             c.SaveAs((dir + "ke_gt80/4_FOM_per_bin.pdf").c_str());
 
             // Running integral up to each bin: sum of N_CE / N_neutrons * A_y^2(theta) * delta theta (0.05 deg)
@@ -111,7 +112,7 @@ void PlotCEFraction(){
                 integral += nCE[b] / nNeutrons * ap * ap * binW;
                 gInt.SetPoint(gInt.GetN(), (b + 1) * binW, integral);
             }
-            drawGraph(gInt, "#Sigma N_{CE} / N_{neutrons} #times A_{y}^{2}(#theta) #times #Delta#theta up to #theta (#Delta#theta = 0.05 deg), " + cutNote(set) + ", N_{CE} = CE recon protons, " + setName.at(set), "#Sigma N_{CE} / N_{neutrons} #times A_{y}^{2} #times #Delta#theta (deg)", kRed); // CE protons are red
+            drawGraph(gInt, "#Sigma N_{CE} / N_{neutrons} #times A_{y}^{2}(#theta) #times #Delta#theta up to #theta (#Delta#theta = 0.05 deg), " + cutNote(set) + ", N_{CE} = CE recon protons, " + setName.at(set), "#Sigma N_{CE} / N_{neutrons} #times A_{y}^{2} #times #Delta#theta (deg)", CbCE()); // CE protons are red
             TPaveText finalValue(0.81, 0.78, 0.99, 0.88, "NDC"); // outside the graph, in the right margin: the integral up to the last bin
             finalValue.SetFillColor(0); finalValue.SetBorderSize(0); finalValue.SetTextAlign(12); finalValue.SetTextSize(0.028);
             finalValue.AddText("final value");
@@ -131,7 +132,7 @@ void PlotCEFraction(){
                 if (gShare.GetN() == 0) continue;
                 // 1_, 2_ (all recon protons as the denominator) blue, 6_, 7_ (all recon charged particles) red
                 drawGraph(gShare, std::string(nonCE ? "Contamination, " : "Purity, ") + (part ? "all recon charged particles: " : "all recon protons: ") + "100 #times " + num + " / " + den + " per #theta bin (0.05 deg), N_{CE,recon} = CE recon protons, " + den + " = all recon " + (part ? "charged particles (any pdg)" : "protons (pdg 2212)") + ", " + cutNote(set) + ", " + setName.at(set),
-                          "100 #times " + num + " / " + den + " (%)", part ? kRed : kBlue);
+                          "100 #times " + num + " / " + den + " (%)", part ? CbCE() : CbProton());
                 c.SaveAs((dir + "ke_gt80/" + (part ? (nonCE ? "7_contamination_particle_percent_per_bin.pdf" : "6_purity_particle_percent_per_bin.pdf") : (nonCE ? "2_contamination_proton_percent_per_bin.pdf" : "1_purity_proton_percent_per_bin.pdf"))).c_str());
             }
 
@@ -144,11 +145,11 @@ void PlotCEFraction(){
                 struct Ratio {const char* file, *label; int color; std::function<double(double, double, double)> f;}; // f(CE, prot, part) in the bin
                 const int fileNum[5] = {8, 9, 11, 13, 15}; // the numbers the particle ratios kept when the all recon protons ones (10, 12, 14) went
                 const Ratio ratios[5] = {
-                    {"purity_particle", "N_{CE,recon,in bin} / N_{recon,particle,in bin}", kGreen + 2, [&](double ce, double, double pa){return pa > 0 ? ce / pa : NAN;}},
-                    {"contamination_particle", "N_{nonCE,recon,particle,in bin} / N_{recon,particle,in bin}", kGreen + 2, [&](double ce, double, double pa){return pa > 0 ? (pa - ce) / pa : NAN;}},
-                    {"background_in_over_out_particle", "N_{nonCE,recon,particle,in bin} / N_{nonCE,recon,particle,out of bin}", kGreen + 2, [&](double ce, double, double pa){const double out = nonPartBefore - (pa - ce); return out > 0 ? (pa - ce) / out : NAN;}},
-                    {"background_efficiency_particle", "N_{nonCE,recon,particle,in bin} / N_{nonCE,recon,particle,all bins}", kGreen + 2, [&](double ce, double, double pa){return nonPartBefore > 0 ? (pa - ce) / nonPartBefore : NAN;}},
-                    {"signal_significance_particle", "N_{CE,recon,in bin} / sqrt(N_{nonCE,recon,particle,in bin})", kGreen + 2, [&](double ce, double, double pa){return pa - ce > 0 ? ce / std::sqrt(pa - ce) : NAN;}}};
+                    {"purity_particle", "N_{CE,recon,in bin} / N_{recon,particle,in bin}", CbAll(), [&](double ce, double, double pa){return pa > 0 ? ce / pa : NAN;}},
+                    {"contamination_particle", "N_{nonCE,recon,particle,in bin} / N_{recon,particle,in bin}", CbAll(), [&](double ce, double, double pa){return pa > 0 ? (pa - ce) / pa : NAN;}},
+                    {"background_in_over_out_particle", "N_{nonCE,recon,particle,in bin} / N_{nonCE,recon,particle,out of bin}", CbAll(), [&](double ce, double, double pa){const double out = nonPartBefore - (pa - ce); return out > 0 ? (pa - ce) / out : NAN;}},
+                    {"background_efficiency_particle", "N_{nonCE,recon,particle,in bin} / N_{nonCE,recon,particle,all bins}", CbAll(), [&](double ce, double, double pa){return nonPartBefore > 0 ? (pa - ce) / nonPartBefore : NAN;}},
+                    {"signal_significance_particle", "N_{CE,recon,in bin} / sqrt(N_{nonCE,recon,particle,in bin})", CbAll(), [&](double ce, double, double pa){return pa - ce > 0 ? ce / std::sqrt(pa - ce) : NAN;}}};
                 for (int k = 0; k < 5; k++){
                     TGraph gR;
                     for (int b = 0; b < nBins; b++){const double v = ratios[k].f(nCE[b], nRecon[b], nPart[b]); if (std::isfinite(v)) gR.SetPoint(gR.GetN(), (b + 0.5) * binW, v);}

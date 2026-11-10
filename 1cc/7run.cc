@@ -8,6 +8,7 @@
 #include "2construction.hh"
 #include "5generator.hh"
 #include "9stepping.hh"
+#include "6detector.hh"
 #include "G4RunManager.hh"
 #include "G4Neutron.hh"
 #include "G4ProcessManager.hh"
@@ -87,7 +88,27 @@ MyRunAction::MyRunAction()
     man->CreateNtupleDColumn("zdcKECharged");
     man->CreateNtupleIColumn("nTrackerHitsEv"); // every charged tracker entry of every particle in the event (6detector.hh)
     man->CreateNtupleIColumn("nTrackerTracksEv"); // charged tracks that hit at least kMinTrackerPlanesSaved tracker planes
+    man->CreateNtupleDColumn("hitTrackerZ", hitZ); // z (mm) of the tracker of every charged tracker hit of the event, one entry per hit, no position
+    man->CreateNtupleDColumn("hitTrackerKE", hitKE); // KE (MeV) of that hit, same order
     man->FinishNtuple(2);
+
+    //6detector.hh FlushParticleInfo: TrackerHitsAll, every charged track that entered at least one tracker plane (ParticleInfo keeps only tracks with 2+ planes or CE protons), its tracker entries only.
+    //Same columns as ParticleInfo (boundaryType is always 0), so the macros read it the same way.
+    man->CreateNtuple("TrackerHitsAll", "Tracker entries of every charged track that hit a tracker");
+    man->CreateNtupleIColumn("fEvent");
+    man->CreateNtupleIColumn("TrackID");
+    man->CreateNtupleIColumn("ParentID");
+    man->CreateNtupleIColumn("pdg");
+    man->CreateNtupleIColumn("boundaryType");
+    man->CreateNtupleDColumn("fX");
+    man->CreateNtupleDColumn("fY");
+    man->CreateNtupleDColumn("fZ");
+    man->CreateNtupleDColumn("fKEnergy");
+    man->CreateNtupleDColumn("fDx");
+    man->CreateNtupleDColumn("fDy");
+    man->CreateNtupleDColumn("fDz");
+    man->CreateNtupleDColumn("fDEnergy");
+    man->FinishNtuple(3);
 
 };
 

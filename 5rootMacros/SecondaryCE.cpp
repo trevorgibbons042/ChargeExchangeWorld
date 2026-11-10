@@ -1,4 +1,5 @@
 #include <algorithm>
+#include "Palette.h"
 #include <cmath>
 #include <cstring>
 #include <functional>
@@ -93,7 +94,7 @@ void SecondaryCE(){
     // y component of the CE neutron polarization, every CE: beam neutron (black) and secondary neutrons (red), log y
     const std::string polYFile = "2_polarization/3_CEpolY_distribution.pdf";
     canvas.SetLogy(1);
-    hYprim.SetLineColor(kBlack); hYsec.SetLineColor(kRed);
+    hYprim.SetLineColor(kBlack); hYsec.SetLineColor(CbCE());
     hYprim.SetLineWidth(2); hYsec.SetLineWidth(2); hYprim.SetStats(0);
     hYprim.SetMinimum(0.5);
     hYprim.SetMaximum(2.0 * std::max(hYprim.GetMaximum(), hYsec.GetMaximum()));
@@ -156,14 +157,14 @@ void SecondaryCE(){
     hP.SetTitle(PlotTitle(pFile, "Fitted polarization P of the CE protons, CEPHI_NEUFRAME (true neutron frame), now and if the neutronInelastic and protonInelastic neutrons were polarized like the beam neutron, no cuts;;P").c_str());
     canvas.Clear(); canvas.SetLogy(0);
     hP.Draw("hist");
-    TLine pRef(0, ReadSettings().at("PPValue"), 5, ReadSettings().at("PPValue")); pRef.SetLineStyle(3); pRef.SetLineWidth(2); pRef.SetLineColor(kRed); pRef.Draw(); // input PPValue
+    TLine pRef(0, ReadSettings().at("PPValue"), 5, ReadSettings().at("PPValue")); pRef.SetLineStyle(3); pRef.SetLineWidth(2); pRef.SetLineColor(CbCE()); pRef.Draw(); // input PPValue
     WritePlotNumbers(&hP, outDir + pFile, numbersStarted);
     canvas.SaveAs((outDir + pFile).c_str());
     // 6_CE_proton_KE_by_creator.pdf and 7_CE_proton_smeared_KE_by_creator.pdf: KE at the ZDC of the protons made by the CE, true (fKEnergy) and with the ZDC energy smearing
     // (fDEnergy, /zdc/resStochastic and /zdc/resConstant in the sim, equal to fKEnergy when the smearing is off), one curve per process that made the CE neutron.
     // The proton's ParentID is the CE neutron's TrackID (like PlotDiffPhiCuts.cpp), matched on (fEvent, ParentID).
     const char* gName[4] = {"beam neutron", "neutronInelastic", "protonInelastic", "all other creators"};
-    const int gColor[4] = {kBlack, kRed, kBlue, kGreen + 2};
+    const int gColor[4] = {kBlack, CbCE(), CbProton(), CbAll()};
     TH1D hKE[2][4]; // [0] true KE, [1] smeared KE
     for (int q = 0; q < 2; q++) for (int g = 0; g < 4; g++) hKE[q][g] = TH1D(Form("hKE%d_%d", q, g), "", 100, 0, KeAxisMax()); // 30000 MeV at 25 GeV/c, FitCore.h
     TTree* piPtr = OpenCut("cuts/cut_ParentZdc.root", "ParticleInfo");
@@ -268,7 +269,7 @@ void SecondaryCE(){
             }
         }
         const char* phiName[2] = {"all CE", "beam neutron CE (TrackID 1)"};
-        const int phiColor[2] = {kBlack, kRed};
+        const int phiColor[2] = {kBlack, CbCE()};
         TF1 phiFit[2];
         double pFit[2], pFitErr[2];
         PFit ufBox[2];

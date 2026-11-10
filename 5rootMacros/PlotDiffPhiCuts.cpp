@@ -1,4 +1,5 @@
 #include <TCanvas.h>
+#include "Palette.h"
 #include <TFile.h>
 #include <TH1.h>
 #include <TH2.h>
@@ -158,9 +159,9 @@ void PlotDiffPhiCuts(double absLo = 50, double absHi = 180, std::string energy =
     // Recon histograms on log y: all recon charged particles (green, every row of AnglesRaw), all recon protons (blue, pdg 2212) and the CE recon protons in the phi diff window (red)
     auto drawOverlay = [&](TH1D& hRecon, TH1D& hProt, TH1D& hCE, TH1D* hWin, const std::string& label, const std::string& what, const std::string& file,
                            const std::vector<std::string>& eqLines){
-        hRecon.SetLineColor(kGreen + 2); hProt.SetLineColor(kBlue); hCE.SetLineColor(kRed);
+        hRecon.SetLineColor(CbAll()); hProt.SetLineColor(CbProton()); hCE.SetLineColor(CbCE());
         for (TH1D* h : {&hRecon, &hProt, &hCE}) h->SetLineWidth(2);
-        if (hWin){hWin->SetLineColor(kRed); hWin->SetLineWidth(2);}
+        if (hWin){hWin->SetLineColor(CbCE()); hWin->SetLineWidth(2);}
         hRecon.SetStats(0);
         hRecon.SetMinimum(0.5); // log y: the recon protons outnumber the CE ones by far
         hRecon.SetMaximum(2.0 * std::max({hRecon.GetMaximum(), hProt.GetMaximum(), hCE.GetMaximum(), hWin ? hWin->GetMaximum() : 0.0}));

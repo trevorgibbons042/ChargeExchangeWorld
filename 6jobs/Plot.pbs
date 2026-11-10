@@ -28,12 +28,10 @@ echo Run folder: $RUN, step: $STEP
 # The same lanes as plot.sh: a lane holds the macros that write into the same plots/ folders or read another's csv files
 case $STEP in
     cutevents) macros=('CutEvents.cpp') ;; # SubmitEvents.sh: the analysis chain of run.sh
-    analysis) macros=('CutEvents.cpp' 'ReconAngleAll.cpp' 'CalcAPandT.cpp' 'CountCE.cpp' 'CutPlots.cpp') ;; # SubmitEvents.sh: the five analysis steps in one job, one after the other, all the cores each
-    analysisconvert) macros=('CutEvents.cpp' 'ConvertAngles.cpp' 'CalcAPandT.cpp' 'CountCE.cpp' 'CutPlots.cpp') ;; # the same with ConvertAngles.cpp instead of the refit (cutdone)
+    analysis) macros=('CutEvents.cpp' 'ReconAngleAll.cpp' 'ReconAngleAll.cpp(true)' 'CalcAPandT.cpp' 'CountCE.cpp' 'CutPlots.cpp') ;; # SubmitEvents.sh: the five analysis steps in one job, one after the other, all the cores each
     analysis6) macros=('CutEvents.cpp' 'ReconAngleAll.cpp' 'CalcAPandT.cpp("true")' 'CutPlots.cpp') ;; # Submit6Cuts.sh: only what plots/6_cuts reads: no CountCE, CalcAPandT true KE only, CutPlots without the trees part
     cutplots6) macros=('CutPlots.cpp') ;; # Submit6Cuts.sh CutPlots: the same CutPlots, for a run whose recon is done
-    recon)    macros=('ReconAngleAll.cpp') ;;
-    convert) macros=('ConvertAngles.cpp') ;; # the cut_angles_all.root of an old ReconAngleAll.cpp into the one-tree format, no refit
+    recon)    macros=('ReconAngleAll.cpp' 'ReconAngleAll.cpp(true)') ;; # the proton recon, then the event recon of plots/9_ReconNew_1 (cuts/cut_angles_new.root, needs TrackerHitsAll from the sim)
     calc)     macros=('CalcAPandT.cpp') ;; # true KE, then detector KE
     countce)  macros=('CountCE.cpp') ;;
     cuttrees) macros=('CutPlots.cpp') ;; # the KE cut lists, cut_ZdcCE.root and cut_ZdcAllEv.root, and one cut file per cut of 6_cuts, all read by the plot lanes
@@ -42,7 +40,7 @@ case $STEP in
     quality)  macros=('QualityStudy.cpp') ;; # the same, after plot3d
     fom)      macros=('PlotAngle.cpp("fDEnergy")' 'PlotCEFraction.cpp' 'PlotPolarization.cpp("fDEnergy")' 'PlotFomPolarization.cpp("fDEnergy")') ;; # 3_ReconCalcVals, 5_fomCalc
     ceblock)  macros=('PlotDiffPhiCuts.cpp(50, 180, "fDEnergy")' 'GraphBlocks.cpp' 'CETCompare.cpp') ;; # 4_CEblock
-    secce)    macros=('SecondaryCE.cpp') ;; # 7_secondaryCE
+    secce)    macros=('SecondaryCE.cpp' 'PlotReconNew.cpp') ;; # 7_secondaryCE, and 9_ReconNew_1 (the event recon of ReconAngleAll.cpp(true), a folder of its own)
     smear)    macros=('SmearMatrix.cpp') ;; # 8_smear
     smearcuts) macros=() ;; # the SmearMatrix pages 2_matrix2 and 3_matrix3 of every 6_cuts folder's sample (smear_cuts.sh, below), after the Cuts job: its cuts.txt names the cut in the titles
     pdfs)     macros=() ;; # the python steps of plot.sh, after every lane
@@ -51,16 +49,16 @@ esac
 
 # Build every macro of the step once, before the parallel processes (CutPlots, Plot3D): two processes never build the same .so (as in plot.sh)
 if [ -n "$ACLIC" ]; then
-    for m in "${macros[@]}"; do root -l -b -q -e ".L ${m%%(*}$ACLIC" > /dev/null 2>&1 & done # one process per macro, side by side: each macro builds its own .so
+    for m in $(printf '%s\n' "${macros[@]%%(*}" | sort -u); do root -l -b -q -e ".L $m$ACLIC" > /dev/null 2>&1 & done # each macro once: ReconAngleAll.cpp and ReconAngleAll.cpp(true) share one .so # one process per macro, side by side: each macro builds its own .so
     wait
 fi
 # The analysis steps also build the macros of the plot jobs that run after them (Plot3D alone took 78 s of the Cuts job), beside the analysis: ReconAngleAll waits on the disk and leaves
 # most of the cores idle. The plot jobs then find the .so files up to date. Waited for before the job ends, the plot jobs start after it.
 precompile=
 case $STEP in
-    analysis|analysisconvert)
+    analysis)
         if [ -n "$ACLIC" ]; then
-            ( for m in Plot3D QualityStudy PlotKEOverlay PlotAngle PlotCEFraction PlotPolarization PlotFomPolarization PlotDiffPhiCuts GraphBlocks CETCompare SecondaryCE SmearMatrix; do nice -n 10 root -l -b -q -e ".L $m.cpp$ACLIC" > /dev/null 2>&1 & done; wait ) &
+            ( for m in Plot3D QualityStudy PlotKEOverlay PlotAngle PlotCEFraction PlotPolarization PlotFomPolarization PlotDiffPhiCuts GraphBlocks CETCompare SecondaryCE SmearMatrix PlotReconNew; do nice -n 10 root -l -b -q -e ".L $m.cpp$ACLIC" > /dev/null 2>&1 & done; wait ) &
             precompile=$!
         fi ;;
 esac
