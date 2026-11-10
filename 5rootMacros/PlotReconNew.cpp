@@ -31,7 +31,7 @@ struct NewVar {
     const char* name; const char* title; int bins; double lo, hi; bool logY;
     std::function<double(const NewRow&)> value;
 };
-constexpr double kKeCutPercent = 90.0; // the KE cut: summed (smeared) KE on the last tracker above this percent of the beam KE (90% of 25 GeV = 22500 MeV)
+constexpr double kKeCutPercent = 80.0; // the KE cut: summed (smeared) KE on the last tracker above this percent of the beam KE (80% of 25 GeV = 20000 MeV)
 // the three curves are cumulative: CE only, CE only + CE mix, and every event (total recon particles)
 const char* ClassLabel(int c){return c == 0 ? "CE recon" : c == 1 ? "CE + CE mix recon" : "total recon particles";}
 int ClassColor(int c){return c == 0 ? CbCE() : c == 1 ? CbProton() : CbAll();}
