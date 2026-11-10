@@ -113,15 +113,28 @@ void PlotReconNew(){
             h[k]->SetLineColor(ClassColor(k)); h[k]->SetLineWidth(2);
         }
         double nClass[3] = {0, 0, 0};
-        for (Long64_t i = 0; i < n; i++){
-            const NewRow& r = rows[i];
-            if (r.evClass < 0 || r.evClass > 2) continue;
-            const double x = v.value(r);
-            if (!passes(r)) continue;
-            for (int k = r.evClass; k < 3; k++){ // cumulative: CE only events are in all three, CE mix events in the last two, non-CE events in the last only
-                nClass[k]++;
-                if (std::isfinite(x)) h[k]->Fill(x);
+        // the rows run on all the threads (MapRows, FitCore.h): each range counts its own bins (no TH1 in the threads), the ranges are added up here; same bins as TH1::Fill (x below lo or from hi on is left out)
+        const double hLo = h[0]->GetXaxis()->GetXmin(), hHi = h[0]->GetXaxis()->GetXmax();
+        const int nb = v.bins;
+        struct VarPart {std::vector<double> bins[3]; double nClass[3];};
+        const auto varParts = MapRows(n, [&](Long64_t a, Long64_t z){
+            VarPart p;
+            for (int k = 0; k < 3; k++){p.bins[k].assign(nb, 0.0); p.nClass[k] = 0;}
+            for (Long64_t i = a; i < z; i++){
+                const NewRow& r = rows[i];
+                if (r.evClass < 0 || r.evClass > 2) continue;
+                const double x = v.value(r);
+                if (!passes(r)) continue;
+                for (int k = r.evClass; k < 3; k++){ // cumulative: CE only events are in all three, CE mix events in the last two, non-CE events in the last only
+                    p.nClass[k]++;
+                    if (std::isfinite(x) && x >= hLo && x < hHi) p.bins[k][std::min(nb - 1, (int)((x - hLo) / (hHi - hLo) * nb))]++;
+                }
             }
+            return p;
+        });
+        for (const auto& p : varParts) for (int k = 0; k < 3; k++){
+            nClass[k] += p.nClass[k];
+            for (int j = 0; j < nb; j++){h[k]->AddBinContent(j + 1, p.bins[k][j]); h[k]->SetEntries(h[k]->GetEntries() + p.bins[k][j]);}
         }
         double top = 0;
         for (int k = 0; k < 3; k++) top = std::max(top, h[k]->GetMaximum());
@@ -157,14 +170,20 @@ void PlotReconNew(){
             for (int j = 0; j < nCat; j++) b[k]->GetXaxis()->SetBinLabel(j + 1, cats[j]);
         }
         double nEv[3] = {0, 0, 0};
-        for (Long64_t i = 0; i < n; i++){
-            const NewRow& r = rows[i];
-            if (r.evClass < 0 || r.evClass > 2 || !passes(r)) continue;
-            nEv[r.evClass]++;
-            b[r.evClass]->AddBinContent(1, r.nCEUsed); b[r.evClass]->AddBinContent(2, r.nProtonUsed);
-            b[r.evClass]->AddBinContent(3, r.nPionUsed); b[r.evClass]->AddBinContent(4, r.nKaonUsed); b[r.evClass]->AddBinContent(5, r.nNucleusUsed);
-            b[r.evClass]->AddBinContent(6, r.nOtherUsed - r.nProtonUsed - r.nPionUsed - r.nKaonUsed - r.nNucleusUsed);
-        }
+        struct TypePart {double nEv[3] = {0, 0, 0}, cnt[3][6] = {{0}};};
+        const auto typeParts = MapRows(n, [&](Long64_t a, Long64_t z){
+            TypePart p;
+            for (Long64_t i = a; i < z; i++){
+                const NewRow& r = rows[i];
+                if (r.evClass < 0 || r.evClass > 2 || !passes(r)) continue;
+                p.nEv[r.evClass]++;
+                double* q = p.cnt[r.evClass];
+                q[0] += r.nCEUsed; q[1] += r.nProtonUsed; q[2] += r.nPionUsed; q[3] += r.nKaonUsed; q[4] += r.nNucleusUsed;
+                q[5] += r.nOtherUsed - r.nProtonUsed - r.nPionUsed - r.nKaonUsed - r.nNucleusUsed;
+            }
+            return p;
+        });
+        for (const auto& p : typeParts) for (int k = 0; k < 3; k++){nEv[k] += p.nEv[k]; for (int j = 0; j < nCat; j++) b[k]->AddBinContent(j + 1, p.cnt[k][j]);}
         double top = 0;
         for (int k = 0; k < 3; k++) top = std::max(top, b[k]->GetMaximum());
         c.Clear(); c.SetLogy(true);
