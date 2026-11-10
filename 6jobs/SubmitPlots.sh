@@ -1,12 +1,12 @@
 #!/bin/bash
 # Submits the plotting chain for one run folder as PBS jobs (Plot.pbs), the lanes of 5rootMacros/plot.sh in parallel, instead of running plot.sh in one go.
-# Quick redo of one cut: CUT_ONLY=megacut3 bash SubmitPlots.sh <run> "" CutPlots 6_cuts/9_megaCut3 rewrites only the cut_megacut3* files (CutPlots.cpp) and then replots only that folder.
+# Quick redo of one cut: CUT_ONLY=megacut3 bash SubmitPlots.sh <run> "" CutPlots 6_cuts/6_megaCut3 rewrites only the cut_megacut3* files (CutPlots.cpp) and then replots only that folder.
 # Usage: bash SubmitPlots.sh <folder in build/root> [job ids CutPlots waits for, colon separated] [first job] [plots/ folder to redo], e.g. bash SubmitPlots.sh Physics_xs1e10
 # The Pdfs job is only submitted with PDFS=1 in the environment or with Pdfs as the first job (the examples below that mention it need one of them).
 # first job: CutPlots (default), Cuts, Fom, CEblock, SecCE, Smear or Pdfs. The jobs before it are not submitted (their files are already in cuts/), so e.g. "Cuts" runs Cuts, Fom, CEblock, SecCE, Smear and Pdfs: bash SubmitPlots.sh Physics_801 "" Cuts
 # plots/ folder to redo: one folder of plots/ (a leading plots/ is dropped), e.g. bash SubmitPlots.sh Physics_801 "" CutPlots 6_cuts/3_ResCuts. It is deleted, then only the jobs that write it run (none of CutPlots), then Pdfs.
 #   1_position, 2_energy          Plot3D part 1
-#   6_cuts, 6_cuts/<cut folder>   Plot3D parts 2, 3, 4 of that cut (all cuts for 6_cuts), part 5 (rank csv files), QualityStudy for 3_ResCuts, 4_nParticles, 5_nHits
+#   6_cuts, 6_cuts/<cut folder>   Plot3D parts 2, 3, 4 of that cut (all cuts for 6_cuts), part 5 (rank csv files), QualityStudy for 3_ResCuts
 #   3_ReconCalcVals, 5_fomCalc    the Fom lane      4_CEblock  the CEblock lane      7_secondaryCE  the SecCE lane      8_smear  the Smear lane
 # Needs cut_*.root and settings.csv already in the run folder (CutEvents.cpp, ReconAngleAll.cpp, CalcAPandT.cpp, CountCE.cpp done), or the job ids of the jobs that write them (SubmitEvents.sh).
 RUN=$1
@@ -23,18 +23,12 @@ source ./submit_lib.sh
 # cut_indexes <folder under 6_cuts, empty for all>: the P3_CUT numbers of Plot3D.cpp (0: 0_cuts, 1_hitZDC and 2_KECUT, then sampleCuts in order). Keep in step with Plot3D.cpp and Plot.pbs.
 cut_indexes() {
     case $1 in
-        "") echo 0 1 2 3 4 5 6 7 8 ;;
+        "") echo 0 1 2 3 4 ;;
         0_cuts|0_cuts/*|1_hitZDC|1_hitZDC/*|2_KECUT|2_KECUT/*) echo 0 ;;
         3_ResCuts|3_ResCuts/*) echo 1 ;;
-        4_nParticles) echo 2 3 ;;
-        4_nParticles/1_*) echo 2 ;;
-        4_nParticles/2_*) echo 3 ;;
-        5_nHits|5_nHits/*) echo 4 ;;
-        8_nZdcParticles|8_nZdcParticles/*) echo 5 ;;
-        9_megaCut3|9_megaCut3/1_*) echo 6 ;;
-        10_nChargedTrackerHits) echo 7 8 ;;
-        10_nChargedTrackerHits/1_*) echo 7 ;;
-        10_nChargedTrackerHits/2_*) echo 8 ;;
+        4_nZdcParticles|4_nZdcParticles/*) echo 2 ;;
+        5_avgTrackerHitsPerPlane|5_avgTrackerHitsPerPlane/*) echo 3 ;;
+        6_megaCut3|6_megaCut3/1_*) echo 4 ;;
         *) return 1 ;;
     esac
 }
@@ -50,12 +44,12 @@ if [ -n "$TARGET" ]; then
             idx=$(cut_indexes "$rest") || { echo "unknown cut folder: 6_cuts/$rest"; exit 1; }
             for i in $idx; do
                 if [ "$i" = 0 ]; then PARTS+="2:0+3:0:0+3:0:1:0+3:0:1:1+3:0:1:2+3:0:1:3+3:0:1:4+3:0:1:5+3:0:2+3:0:3:0+3:0:3:1+3:0:3:2+3:0:3:3+" # cut 0 holds four folders (P3_SUB), a process each; the slow noCuts ones (3:0:1, 4:0:2) and the KE scan ones (3:0:3, one process per KE level 80 85 90 95) split further (P3_SEC, Plot3D.cpp)
-                else PARTS+="2:$i+3:$i+"; case $i in 6) PARTS+="4:$i+" ;; esac; fi
+                else PARTS+="2:$i+3:$i+"; case $i in 3|4) PARTS+="4:$i+" ;; esac; fi
             done
-            [ -z "$rest" ] && PARTS+="4:9+4:10+4:11+" # all of 6_cuts: also the KE scan sets of Plot3D.cpp part 4 (cuts 9 to 11)
+            [ -z "$rest" ] && PARTS+="4:5+4:6+4:7+" # all of 6_cuts: also the KE scan sets of Plot3D.cpp part 4 (cuts 5 to 7)
             case " $idx " in *" 0 "*) PARTS+="1::3+" ;; esac # 1_hitZDC, 0_cuts and 2_KECUT also hold plots of part 1
             PARTS=${PARTS%+}
-            case $rest in ""|3_ResCuts*|4_nParticles*|5_nHits*) QS=1 ;; esac ;;
+            case $rest in ""|3_ResCuts*) QS=1 ;; esac ;;
         3_ReconCalcVals|5_fomCalc) LANE=fom ;;
         4_CEblock) LANE=ceblock ;;
         7_secondaryCE) LANE=secce ;;

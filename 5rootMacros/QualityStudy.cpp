@@ -55,10 +55,10 @@ void QualityStudy(double keepCE = 0.95){
     const std::vector<std::vector<double>> col = ColumnsUnordered(t, want); // row order does not matter here, and AnglesRaw (many clusters) is then read on all threads
     const size_t nRows = col[0].size();
     auto isCE = [&](size_t e){return col[4][e] != 0;};
-    auto inBase = [&](size_t e){ // baseline of 6_cuts: RECONTHETA_ESTNEU and RECONTHETABL_ESTNEU from 0 to 1 degree (NaN fails)
+    auto inBase = [&](size_t e){ // baseline of 6_cuts: RECONTHETA_ESTNEU and RECONTHETABL_ESTNEU from 0 to 2 degrees (NaN fails)
         if (!hasCand) return true;
         const double deg = col[iCand + 5][e] * TMath::RadToDeg(), degBlock = col[iCand + 6][e] * TMath::RadToDeg();
-        return deg >= 0 && deg <= 1 && degBlock >= 0 && degBlock <= 1;
+        return deg >= 0 && deg <= 2 && degBlock >= 0 && degBlock <= 2;
     };
     for (size_t e = 0; e < nRows; e++){
         if (!inBase(e)) continue;
@@ -133,74 +133,6 @@ void QualityStudy(double keepCE = 0.95){
         fclose(rc);
     }
 
-    // Cut candidates, plotted only (nothing is cut): CE vs recon protons, one folder each, from all of AnglesRaw
-    struct Cand {std::string branch, folder, label; double lo, hi; int nBins;};
-    const std::vector<Cand> cands = {
-        {"nProtonsEv", "4_nParticles", "reconstructed particles in the event", -0.5, 19.5, 20},
-        {"nHits", "5_nHits", "tracker hits", -0.5, MaxTrackerHits() + 2.5, MaxTrackerHits() + 3}};
-    {
-        if (hasCand){
-            // col[iCand + k]: 0 nProtonsEv, 1 nHits, 2 firstXD, 3 firstYD, 4 resHalfRatioD, 5 thetaRelN, 6 thetaRelND
-            std::vector<std::vector<double>> candCE(cands.size()), candRecon(cands.size());
-            for (size_t e = 0; e < nRows; e++){
-                if (!inBase(e)) continue;
-                const double vals[2] = {col[iCand][e], col[iCand + 1][e]}; // in the order of cands
-                for (size_t i = 0; i < cands.size(); i++){
-                    if (!std::isfinite(vals[i])) continue;
-                    candRecon[i].push_back(vals[i]);
-                    if (isCE(e)) candCE[i].push_back(vals[i]);
-                }
-            }
-            for (size_t i = 0; i < cands.size(); i++){
-                const Cand& cd = cands[i];
-                const std::string cdir = "plots/6_cuts/" + cd.folder + "/";
-                gSystem->mkdir(cdir.c_str(), true);
-                TH1D hCE("hCandCE", "", cd.nBins, cd.lo, cd.hi), hRecon("hCandRecon", "", cd.nBins, cd.lo, cd.hi);
-                for (double x : candCE[i]) hCE.Fill(x);
-                for (double x : candRecon[i]) hRecon.Fill(x);
-                hCE.SetLineColor(kBlue); hRecon.SetLineColor(kRed); hCE.SetLineWidth(2); hRecon.SetLineWidth(2);
-                hRecon.SetTitle((cd.label + ", CE recon protons vs all recon protons, RECONTHETA_ESTNEU and RECONTHETABL_ESTNEU 0-1 deg, no KE cut;" + cd.label + ";Count").c_str());
-                hRecon.SetStats(0); hCE.SetStats(0);
-                if (cd.branch == "nHits") for (int bin = 1; bin <= cd.nBins; bin++) hRecon.GetXaxis()->SetBinLabel(bin, bin % 2 == 1 && bin > 1 ? Form("%d", bin - 1) : ""); // labels at 2, 4, 6, 8 hits only
-                hRecon.SetMinimum(0.5);
-                hRecon.SetMaximum(2.0 * std::max(hRecon.GetMaximum(), hCE.GetMaximum()));
-                hRecon.DrawCopy(); hCE.DrawCopy("same");
-                TLegend leg(0.725, 0.80, 0.99, 0.90); leg.SetTextSize(0.014);
-                leg.AddEntry(&hCE, Form("CE recon protons (%zu)", candCE[i].size()), "l");
-                leg.AddEntry(&hRecon, Form("all recon protons (%zu)", candRecon[i].size()), "l");
-                leg.Draw();
-                if (cd.branch == "nProtonsEv"){ // the 1 and 2 particle cuts (nProtonsEv <= n): lines between bins, kept counts in csv/cut_efficiency.csv
-                    const double ymax = hRecon.GetMaximum();
-                    TLine l1(1.5, 0.5, 1.5, ymax), l2(2.5, 0.5, 2.5, ymax);
-                    for (TLine* l : {&l1, &l2}){l->SetLineStyle(2); l->SetLineWidth(2); l->Draw();}
-                    gSystem->mkdir((cdir + "csv").c_str(), true);
-                    FILE* nf = fopen((cdir + "csv/cut_efficiency.csv").c_str(), "w");
-                    fprintf(nf, "cut,CE_before,CE_after,CE_kept_pct,recon_before,recon_after,recon_left_out_pct\n");
-                    for (int nMax : {1, 2}){
-                        const size_t ceAfter = std::count_if(candCE[i].begin(), candCE[i].end(), [&](double x){return x <= nMax;});
-                        const size_t reAfter = std::count_if(candRecon[i].begin(), candRecon[i].end(), [&](double x){return x <= nMax;});
-                        fprintf(nf, "particles in event <= %d,%zu,%zu,%.4f,%zu,%zu,%.4f\n", nMax, candCE[i].size(), ceAfter, 100.0 * ceAfter / candCE[i].size(),
-                                candRecon[i].size(), reAfter, 100.0 * (1.0 - double(reAfter) / candRecon[i].size()));
-                    }
-                    fclose(nf);
-                }
-                if (cd.branch == "nHits"){ // the cut keeping the even tracker hit counts 2 to 2 * nBlocks
-                    gSystem->mkdir((cdir + "csv").c_str(), true);
-                    FILE* hf = fopen((cdir + "csv/cut_efficiency.csv").c_str(), "w");
-                    fprintf(hf, "cut,CE_before,CE_after,CE_kept_pct,recon_before,recon_after,recon_left_out_pct\n");
-                    const int maxHits = MaxTrackerHits();
-                    auto inRange = [maxHits](double x){return EvenHits((int)x, maxHits) && x == (int)x;};
-                    const size_t ceAfter = std::count_if(candCE[i].begin(), candCE[i].end(), inRange);
-                    const size_t reAfter = std::count_if(candRecon[i].begin(), candRecon[i].end(), inRange);
-                    fprintf(hf, "\"%s tracker hits\",%zu,%zu,%.4f,%zu,%zu,%.4f\n", EvenHitsText().c_str(), candCE[i].size(), ceAfter, 100.0 * ceAfter / candCE[i].size(),
-                            candRecon[i].size(), reAfter, 100.0 * (1.0 - double(reAfter) / candRecon[i].size()));
-                    fclose(hf);
-                }
-                if (cd.branch != "nHits" && cd.branch != "nProtonsEv") // no pdf for the tracker hits and the particle count: Plot3D draws them with all three samples (5_nHits_nHits, 4_nParticles_nParticlesEv); only the csv above is kept
-                    c.SaveAs((cdir + (cd.branch == "thetaBlock" ? "2_" : "1_") + cd.branch + ".pdf").c_str());
-            }
-        }
-    }
     if (out){
         fprintf(out, "all four together,,%.3f,%.3f\n", 100.0 * ceKept, 100.0 * reconKept);
         fclose(out);

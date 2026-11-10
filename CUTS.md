@@ -28,4 +28,5 @@ None. No plot, entry list or column applies a residual cut. `resDRms` (RMS dista
 ## One cut file per cut of 6_cuts (CutSamples.cpp)
 
 - AnglesRaw cuts: `cut_ResCuts` (`passQuality` and `resDRms < 2`), `cut_nProtons1`, `cut_nProtons2`, `cut_zOrder`, `cut_resHalf`, `cut_nHits` (3 to 16), `cut_firstHit` (within 5 mm), `cut_thetacut` (below the ZDC corner limit).
+- Average tracker hits per plane: `cut_avgHitsPlane` (`nTrackerHitsEv == nPlanesHitEv`, at least 1 plane hit: exactly 1 charged hit on every hit plane; `6_cuts/5_avgTrackerHitsPerPlane`). `nPlanesHitEv` is the distinct tracker planes the saved tracks entered (ReconAngleAll.cpp).
 - ZDC cuts: `cut_hitZDC_CE`, `cut_hitZDC_AllEv` (reconstructed track), `cut_KECUT80_CE`, `cut_KECUT80_AllEv` (also above 80% of the beam KE).

@@ -20,7 +20,7 @@
 void UnbinnedPhiReD(){
     ROOT::EnableImplicitMT(NThreads());
     ROOT::RDataFrame dfPhi("CalcValsReD", "cuts/cut_APandT.root");
-    auto fitRows = dfPhi.Filter(Form("phiReD >= %g && phiReD <= %g", kBlockPhiLo, kBlockPhiHi));
+    auto fitRows = dfPhi.Filter(Form("phiReD > %g && phiReD < %g", kBlockPhiLo, kBlockPhiHi));
     auto phiTake = fitRows.Take<double>("phiReD");
     auto thetaTake = fitRows.Take<double>("thetaReD");
     auto thMinTake = fitRows.Take<double>("thetaReDMin"), thMaxTake = fitRows.Take<double>("thetaReDMax"), halfTake = fitRows.Take<double>("phiReDHalf"), thBMinTake = fitRows.Take<double>("thetaReDBMin"), thBMaxTake = fitRows.Take<double>("thetaReDBMax"), halfBTake = fitRows.Take<double>("phiReDBHalf"); // the last three: the block grid range alone; // est neutron range (CalcAPandT.cpp): theta ends (deg), phi half width (rad)
@@ -49,13 +49,13 @@ void UnbinnedPhiReD(){
     fb.FixParameter(0, h.GetEntries() / 50); fb.FixParameter(2, aMean); fb.SetParameter(1, 0.5); fb.SetParLimits(1, -1, 1);
     h.Fit(&fb, "Q0");
     const double w = 360.0 / 50, k = n * (TMath::Pi() / 180) * w / ((hi - lo) + p * aMean * sd); // expected counts per bin of the unbinned fit
-    TF1 fu("fUnbinned", Form("%g * (1 + %g * %g * cos(x * TMath::Pi() / 180))", k, p, aMean), 0.5, 359.5);
+    TF1 fu("fUnbinned", Form("%g * (1 + %g * %g * cos(x * TMath::Pi() / 180))", k, p, aMean), kBlockPhiLo, kBlockPhiHi);
 
     TCanvas cv("cvUnb", "", 1000, 800);
     cv.SetLeftMargin(0.14); cv.SetTopMargin(0.17); cv.SetRightMargin(0.25); // room for the error by source box
     h.SetStats(0); h.SetMinimum(0); h.SetMaximum(1.25 * h.GetMaximum());
     h.SetLineColor(kRed);
-    h.SetTitle("Reconstructed CE protons, RECONPHIBL_ESTNEU Distribution, fit phi 0.5 to 359.5 deg (spike at 0 left out), no other cuts;RECONPHIBL_ESTNEU (degrees);Count");
+    h.SetTitle("Reconstructed CE protons, RECONPHIBL_ESTNEU Distribution, fit phi 0 to 360 deg (exactly 0 and 360 left out), no other cuts;RECONPHIBL_ESTNEU (degrees);Count");
     h.Draw("hist");
     fb.SetLineColor(kBlack); fb.SetLineStyle(2); fb.SetLineWidth(3); fb.Draw("same");
     fu.SetLineColor(kBlue); fu.SetLineWidth(3); fu.Draw("same");

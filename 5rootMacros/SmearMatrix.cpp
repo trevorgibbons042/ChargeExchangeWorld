@@ -101,12 +101,12 @@ static const CutSpec* FindCutSpec(const std::string& dir){
     static const CutSpec specs[] = {
         {"1_hitZDC", nullptr, 0, ""}, {"2_KECUT/KECUT80", nullptr, 80, ""}, {"2_KECUT/KECUT85", nullptr, 85, ""}, {"2_KECUT/KECUT90", nullptr, 90, ""}, {"2_KECUT/KECUT95", nullptr, 95, ""},
         {"3_ResCuts", "cut_ResCuts", 0, "3_ResCuts"},
-        {"4_nParticles/1_particleCut", "cut_nParticles1", 0, "4_nParticles/1_particleCut"}, {"4_nParticles/2_particleCut", "cut_nParticles2", 0, "4_nParticles/2_particleCut"},
-        {"5_nHits", "cut_nHits", 0, "5_nHits"},
-        {"8_nZdcParticles/1_1zdcparticlecut", "cut_nZdc1", 0, "8_nZdcParticles/1_1zdcparticlecut"},
-        {"9_megaCut3/1_1particlecut", "cut_megacut3_1", 0, "9_megaCut3/1_1particlecut"}, {"9_megaCut3/1_1particlecut_KE85", "cut_megacut3_1_ke85", 85, "9_megaCut3/1_1particlecut"},
-        {"9_megaCut3/1_1particlecut_KE90", "cut_megacut3_1_ke90", 90, "9_megaCut3/1_1particlecut"}, {"9_megaCut3/1_1particlecut_KE95", "cut_megacut3_1_ke95", 95, "9_megaCut3/1_1particlecut"},
-        {"10_nChargedTrackerHits/1_noExtraHits", "cut_nChHits", 0, "10_nChargedTrackerHits/1_noExtraHits"}, {"10_nChargedTrackerHits/2_maxOneExtraHit", "cut_nChHits2", 0, "10_nChargedTrackerHits/2_maxOneExtraHit"}};
+        
+        
+        {"4_nZdcParticles/1_1zdcparticlecut", "cut_nZdc1", 0, "4_nZdcParticles/1_1zdcparticlecut"},
+        {"6_megaCut3/1_1particlecut", "cut_megacut3_1", 0, "6_megaCut3/1_1particlecut"}, {"6_megaCut3/1_1particlecut_KE85", "cut_megacut3_1_ke85", 85, "6_megaCut3/1_1particlecut"},
+        {"6_megaCut3/1_1particlecut_KE90", "cut_megacut3_1_ke90", 90, "6_megaCut3/1_1particlecut"}, {"6_megaCut3/1_1particlecut_KE95", "cut_megacut3_1_ke95", 95, "6_megaCut3/1_1particlecut"},
+        {"5_avgTrackerHitsPerPlane", "cut_avgHitsPlane", 0, "5_avgTrackerHitsPerPlane"}};
     for (const CutSpec& s : specs) if (dir == s.dir) return &s;
     return nullptr;
 }
@@ -320,7 +320,7 @@ void SmearMatrix(){
     long nRows = 0, nNoDir = 0, nPair = 0, nNeuOut = 0;
     // lab theta (deg) of the true neutron direction (CENDirX/Y/Z, x) against the estimated neutron direction (beam origin to the tube centre at the block middle, y), one entry per CE proton row
     // the same three pages as the Fswitch matrices (theta, phi, flattened (theta, phi) with kSlices theta slices over 0 to 1 deg); tNeu is the truth (x axis) of each, for the column normalisation
-    constexpr double kNeuMax = 1.0;
+    constexpr double kNeuMax = 2.0;
     TH2D* hNeu[3] = {new TH2D("N_true_to_est_theta", "", 50, 0, kNeuMax, 50, 0, kNeuMax), new TH2D("N_true_to_est_phi", "", kPhiFine, 0, 360, kPhiFine, 0, 360),
                      new TH2D("N_true_to_est_thetaphi", "", kSlices * kPhiFlat, 0, kSlices * kPhiFlat, kSlices * kPhiFlat, 0, kSlices * kPhiFlat)};
     TH1D* tNeu[3] = {new TH1D("TN_true_theta", "", 50, 0, kNeuMax), new TH1D("TN_true_phi", "", kPhiFine, 0, 360), new TH1D("TN_true_thetaphi", "", kSlices * kPhiFlat, 0, kSlices * kPhiFlat)};

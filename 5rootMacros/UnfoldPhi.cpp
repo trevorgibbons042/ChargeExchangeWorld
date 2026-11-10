@@ -253,23 +253,23 @@ static std::vector<double> MeasuredOf(TTree* t, const std::string& filter, doubl
     return m;
 }
 
-// The unfolding of 1_phiReD_cosfit.pdf (all recon protons) and 1_phiReD_cosfit_CE.pdf (the CE recon protons) of 6_cuts/9_megaCut3/1_1particlecut, each into its own pdf beside them: the recon block angles in the
-// estimated neutron frame of cut_megacut3_1.root unfolded to the true neutron frame with the matrix of that cut (M_recB_Fswitch in cuts/smear_matrix_9_megaCut3_1_1particlecut.root: SmearMatrix.cpp with SMEAR_CUT,
+// The unfolding of 1_phiReD_cosfit.pdf (all recon protons) and 1_phiReD_cosfit_CE.pdf (the CE recon protons) of 6_cuts/6_megaCut3/1_1particlecut, each into its own pdf beside them: the recon block angles in the
+// estimated neutron frame of cut_megacut3_1.root unfolded to the true neutron frame with the matrix of that cut (M_recB_Fswitch in cuts/smear_matrix_6_megaCut3_1_1particlecut.root: SmearMatrix.cpp with SMEAR_CUT,
 // smear_cuts.sh), kIterDraw iterations, flat prior. The block phi spike at 0 stays in the measured counts (it is in the matrix too). The matrix describes CE protons only, so the all recon protons page
 // says the non-CE protons are not in it.
 static void UnfoldMegaCut3(double tMax){
-    const char* matrixFile = "cuts/smear_matrix_9_megaCut3_1_1particlecut.root";
+    const char* matrixFile = "cuts/smear_matrix_6_megaCut3_1_1particlecut.root";
     TFile* file = TFile::Open(matrixFile, "READ");
-    if (!file || file->IsZombie()){printf("UnfoldPhi: %s missing, no megaCut3 unfolding (run smear_cuts.sh: SmearMatrix.cpp with SMEAR_CUT=9_megaCut3/1_1particlecut)\n", matrixFile); return;}
+    if (!file || file->IsZombie()){printf("UnfoldPhi: %s missing, no megaCut3 unfolding (run smear_cuts.sh: SmearMatrix.cpp with SMEAR_CUT=6_megaCut3/1_1particlecut)\n", matrixFile); return;}
     const TH2D* r = (TH2D*)file->Get("R_reconB_neuF_to_reconB_labF_thetaphi"); const TH1D* tTrue = (TH1D*)file->Get("T_reconB_neuF_thetaphi"); const TProfile* apTrue = (TProfile*)file->Get("AP_reconB_neuF");
     const TNamed* cutText = (TNamed*)file->Get("cut_text");
     if (!r || !tTrue || !apTrue || tTrue->GetNbinsX() != kBins){printf("UnfoldPhi: a matrix is missing or has not %d bins in %s (rerun SmearMatrix.cpp with SMEAR_CUT)\n", kBins, matrixFile); return;}
     TTree* raw = OpenCut("cuts/cut_megacut3_1.root", "AnglesRaw");
     if (!raw) return;
-    const std::string dir = "plots/6_cuts/9_megaCut3/1_1particlecut/2_phi_cosfit/";
+    const std::string dir = "plots/6_cuts/6_megaCut3/1_1particlecut/2_phi_cosfit/";
     gSystem->mkdir(dir.c_str(), kTRUE);
     const Response resp = MakeResponse(*r, *tTrue);
-    const std::string cuts = cutText ? cutText->GetTitle() : "9_megaCut3/1_1particlecut";
+    const std::string cuts = cutText ? cutText->GetTitle() : "6_megaCut3/1_1particlecut";
     struct Sample {const char *filter, *pdf, *name, *note;};
     const Sample samples[2] = {{"PDG == 2212", "1_phiReD_cosfit_unfolded.pdf", "all recon protons", ", the matrix describes CE protons only: the non-CE protons are not in it"},
                                {"PDG == 2212 && isFromCE", "1_phiReD_cosfit_CE_unfolded.pdf", "CE recon protons", ""}};

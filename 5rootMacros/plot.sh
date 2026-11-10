@@ -31,7 +31,7 @@ if (( NCPU >= 32 )); then
     }
     cp_run trees $(( NCPU / 32 )) trees ""
     cp_run zdc $(( NCPU / 2 )) zdc ""
-    cp_run samplesA $(( NCPU / 2 )) samples "ResCuts,nParticles,nZdc1,nHits,nChHits"
+    cp_run samplesA $(( NCPU / 2 )) samples "ResCuts,nZdc1,avgHitsPlane"
     wait
     cp_run samplesB1 $(( NCPU / 5 )) samples "cut_hitZDC"
     cp_run samplesB2 $(( NCPU / 5 )) samples "cut_megacut3_1.root"
@@ -49,13 +49,13 @@ export ANA_NTHREADS=$(( NCPU / 5 > 0 ? NCPU / 5 : 1 )) # 5 lanes below
 
 # Lanes run at the same time. A lane holds the macros that write into the same plots/ folders (stats.csv and fit_values.csv are
 # truncated per folder) or read another's csv files, in order; no two lanes share a folder.
-{ # 1_position, 2_energy, 6_cuts: the independent parts of Plot3D (P3_PART, P3_CUT, Plot3D.cpp) side by side, parts 2, 3 and 4 once per cut (4 also for the KE scan sets, 9 to 11; 3 and 4 of cut 0 once per folder, P3_SUB), then QualityStudy
+{ # 1_position, 2_energy, 6_cuts: the independent parts of Plot3D (P3_PART, P3_CUT, Plot3D.cpp) side by side, parts 2, 3 and 4 once per cut (4 also for the KE scan sets, 5 to 7; 3 and 4 of cut 0 once per folder, P3_SUB), then QualityStudy
     (export P3_PART=0 P3_CUT= P3_SUB=; run 'Plot3D.cpp') # cuts/plot3d_totals.csv once (Plot3D.cpp RawTotals), then the parts read it
     n=0
-    for part in 1::0 1::1 1::2 1::3 3:0:0 3:0:1 3:0:2 3:0:3 3:1 3:2 3:3 3:4 3:5 3:6 3:7 3:8 4:6 4:9 4:10 4:11 2:0 2:1 2:2 2:3 2:4 2:5 2:6 2:7 2:8; do (export P3_PART=${part%%:*} P3_CUT= P3_SUB=; [[ $part == *:* ]] && { export P3_CUT=${part#*:}; [[ $P3_CUT == *:* ]] && { export P3_SUB=${P3_CUT#*:}; export P3_CUT=${P3_CUT%%:*}; }; }; run 'Plot3D.cpp') & (( ++n % MAXJOBS == 0 )) && wait; done
+    for part in 1::0 1::1 1::2 1::3 3:0:0 3:0:1 3:0:2 3:0:3 3:1 3:2 3:3 3:4 4:3 4:4 4:5 4:6 4:7 2:0 2:1 2:2 2:3 2:4; do (export P3_PART=${part%%:*} P3_CUT= P3_SUB=; [[ $part == *:* ]] && { export P3_CUT=${part#*:}; [[ $P3_CUT == *:* ]] && { export P3_SUB=${P3_CUT#*:}; export P3_CUT=${P3_CUT%%:*}; }; }; run 'Plot3D.cpp') & (( ++n % MAXJOBS == 0 )) && wait; done
     wait
     (export P3_PART=5 P3_CUT=; run 'Plot3D.cpp') # part 5: the rank_*.csv files from the rows of the part 2 processes
-    run 'PlotKEOverlay.cpp' # the KE overlays of the megaCut folder (6_cuts/9_megaCut3/KE_overlay), from the csv files of part 4, before tidy_plots.py moves them
+    run 'PlotKEOverlay.cpp' # the KE overlays of the megaCut folder (6_cuts/6_megaCut3/KE_overlay), from the csv files of part 4, before tidy_plots.py moves them
     run 'QualityStudy.cpp'
 } &
 { # 3_ReconCalcVals, 5_fomCalc: PlotCEFraction and PlotFomPolarization read the FOM tables PlotAngle writes (FomCommon.h)

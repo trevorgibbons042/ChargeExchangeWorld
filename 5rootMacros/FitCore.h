@@ -127,7 +127,7 @@ inline std::map<std::string, double> ReadSettings(const std::string& path = "set
     return settings;
 }
 
-// The tracker hit cuts (5_nHits, 9_megaCut3) keep the even counts 2, 4, ... 2 * nBlocks (1 block: 2; 3 blocks: 2, 4, 6; 7 blocks: 2 to 14), one pair of hits per block.
+// EvenHits / MaxTrackerHits: the even tracker hit counts 2, 4, ... 2 * nBlocks (1 block: 2; 3 blocks: 2, 4, 6; 7 blocks: 2 to 14), one pair of hits per block. No 6_cuts folder cuts on them now.
 // MaxTrackerHits reads settings.csv, so call it once outside an event loop and pass the value to EvenHits.
 inline int MaxTrackerHits(){return 2 * (int)std::lround(ReadSettings().at("nBlocks"));}
 inline bool EvenHits(int n, int maxHits){return n >= 2 && n <= maxHits && n % 2 == 0;}
@@ -863,9 +863,9 @@ inline void FitCore(TH1* h, const std::vector<double>& x){
 // Set it with h->SetName right before the canvas is painted and saved, and put the old name back after, so Draw ">>name" and gDirectory->Get still find h.
 // RECONPHIBL_ESTNEU sits on the block grid: tracks along the x axis pile up at exactly 0 (a spike in the first phi bin). Every fit of the RECONPHIBL_ESTNEU
 // (the thetaReconBlock sets) only uses the protons with phi from kBlockPhiLo to kBlockPhiHi degrees, and says so on its plot.
-constexpr double kBlockPhiLo = 0.5, kBlockPhiHi = 359.5;
-inline bool InBlockPhi(double phi){return phi >= kBlockPhiLo && phi <= kBlockPhiHi;}
-inline const char* BlockPhiNote(){return "block phi fit: 0.5 to 359.5 deg only (the spike at 0 is left out)";}
+constexpr double kBlockPhiLo = 0, kBlockPhiHi = 360; // the fit range, the protons with phi exactly 0 or exactly 360 are left out (the spike on the block grid)
+inline bool InBlockPhi(double phi){return phi > kBlockPhiLo && phi < kBlockPhiHi;}
+inline const char* BlockPhiNote(){return "block phi fit: 0 to 360 deg, protons at exactly 0 or 360 left out (the spike)";}
 
 inline std::string StatsTitle(TH1* h, const std::string& what = ""){
     for (TObject* o : *h->GetListOfFunctions()) if (dynamic_cast<TF1*>(o)) return "Fit results";

@@ -76,7 +76,7 @@ for m in "${macros[@]}"; do
         }
         case $STEP in analysis6|cutplots6) ;; *) cp_run trees $t_trees trees "" ;; esac # the KE cut lists feed the Fom lane only, not 6_cuts
         cp_run zdc $t_half zdc ""
-        cp_run samplesA $t_half samples "ResCuts,nParticles,nZdc1,nHits,nChHits"
+        cp_run samplesA $t_half samples "ResCuts,nZdc1,avgHitsPlane"
         wait
         cp_run samplesB1 $t_five samples "cut_hitZDC"
         cp_run samplesB2 $t_five samples "cut_megacut3_1.root"
@@ -88,17 +88,17 @@ for m in "${macros[@]}"; do
         continue
     fi
     if [ "$m" = Plot3D.cpp ]; then
-        # the independent parts of Plot3D (P3_PART, P3_CUT, Plot3D.cpp) side by side, one process each: part 1, and parts 2, 3 and 4 once per cut (0 to 8; part 4 also 9 to 11, the KE scan sets of 9_megaCut3; parts 3 and 4 of cut 0 once per folder, 0:0 to 0:3, P3_SUB), then part 5 ranks the cuts. One process per cut keeps part 3 (the 1_additionalinfo plots) from running all cuts one after the other
+        # the independent parts of Plot3D (P3_PART, P3_CUT, Plot3D.cpp) side by side, one process each: part 1, and parts 2, 3 and 4 once per cut (0 to 4; part 4 also 5 to 7, the KE scan sets of 6_megaCut3; parts 3 and 4 of cut 0 once per folder, 0:0 to 0:3, P3_SUB), then part 5 ranks the cuts. One process per cut keeps part 3 (the 1_additionalinfo plots) from running all cuts one after the other
         # the cores are split evenly over the processes (128 cpus: 46 processes of 2 threads), part 5 and QualityStudy then take all of them
         # PARTS (joined with +) picks some of them, for SubmitPlots.sh redoing one folder
-        parts=(1::0 1::1 1::2 1::3 3:0:0 3:0:1:0 3:0:1:1 3:0:1:2 3:0:1:3 3:0:1:4 3:0:1:5 3:0:2 3:0:3:0 3:0:3:1 3:0:3:2 3:0:3:3 3:1 3:2 3:3 3:4 3:5 3:6 3:7 3:8 4:6 4:9 4:10 4:11 2:0 2:1 2:2 2:3 2:4 2:5 2:6 2:7 2:8)
+        parts=(1::0 1::1 1::2 1::3 3:0:0 3:0:1:0 3:0:1:1 3:0:1:2 3:0:1:3 3:0:1:4 3:0:1:5 3:0:2 3:0:3:0 3:0:3:1 3:0:3:2 3:0:3:3 3:1 3:2 3:3 3:4 4:3 4:4 4:5 4:6 4:7 2:0 2:1 2:2 2:3 2:4)
         [ -n "$PARTS" ] && parts=(${PARTS//+/ })
-        # threads per process (all of PARTS unset), from the walls of the 137.5 GeV 9block run at 2 threads: a process of w s gets about 2w/300 threads, so each should land near 5 minutes. The table adds up to 82 of 128 (part 2 writes csv rows only and runs on the default 1 thread: 2:0 used 48% of one core) and thr_for doubles it (OVERSUB), so the cores of finished parts go to the parts still running; the phi scan of 9_megaCut (4:6: 4 threads) and its KE scan (4:9 to 4:11: 2) the new weights, not timed yet; a part not listed gets 1
+        # threads per process (all of PARTS unset), from the walls of the 137.5 GeV 9block run at 2 threads: a process of w s gets about 2w/300 threads, so each should land near 5 minutes. The table adds up to 82 of 128 (part 2 writes csv rows only and runs on the default 1 thread: 2:0 used 48% of one core) and thr_for doubles it (OVERSUB), so the cores of finished parts go to the parts still running; the phi scan of 9_megaCut (4:6: 4 threads) and its KE scan (4:11 to 4:13: 2) the new weights, not timed yet; a part not listed gets 1
         thr_for(){
             local t
             case "$1" in
                 3:0:1:[0-3]) t=3 ;; 3:0:1:[45]) t=2 ;; 3:0:0|3:0:2) t=4 ;; 3:0:3:[0-3]) t=2 ;; 3:1) t=2 ;;
-                1::0) t=3 ;; 1::[123]) t=4 ;; 4:6) t=4 ;; 4:9|4:1[01]) t=2 ;; *) t=1 ;;
+                1::0) t=3 ;; 1::[123]) t=4 ;; 4:4) t=4 ;; 4:3|4:[567]) t=2 ;; *) t=1 ;;
             esac
             t=$(( t * ${OVERSUB:-2} )) # OVERSUB=1 gives the plain table
             echo $(( t * ${NCPUS:-128} / 128 > 0 ? t * ${NCPUS:-128} / 128 : 1 ))
@@ -115,7 +115,7 @@ for m in "${macros[@]}"; do
         if [ -z "$PARTS" ] || [[ $PARTS == *2:* ]]; then # the rank csv files, from the rows of the part 2 processes (cuts/rank_rows_<i>.tsv, the ones of the cuts not redone stay)
             P3_PART=5 P3_CUT= root -l -b -q "${m/.cpp/.cpp${ACLIC-+O}}" > Plot3D_part5.log 2>&1
         fi
-        if [ -z "$PARTS" ] || [[ $PARTS == *4:* ]]; then # the KE overlays of the megaCut folder (6_cuts/9_megaCut3/KE_overlay), from the csv files of part 4, before tidy_plots.py moves them
+        if [ -z "$PARTS" ] || [[ $PARTS == *4:* ]]; then # the KE overlays of the megaCut folder (6_cuts/6_megaCut3/KE_overlay), from the csv files of part 4, before tidy_plots.py moves them
             root -l -b -q "PlotKEOverlay.cpp${ACLIC-+O}" > PlotKEOverlay.log 2>&1
         fi
         tail -n 3 Plot3D_part*.log

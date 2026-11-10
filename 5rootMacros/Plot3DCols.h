@@ -41,7 +41,8 @@ using ColumnAdder = std::function<ROOT::RDF::RNode(ROOT::RDF::RNode)>; // adds t
 // Slot 19 is nMaxChargedPerPlaneEv, the most charged tracks that entered one tracker plane in the event (ParticleInfo, ReconAngleAll.cpp), NaN without it.
 // Slots 20, 21, 22: the est neutron range of the block recon proton (RECONTHETABL_ESTNEU): thetaRelNDMin, thetaRelNDMax (deg) and phiRelNDHalf (rad), NaN without them (the error by source of the phi fits).
 // Slots 23, 24, 25: the block grid range alone of that proton (thetaRelNDBMin, thetaRelNDBMax in deg, phiRelNDBHalf in rad): the slope error of the block position fit, NaN without them.
-inline constexpr int kP3Slots = 26; // values per fitted proton
+// Slot 26 is the average charged tracker plane hits per hit plane in the event, nTrackerHitsEv / nPlanesHitEv (5_avgTrackerHitsPerPlane), NaN without a hit plane or without the columns.
+inline constexpr int kP3Slots = 27; // values per fitted proton
 inline std::vector<std::pair<int, int>> gP3Keys;
 inline std::vector<unsigned char> gP3Flags;
 inline std::vector<std::array<double, kP3Slots>> gP3Vals;
@@ -91,7 +92,7 @@ inline bool LoadPlot3DMaps(){
     for (const char* col : {"thetaRelNDMin", "thetaRelNDMax", "phiRelNDHalf", "thetaRelNDBMin", "thetaRelNDBMax", "phiRelNDBHalf"}){
         if (!raw->GetBranch(col)) df = df.Define(col, []{return std::numeric_limits<double>::quiet_NaN();}); // an AnglesRaw file made before the range columns
     }
-    for (const char* col : {"nZdcCharged", "nTrackerHitsEv", "nTrackerTracksEv", "nMaxChargedPerPlaneEv"}){
+    for (const char* col : {"nZdcCharged", "nTrackerHitsEv", "nTrackerTracksEv", "nMaxChargedPerPlaneEv", "nPlanesHitEv"}){
         if (!raw->GetBranch(col)) df = df.Define(col, []{return (int)-1;}); // an AnglesRaw file made before this column
     }
     df = df.Filter([&want](int ev, int tid){return std::binary_search(want.begin(), want.end(), std::make_pair(ev, tid));}, {"fEvent", "TrackID"}); // before the ForeachSlot: its other branches are read for the kept rows only
@@ -99,7 +100,7 @@ inline bool LoadPlot3DMaps(){
     if (withRaw){
         const double rad = TMath::RadToDeg(), twoPi = 2 * TMath::Pi();
         df.ForeachSlot([&](unsigned slot, int ev, int tid, double resRms, double resDRms, double impact, double impactD, double r2, double r2D, int nP, int nZdc, int nH,
-                           double phiRad, double phiBlockRad, double firstXD, double firstYD, double zRecon, double resHalfRatioD, double thetaRad, double thetaBlockRad, int nTH, int nTT, int nMP, double thMinDRad, double thMaxDRad, double phHalfD, double thMinBRad, double thMaxBRad, double phHalfB){
+                           double phiRad, double phiBlockRad, double firstXD, double firstYD, double zRecon, double resHalfRatioD, double thetaRad, double thetaBlockRad, int nTH, int nTT, int nMP, double thMinDRad, double thMaxDRad, double phHalfD, double thMinBRad, double thMaxBRad, double phHalfB, int nPH){
             P3Item it; it.key = {ev, tid}; it.flags = kReco;
             double* v = it.a.data();
             v[0] = resRms; v[1] = resDRms; v[2] = impact; v[3] = impactD; v[4] = r2; v[5] = r2D;
@@ -108,9 +109,10 @@ inline bool LoadPlot3DMaps(){
             v[14] = (phiRad < 0 ? phiRad + twoPi : phiRad) * rad; v[15] = (phiBlockRad < 0 ? phiBlockRad + twoPi : phiBlockRad) * rad; v[16] = zRecon; v[17] = nTH >= 0 ? nTH : NAN; v[18] = nTT >= 0 ? nTT : NAN; v[19] = nMP >= 0 ? nMP : NAN;
             v[20] = thMinDRad * rad; v[21] = thMaxDRad * rad; v[22] = phHalfD;
             v[23] = thMinBRad * rad; v[24] = thMaxBRad * rad; v[25] = phHalfB;
+            v[26] = (nPH > 0 && nTH >= 0) ? double(nTH) / nPH : NAN;
             parts[slot].push_back(it);
         }, {"fEvent", "TrackID", "resRms", "resDRms", "impact", "impactD", "r2", "r2D", "nProtonsEv", "nZdcCharged", "nHits",
-            "phiRelN", "phiRelND", "firstXD", "firstYD", "z_bx_reconVertexOut", "resHalfRatioD", "thetaRelN", "thetaRelND", "nTrackerHitsEv", "nTrackerTracksEv", "nMaxChargedPerPlaneEv", "thetaRelNDMin", "thetaRelNDMax", "phiRelNDHalf", "thetaRelNDBMin", "thetaRelNDBMax", "phiRelNDBHalf"});
+            "phiRelN", "phiRelND", "firstXD", "firstYD", "z_bx_reconVertexOut", "resHalfRatioD", "thetaRelN", "thetaRelND", "nTrackerHitsEv", "nTrackerTracksEv", "nMaxChargedPerPlaneEv", "thetaRelNDMin", "thetaRelNDMax", "phiRelNDHalf", "thetaRelNDBMin", "thetaRelNDBMax", "phiRelNDBHalf", "nPlanesHitEv"});
     } else {
         df.ForeachSlot([&](unsigned slot, int ev, int tid, double resDRms){
             P3Item it; it.key = {ev, tid}; it.flags = kReco; it.a.fill(0); it.a[1] = resDRms;
@@ -195,7 +197,7 @@ inline std::string P3(const std::string& s){
 // raw_k its k-th value of gP3Vals (LoadPlot3DMaps) and ok_k whether that value is finite. P3() rewrites the Draw strings to these names for every tree.
 inline void Plot3DRawAliases(TTree* raw){
     const char* val[kP3Slots] = {"resRms", "resDRms", "impact", "impactD", "r2", "r2D", "nProtonsEv", "nZdcCharged", "resHalfRatioD", "thetaRelN*TMath::RadToDeg()", "nHits",
-                           "thetaRelND*TMath::RadToDeg()", "firstXD", "firstYD", "phiRelN*TMath::RadToDeg()", "phiRelND*TMath::RadToDeg()", "z_bx_reconVertexOut", "nTrackerHitsEv", "nTrackerTracksEv", "nMaxChargedPerPlaneEv", "thetaRelNDMin*TMath::RadToDeg()", "thetaRelNDMax*TMath::RadToDeg()", "phiRelNDHalf", "thetaRelNDBMin*TMath::RadToDeg()", "thetaRelNDBMax*TMath::RadToDeg()", "phiRelNDBHalf"}; // phi in 0 to 360 (ReconAngleAll.cpp)
+                           "thetaRelND*TMath::RadToDeg()", "firstXD", "firstYD", "phiRelN*TMath::RadToDeg()", "phiRelND*TMath::RadToDeg()", "z_bx_reconVertexOut", "nTrackerHitsEv", "nTrackerTracksEv", "nMaxChargedPerPlaneEv", "thetaRelNDMin*TMath::RadToDeg()", "thetaRelNDMax*TMath::RadToDeg()", "phiRelNDHalf", "thetaRelNDBMin*TMath::RadToDeg()", "thetaRelNDBMax*TMath::RadToDeg()", "phiRelNDBHalf", "((nPlanesHitEv>0&&nTrackerHitsEv>=0)?nTrackerHitsEv/(nPlanesHitEv+0.0):TMath::QuietNaN())"}; // phi in 0 to 360 (ReconAngleAll.cpp)
     for (int k = 0; k < kP3Slots; k++){
         raw->SetAlias(Form("raw_%d", k), val[k]);
         raw->SetAlias(Form("ok_%d", k), Form("TMath::Finite(raw_%d)", k));
@@ -204,18 +206,18 @@ inline void Plot3DRawAliases(TTree* raw){
 }
 
 // The start-theta scan of Plot3D.cpp part 4 in one pass over a sample instead of one pass per start value. th, phi (deg) are the recon (block) theta and phi of the protons of a sample, apScale the
-// APScale of settings.csv. For the start values b * 0.01 deg (b 0 to 99) it returns the phi histogram of the protons with start <= theta <= 1 deg (kScanBins bins: 0 and kScanBins - 1 are the under
+// APScale of settings.csv. For the start values b * 0.01 deg (b 0 to 199) it returns the phi histogram of the protons with start <= theta <= 1 deg (kScanBins bins: 0 and kScanBins - 1 are the under
 // and overflow of a TH1D(50, 0, 360), the others its bins) and the sum of their model A (AEffOfTheta, the one at their own theta), and aMeanAll, the mean A over every proton of the sample.
 // Row ranges run on all threads (MapRows, FitCore.h) and are added in range order; the bin counts are exact, the A sums can differ from a serial sum in the last digits.
-inline constexpr int kScanStarts = 100, kScanBins = 52;
+inline constexpr int kScanStarts = 200, kScanBins = 52; // start values b * 0.01 deg, b 0 to 199 (the theta window is 0 to 2 deg, kThetaMax in Plot3D.cpp)
 // fit[b]: the unbinned P (UnbinnedPFromCos, FitCore.h) of the protons of start b, A fixed to their mean model A (aSum[b] / count), phi normalised over loDeg to hiDeg; ok is false below 10 protons.
 struct StartScan {std::vector<std::array<double, kScanBins>> phi = std::vector<std::array<double, kScanBins>>(kScanStarts); std::vector<double> aSum = std::vector<double>(kScanStarts, 0.0), aSum2 = std::vector<double>(kScanStarts, 0.0); AMean aAll; std::vector<PFit> fit = std::vector<PFit>(kScanStarts);};
-inline StartScan ScanStartTheta(const std::vector<double>& th, const std::vector<double>& ph, double apScale, double loDeg = 0, double hiDeg = 360, double thHi = 1.0){ // thHi: the upper theta of the protons that count (deg), 1 unless the folder has no upper limit
+inline StartScan ScanStartTheta(const std::vector<double>& th, const std::vector<double>& ph, double apScale, double loDeg = 0, double hiDeg = 360, double thHi = 1.0, const std::vector<double>* aOwn = nullptr){ // thHi: the upper theta of the protons that count (deg), 1 unless the folder has no upper limit; aOwn: the model A of each proton, in place of AEffOfTheta at its theta (the CE recon protons: the LastAP of their own CE)
     const auto parts = MapRows((Long64_t)th.size(), [&](Long64_t lo, Long64_t hi){
         StartScan p;
         for (auto& a : p.phi) a.fill(0.0);
         for (Long64_t i = lo; i < hi; i++){
-            const double a = AEffOfTheta(th[i], apScale);
+            const double a = aOwn ? (*aOwn)[i] : AEffOfTheta(th[i], apScale);
             p.aAll.Add(a);
             if (th[i] < 0 || th[i] > thHi) continue;
             int b = std::min(kScanStarts - 1, (int)std::floor(th[i] / 0.01)); // the last start value with b * 0.01 <= theta, as the comparison of the plain loop
@@ -240,7 +242,7 @@ inline StartScan ScanStartTheta(const std::vector<double>& th, const std::vector
         for (int j = 0; j < kScanBins; j++) s.phi[b][j] += s.phi[b + 1][j];
         s.aSum[b] += s.aSum[b + 1]; s.aSum2[b] += s.aSum2[b + 1];
     }
-    { // the unbinned P of every start: the protons of the buckets b and above (th 0 to 1 deg), sorted by bucket so that start b is one stretch of the cos(phi) array
+    { // the unbinned P of every start: the protons of the buckets b and above (th 0 to thHi deg), sorted by bucket so that start b is one stretch of the cos(phi) array
         const auto bucketOf = [](double t){
             int b = std::min(kScanStarts - 1, (int)std::floor(t / 0.01)); // the same bucket as the loop above
             while (b < kScanStarts - 1 && (b + 1) * 0.01 <= t) b++;
@@ -249,7 +251,7 @@ inline StartScan ScanStartTheta(const std::vector<double>& th, const std::vector
         };
         std::vector<Long64_t> off(kScanStarts + 1, 0);
         std::vector<int> bk(th.size(), -1);
-        for (size_t i = 0; i < th.size(); i++) if (th[i] >= 0 && th[i] <= 1.0){bk[i] = bucketOf(th[i]); off[bk[i] + 1]++;}
+        for (size_t i = 0; i < th.size(); i++) if (th[i] >= 0 && th[i] <= thHi){bk[i] = bucketOf(th[i]); off[bk[i] + 1]++;}
         for (int b = 0; b < kScanStarts; b++) off[b + 1] += off[b];
         std::vector<double> cosSorted(off[kScanStarts]);
         std::vector<Long64_t> pos(off.begin(), off.end() - 1);
