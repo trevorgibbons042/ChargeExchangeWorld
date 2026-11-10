@@ -221,18 +221,19 @@ void PlotReconNew(){
         gROOT->cd();
         std::vector<std::vector<double>> ce;
         std::map<long long, size_t> byEvent;
+        double phiD = 1; // the dilution of P by the smeared recon phi: mean cos(recon phi - true phi) of those CE events, an error term of P of the two recon fits
         double smearErr = 0; // the A_eff bias of the recon theta: the CE recon events of this folder, mean AP at the recon block theta minus mean AP at the true CE theta; it is an error term of the two recon fits (the CE fit uses the true angle)
         if (ceT){
             ce = Columns(ceT, {"fEvent", "CEPhiNeu(LastTheta, LastPhiLab, CENDirX, CENDirY, CENDirZ) * 180 / TMath::Pi()", "CEThetaNeu(LastTheta, LastPhiLab, CENDirX, CENDirY, CENDirZ) * 180 / TMath::Pi()", "LastAP"});
             for (size_t i = 0; i < ce[0].size(); i++) byEvent.emplace((long long)ce[0][i], i);
             const double apScale = ReadSettings().at("APScale");
-            double nA = 0, sRec = 0, sTrue = 0;
+            double nA = 0, sRec = 0, sTrue = 0, sCos = 0;
             for (const NewRow& x : rows) if (inFit(x, 0)){
                 const auto it = byEvent.find((long long)x.eventID);
                 if (it == byEvent.end()) continue;
-                nA++; sRec += AEffOfTheta(x.thetaRelND * rad, apScale); sTrue += AEffOfTheta(ce[2][it->second], apScale);
+                nA++; sRec += AEffOfTheta(x.thetaRelND * rad, apScale); sTrue += AEffOfTheta(ce[2][it->second], apScale); sCos += std::cos((x.phiRelND * rad - ce[1][it->second]) * M_PI / 180.0);
             }
-            if (nA > 0) smearErr = std::fabs(sRec - sTrue) / nA;
+            if (nA > 0){smearErr = std::fabs(sRec - sTrue) / nA; phiD = sCos / nA;}
         }
         for (int k = 0; k < 3; k++){
             number++;
@@ -286,7 +287,7 @@ void PlotReconNew(){
             if (tp){
                 PhiCosFit(&c, tp, "phiRelNDdeg", "thetaDeg", "", Form("hPhiNew_%d_%d", mode, k),
                           std::string(sampleName[k]) + ", RECONPHIBL_ESTNEU Distribution, A_{eff} at the recon block #theta" + cutText, Form("%s/%d_phiBlock_cosfit_%s.pdf", dir.c_str(), number, sampleFile[k]),
-                          {}, "", {"rThMin", "rThMax", "rPhHalf"}, {"r2ThMin", "r2ThMax", "r2PhHalf"}, ClassColor(k), smearErr);
+                          {}, "", {"rThMin", "rThMax", "rPhHalf"}, {"r2ThMin", "r2ThMax", "r2PhHalf"}, ClassColor(k), smearErr, phiD);
                 ff->Close();
             }
             gSystem->Unlink(fitFile.c_str());
