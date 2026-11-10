@@ -37,10 +37,11 @@ struct Track {
     std::vector<double> x, y, z, xD, yD, zD;
     std::vector<int> ParentID;
     std::vector<ULong64_t> entry;
+    std::vector<int> rank; // eventMode only: the weight rank of each point = the position of its plane among the tracker planes hit in the event, so a plane dropped for several hits keeps its place (its weight is skipped); empty otherwise (rank in z)
     std::size_t size() const {return z.size();}
     void clear(){ // empties the track and keeps the capacity, so one Track serves every track of a shard without new allocations
         x.clear(); y.clear(); z.clear(); xD.clear(); yD.clear(); zD.clear();
-        ParentID.clear(); entry.clear();
+        ParentID.clear(); entry.clear(); rank.clear();
     }
     void push(double x_, double y_, double z_, double xD_, double yD_, double zD_, int parent, ULong64_t entry_){
         x.push_back(x_); y.push_back(y_); z.push_back(z_); xD.push_back(xD_); yD.push_back(yD_); zD.push_back(zD_);
@@ -48,6 +49,7 @@ struct Track {
     }
     void append(const Track& o){
         for (std::size_t i = 0; i < o.size(); i++) push(o.x[i], o.y[i], o.z[i], o.xD[i], o.yD[i], o.zD[i], o.ParentID[i], o.entry[i]);
+        rank.insert(rank.end(), o.rank.begin(), o.rank.end());
     }
 };
 
@@ -63,6 +65,8 @@ static void PrefetchFiles(const std::vector<std::string>& names, std::size_t lo,
 }
 // Weight of the point with the given rank in z (0 = the lowest z): graded, the later a hit the less it counts. Ranks 0 and 1 weight 1, rank 2 weight 0.5, every later one 0.25.
 static double WeightOfRank(std::size_t rank){return rank < 2 ? 1.0 : (rank == 2 ? 0.5 : 0.25);}
+// Weight of point i of t, k the position of the point in the sorted list of the fit: an event track (rank filled) takes the rank of its plane, so the weights of dropped planes are skipped, not passed on to the next plane.
+static double PointWeight(const Track& t, std::size_t i, std::size_t k){return WeightOfRank(t.rank.empty() ? k : (std::size_t)t.rank[i]);}
 
 // Weighted least-squares line x = x0 + bx z, y = y0 + by z through the points of t: all of them, or with block the detector block points (zD != 0) at their block positions.
 // Each point is weighted by its rank in z (WeightOfRank): 1, 1, 0.5, 0.25, 0.25, ...
@@ -81,7 +85,7 @@ static void LineFit(const Track& t, bool block, double& x0, double& y0, double& 
     double sw = 0.0, meanX = 0.0, meanY = 0.0, meanZ = 0.0;
     for (std::size_t k = 0; k < idx.size(); k++) {
         const std::size_t i = idx[k];
-        const double w = WeightOfRank(k);
+        const double w = PointWeight(t, i, k);
         sw += w; meanX += w * X[i]; meanY += w * Y[i]; meanZ += w * Z[i];
     }
     meanX /= sw; meanY /= sw; meanZ /= sw;
@@ -89,7 +93,7 @@ static void LineFit(const Track& t, bool block, double& x0, double& y0, double& 
     double Szz = 0.0, Szx = 0.0, Szy = 0.0;
     for (std::size_t k = 0; k < idx.size(); k++) {
         const std::size_t i = idx[k];
-        const double w = WeightOfRank(k), dz = Z[i] - meanZ;
+        const double w = PointWeight(t, i, k), dz = Z[i] - meanZ;
         Szz += w * dz * dz;
         Szx += w * dz * (X[i] - meanX);
         Szy += w * dz * (Y[i] - meanY);
@@ -204,7 +208,7 @@ void ReconAngleAll(bool eventMode = false){
     }
 
     // eventMode: per event the tracker planes (z in um) with exactly 1 charged hit, sorted, and the summed KE of the charged hits on the last tracker.
-    struct EvHits {std::vector<long> single; double lastKE = NAN; std::vector<double> lastKEs;}; // lastKEs: the KE of each charged hit on the last tracker, lastKE their sum
+    struct EvHits {std::vector<long> planes, single; double lastKE = NAN; std::vector<double> lastKEs;}; // lastKEs: the KE of each charged hit on the last tracker, lastKE their sum
     // ZDC energy smearing of the sim (9stepping.cc), applied to every hit on the last tracker: Gaussian of sigma KE * sqrt(a^2 / KE[GeV] + b^2), floored at 0, a = resStochastic, b = resConstant
     const double zdcResA = settings.count("resStochastic") ? settings.at("resStochastic") : 0.0, zdcResB = settings.count("resConstant") ? settings.at("resConstant") : 0.0;
     std::vector<EvHits> evHitsOf;
@@ -222,6 +226,7 @@ void ReconAngleAll(bool eventMode = false){
             std::sort(sorted.begin(), sorted.end());
             for (std::size_t a = 0, b; a < sorted.size(); a = b) {
                 for (b = a + 1; b < sorted.size() && sorted[b] == sorted[a]; b++) {}
+                h.planes.push_back(sorted[a]); // every plane hit, whatever its hit count: the weight rank counts them all
                 if (b - a == 1) h.single.push_back(sorted[a]);
             }
             if (!sorted.empty()) {
@@ -393,6 +398,7 @@ void ReconAngleAll(bool eventMode = false){
                         if (b - a != 1) continue;
                         const Point &p = at(cand[a].second);
                         t.push(p.x, p.y, p.z, p.xD, p.yD, p.zD, p.parentID, p.entry);
+                        t.rank.push_back((int)(std::lower_bound(eh.planes.begin(), eh.planes.end(), cand[a].first) - eh.planes.begin()));
                         if (ce != ceTracks.end() && ce->second.count(p.parentID)) nCEUsed++;
                         else {nOtherUsed++; if (p.pdg == 2212) nProtonUsed++; else if (p.pdg == 211 || p.pdg == -211) nPionUsed++; else if (p.pdg == 321 || p.pdg == -321) nKaonUsed++; else if (p.pdg >= 1000000000) nNucleusUsed++;}
                     }
@@ -507,13 +513,13 @@ void ReconAngleAll(bool eventMode = false){
                         // sigma^2 = s^2 (1/W + (z - zMean)^2 / Sxx) with W = sum w, Sxx = sum w (z - zMean)^2, taken at the block centre. NAN with fewer than 2 hits or no spread in zD.
                         double sw = 0.0, zMean = 0.0;
                         for (std::size_t k = 0; k < blockHits.size(); k++) {
-                            const double w = WeightOfRank(k);
+                            const double w = PointWeight(t, blockHits[k], k);
                             sw += w; zMean += w * t.zD[blockHits[k]];
                         }
                         zMean /= sw;
                         double sxx = 0.0;
                         for (std::size_t k = 0; k < blockHits.size(); k++) {
-                            const double w = WeightOfRank(k), dzh = t.zD[blockHits[k]] - zMean;
+                            const double w = PointWeight(t, blockHits[k], k), dzh = t.zD[blockHits[k]] - zMean;
                             sxx += w * dzh * dzh;
                         }
                         if (blockHits.size() >= 2 && sxx > 0.0) {
