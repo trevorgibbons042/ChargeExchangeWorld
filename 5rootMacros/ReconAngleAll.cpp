@@ -248,7 +248,7 @@ void ReconAngleAll(){
         }, {"boundaryType", "fEvent", "TrackID", "pdg", "fX", "fY", "fZ", "fDx", "fDy", "fDz", "fKEnergy", "fDEnergy", "ParentID", "entryNo"});
         // The fits run on every thread: each shard builds its tracks, fits them and keeps the results as rows. Only the TTree fills below are serial.
         struct Row {
-            int trackID, pdg, eventID, parentID, isFromCE, inCE, nProtonsEv, nZdcCharged, nTrackerHitsEv, nTrackerTracksEv, nHits, nMaxChargedPerPlaneEv;
+            int trackID, pdg, eventID, parentID, isFromCE, inCE, nProtonsEv, nZdcCharged, nTrackerHitsEv, nTrackerTracksEv, nHits, nMaxChargedPerPlaneEv, nPlanesHitEv;
             double theta, phi, dTheta, dPhi, x0, y0, bx, by, x0D, y0D, bxD, byD, finalKE, finalKED;
             double xVertex, yVertex, zVertex, zBxRecon, zByRecon, zBxReconDIFF, zByReconDIFF;
             double resRms, resDRms, impact, impactD, r2, r2D, firstXD, firstYD, resHalfRatioD;
@@ -302,7 +302,7 @@ void ReconAngleAll(){
             }
             // per event (a group of runs): the tracks of any pdg, and the most distinct charged tracks that entered one tracker plane (a plane is its centre z, 1 um steps;
             // the tracks ParticleInfo holds, every one of them hit 2+ planes or is a CE proton)
-            std::vector<int> nProtonsInEvent(runs.size()), nMaxPerPlaneInEvent(runs.size());
+            std::vector<int> nProtonsInEvent(runs.size()), nMaxPerPlaneInEvent(runs.size()), nPlanesHitInEvent(runs.size()); // nPlanesHitInEvent: the distinct tracker planes those tracks entered
             std::vector<std::pair<long, ULong64_t>> planeTracks;
             for (std::size_t i = 0, j; i < runs.size(); i = j) {
                 for (j = i + 1; j < runs.size() && (keys[runs[j].first].track >> 32) == (keys[runs[i].first].track >> 32); j++) {}
@@ -312,12 +312,12 @@ void ReconAngleAll(){
                 }
                 std::sort(planeTracks.begin(), planeTracks.end());
                 planeTracks.erase(std::unique(planeTracks.begin(), planeTracks.end()), planeTracks.end());
-                int best = 0;
+                int best = 0, nPlanes = 0;
                 for (std::size_t a = 0, b; a < planeTracks.size(); a = b) {
                     for (b = a + 1; b < planeTracks.size() && planeTracks[b].first == planeTracks[a].first; b++) {}
-                    best = std::max(best, int(b - a));
+                    best = std::max(best, int(b - a)); nPlanes++;
                 }
-                for (std::size_t k = i; k < j; k++) {nProtonsInEvent[k] = int(j - i); nMaxPerPlaneInEvent[k] = best;}
+                for (std::size_t k = i; k < j; k++) {nProtonsInEvent[k] = int(j - i); nMaxPerPlaneInEvent[k] = best; nPlanesHitInEvent[k] = nPlanes;}
             }
 
             std::vector<Row> &rows = shardRows[shard];
@@ -387,6 +387,7 @@ void ReconAngleAll(){
 
                 r.nProtonsEv = nProtonsInEvent[run];
                 r.nMaxChargedPerPlaneEv = nMaxPerPlaneInEvent[run];
+                r.nPlanesHitEv = nPlanesHitInEvent[run];
                 const EvCounts ec = (r.eventID >= 0 && (size_t)r.eventID < evCountsOf.size()) ? evCountsOf[r.eventID] : EvCounts();
                 r.nZdcCharged = ec.zdcCharged; r.nTrackerHitsEv = ec.trackerHits; r.nTrackerTracksEv = ec.trackerTracks;
                 {
@@ -517,7 +518,7 @@ void ReconAngleAll(){
             // one branch per Row field; finalKE / finalKED are the true and smeared KE at the ZDC (NAN without a hit), the quality variables are in QualityCut.h, r2 / r2D are plotted by QualityStudy.cpp, not cut on,
             // firstXD / firstYD the block position (mm) of the first tracker hit (lowest z), resHalfRatioD the block residual of the hits after the first 2 over the first 2 (NAN with 2 or fewer),
             // nProtonsEv the tracks with a fit in the event (any pdg), nTrackerHitsEv / nTrackerTracksEv from the sim EventSummary (all charged particles), nMaxChargedPerPlaneEv the most charged tracks
-            // (ParticleInfo) that entered one tracker plane in the event, inCE: the event has a carbon CE
+            // (ParticleInfo) that entered one tracker plane in the event, nPlanesHitEv the distinct tracker planes those tracks entered (the 5_avgTrackerHitsPerPlane denominator: a plane only a single-plane hit touched is not counted), inCE: the event has a carbon CE
             Row cur;
             tree->Branch("TrackID", &cur.trackID);
             tree->Branch("PDG", &cur.pdg);
@@ -558,6 +559,7 @@ void ReconAngleAll(){
             tree->Branch("nTrackerTracksEv", &cur.nTrackerTracksEv);
             tree->Branch("nHits", &cur.nHits);
             tree->Branch("nMaxChargedPerPlaneEv", &cur.nMaxChargedPerPlaneEv);
+            tree->Branch("nPlanesHitEv", &cur.nPlanesHitEv);
             tree->Branch("firstXD", &cur.firstXD);
             tree->Branch("firstYD", &cur.firstYD);
             tree->Branch("resHalfRatioD", &cur.resHalfRatioD);

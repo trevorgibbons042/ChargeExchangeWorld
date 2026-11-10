@@ -5,7 +5,7 @@
 source ./run_lib.sh # run <macro>: times it, ACLiC or interpreted, retries in the other mode on Failed to materialize symbols
 
 dirs=("$@")
-(( $# )) || dirs=(1_hitZDC 2_KECUT/KECUT80 2_KECUT/KECUT85 2_KECUT/KECUT90 2_KECUT/KECUT95 3_ResCuts 4_nParticles/1_particleCut 4_nParticles/2_particleCut 5_nHits 8_nZdcParticles/1_1zdcparticlecut 9_megaCut3/1_1particlecut 9_megaCut3/1_1particlecut_KE85 9_megaCut3/1_1particlecut_KE90 9_megaCut3/1_1particlecut_KE95 10_nChargedTrackerHits/1_noExtraHits 10_nChargedTrackerHits/2_maxOneExtraHit)
+(( $# )) || dirs=(1_hitZDC 2_KECUT/KECUT80 2_KECUT/KECUT85 2_KECUT/KECUT90 2_KECUT/KECUT95 3_ResCuts 4_nZdcParticles/1_1zdcparticlecut 6_megaCut3/1_1particlecut 6_megaCut3/1_1particlecut_KE85 6_megaCut3/1_1particlecut_KE90 6_megaCut3/1_1particlecut_KE95 5_avgTrackerHitsPerPlane)
 
 export PLOT_PIPELINE=1
 NCPU=${NCPUS:-$(nproc 2>/dev/null || sysctl -n hw.ncpu)}
@@ -21,5 +21,5 @@ for d in "${dirs[@]}"; do
 done
 wait
 # the unfolding of the megaCut3 phi cosfits (and of the full sample matrix) needs the matrices written above: after them, one process with all the cores for its toys
-case " ${dirs[*]} " in *" 9_megaCut3/1_1particlecut "*) ANA_NTHREADS=$NCPU run 'UnfoldPhi.cpp' ;; esac
+case " ${dirs[*]} " in *" 6_megaCut3/1_1particlecut "*) ANA_NTHREADS=$NCPU run 'UnfoldPhi.cpp' ;; esac
 echo ">>> smear_cuts ($n folders) took $((SECONDS - total)) s"

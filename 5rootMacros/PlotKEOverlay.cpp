@@ -1,6 +1,6 @@
-// KE cut overlays of the megaCut folder, in plots/6_cuts/9_megaCut3/KE_overlay/ (the RECONPHIBL_ESTNEU fits of 1_1particlecut/2_phi_cosfit).
+// KE cut overlays of the megaCut folder, in plots/6_cuts/6_megaCut3/KE_overlay/ (the RECONPHIBL_ESTNEU fits of 1_1particlecut/2_phi_cosfit).
 // One pdf per curve of Plot3D.cpp part 4 (P vs start theta, its percent error, the ratios 5 to 13), each with the ZDC KE cuts of the folder on top of each other:
-//   9_megaCut3: 80% (the folder itself) and 85, 90, 95% (its _KE85, _KE90, _KE95 folders, cut_megacut3_p_ke85.root ... from CutPlots.cpp)
+//   6_megaCut3: 80% (the folder itself) and 85, 90, 95% (its _KE85, _KE90, _KE95 folders, cut_megacut3_p_ke85.root ... from CutPlots.cpp)
 // Reads the csv files the part 4 plots write next to their pdfs (P_vs_start_theta.csv: plot,sample,start_theta_deg,value,error,pct_kept; ratios_vs_start_theta.csv: plot,start_theta_deg,value),
 // so no fit is redone. All recon protons, all recon charged particles and the CE recon protons of the P plots, and the proton and particle ratios, are separate pdfs because they are separate plots there.
 // Run from the run folder after every part 4 and before tidy_plots.py, which moves the csv files (the 6_cuts lane of plot.sh, the Plot3D step of Plot.pbs).
@@ -90,7 +90,7 @@ void KeOverlayFolder(const std::string& family, const std::string& name){
     // description of the cuts every curve applies, for the plot (every cut a plot applies is written on it)
     std::vector<std::string> cutLines = {Form("%s/%s:", family.c_str(), name.c_str()),
         name[2] == '1' ? "at most 1 recon particle in the event" : "at most 2 recon particles in the event",
-        "even tracker hits, 2 to 2 x nBlocks", "at most 1 charged particle per tracker plane", "RECONTHETA_ESTNEU, block theta 0 to 1 deg"};
+        "even tracker hits, 2 to 2 x nBlocks", "at most 1 charged particle per tracker plane", "RECONTHETA_ESTNEU, block theta 0 to 2 deg"};
     cutLines.push_back("a recon ZDC proton, ZDC KE cut of the legend");
     cutLines.push_back("no other charged tracker hit in the event (nTrackerHitsEv == nHits)"); cutLines.push_back("exactly 1 charged ZDC particle");
 
@@ -137,13 +137,13 @@ void KeOverlayFolder(const std::string& family, const std::string& name){
             const std::string what = (isP ? std::string(pct ? "P error (%)" : "P") + (ce ? ", CE recon protons" : ", " + sample) : quantity);
             auto* canvas = new TCanvas("cKEov", "", 800, 640);
             canvas->SetRightMargin(0.30); canvas->SetTopMargin(0.1);
-            mg->SetTitle((what + " vs start theta, ZDC KE cut overlay, " + family + "/" + name + ", RECONTHETABL_ESTNEU from the start value to 1 deg;Start theta (deg);" + what).c_str());
+            mg->SetTitle((what + " vs start theta, ZDC KE cut overlay, " + family + "/" + name + ", RECONTHETABL_ESTNEU from the start value to 2 deg;Start theta (deg);" + what).c_str());
             if (isP){ // P is between -1 and 1 (the percent error plots show the same range)
                 const double pTrue = KePTrue();
                 mg->SetMinimum(pct ? 100 * (-1.05 - pTrue) / pTrue : -1.05); mg->SetMaximum(pct ? 100 * (1.05 - pTrue) / pTrue : 1.05);
             }
             mg->Draw("A");
-            mg->GetXaxis()->SetLimits(0, 1.0);
+            mg->GetXaxis()->SetLimits(0, 2.0);
             leg->Draw();
             auto* box = new TPaveText(0.705, 0.20, 0.99, 0.60, "NDC");
             box->SetTextSize(0.014); box->SetTextAlign(12); box->SetBorderSize(0); box->SetFillStyle(0);
@@ -161,7 +161,7 @@ void KeOverlayFolder(const std::string& family, const std::string& name){
 
 void PlotKEOverlay(){
     gStyle->SetOptStat(0);
-    for (const char* family : {"9_megaCut3"})
+    for (const char* family : {"6_megaCut3"})
         for (const char* name : {"1_1particlecut"})
             KeOverlayFolder(family, name);
 }

@@ -11,9 +11,9 @@
 #include "FitCore.h"
 #include "Plot3DCols.h"
 
-// Unbinned P of the phi cos fit at RECONTHETABL_ESTNEU start 0.15 deg (2_phi_cosfit/2_phiReD_P_vs_start_theta of Plot3D.cpp part 4) for the 9_megaCut3/1_1particlecut sample with the ZDC KE cut at 80, 85, 90 and 95%,
+// Unbinned P of the phi cos fit at RECONTHETABL_ESTNEU start 0.15 deg (2_phi_cosfit/2_phiReD_P_vs_start_theta of Plot3D.cpp part 4) for the 6_megaCut3/1_1particlecut sample with the ZDC KE cut at 80, 85, 90 and 95%,
 // for all recon charged particles, all recon protons and CE recon protons, with the purity (CE recon protons / all recon protons (particles) in the cut) and the share of the CE recon protons
-// that stay (CE recon protons in the cut / CE recon protons of cut_angles_all.root with theta 0 to 1 deg). All three counts and the fit use the block theta 0.15 to 1 deg and block phi 0.5 to 359.5 deg,
+// that stay (CE recon protons in the cut / CE recon protons of cut_angles_all.root with theta 0 to 2 deg). All three counts and the fit use the block theta 0.15 to 2 deg and block phi 0 to 360 deg (exactly 0 and 360 left out),
 // like the plot. Cut files: cuts/cut_megacut3_1.root (80%), cuts/cut_megacut3_1_ke85/90/95.root (CutPlots.cpp (samples)). Writes cuts/ke_scan_P.csv. Run: root -l -b -q KEScanP.cpp
 namespace {
 constexpr int kStartBin = 15; // start theta 0.15 deg: ScanStartTheta bucket 15 (0.01 deg each)
@@ -23,7 +23,7 @@ struct Rows {std::vector<double> th, ph;}; // block theta and phi (deg) of the r
 Rows Load(const std::string& file, const std::string& extra){
     ROOT::RDataFrame df("AnglesRaw", file);
     auto d = df.Define("thR", "thetaRelN * TMath::RadToDeg()").Define("th", "thetaRelND * TMath::RadToDeg()").Define("ph", "phiRelND * TMath::RadToDeg()")
-               .Filter("thR >= 0 && thR <= 1 && th >= 0.15 && th <= 1 && ph >= 0.5 && ph <= 359.5" + extra); // NaN fails every comparison
+               .Filter("thR >= 0 && thR <= 2 && th >= 0.15 && th <= 2 && ph > 0 && ph < 360" + extra); // NaN fails every comparison
     auto th = d.Take<double>("th"), ph = d.Take<double>("ph");
     return {*th, *ph};
 }
@@ -34,7 +34,7 @@ Fit FitP(const Rows& r, double apScale){
     Fit f;
     f.n = (long long)r.th.size();
     if (f.n < 10) return f;
-    const StartScan s = ScanStartTheta(r.th, r.ph, apScale, kBlockPhiLo, kBlockPhiHi); // fit[b]: the unbinned P of the protons with theta from b * 0.01 deg (FitCore.h, Plot3DCols.h)
+    const StartScan s = ScanStartTheta(r.th, r.ph, apScale, kBlockPhiLo, kBlockPhiHi, 2.0); // fit[b]: the unbinned P of the protons with theta from b * 0.01 deg (FitCore.h, Plot3DCols.h)
     f.aMean = s.aSum[kStartBin] / f.n;
     f.p = s.fit[kStartBin].p; f.err = s.fit[kStartBin].err;
     return f;
@@ -45,7 +45,7 @@ void KEScanP(){
     ROOT::EnableImplicitMT(NThreads());
     const double apScale = ReadSettings().at("APScale");
     const double nCEtotal = (double)Load("cuts/cut_angles_all.root", " && isFromCE == 1").th.size();
-    printf("CE recon protons before any cut (block theta 0.15 to 1 deg): %.0f\n", nCEtotal);
+    printf("CE recon protons before any cut (block theta 0.15 to 2 deg): %.0f\n", nCEtotal);
     FILE* cf = fopen("cuts/ke_scan_P.csv", "w");
     fprintf(cf, "ZDC_KE_cut_percent,sample,rows,P,P_err,CE_recon_protons,all_recon_protons,all_recon_particles,purity_CE_over_all_protons,purity_CE_over_all_particles,CE_in_cut_over_CE_total\n");
     printf("%-5s %-22s %9s %8s %8s | %8s %8s %8s | %8s %8s %8s\n", "KE%", "sample", "rows", "P", "err", "CE", "protons", "particles", "CE/prot", "CE/part", "CE/CEtot");

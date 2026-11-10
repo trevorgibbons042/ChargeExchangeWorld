@@ -231,7 +231,7 @@ void PlotDiffPhiCuts(double absLo = 50, double absHi = 180, std::string energy =
         drawOverlay(hRecon, hProt, hCE, nullptr, vars[v].label, overlayWhat, vars[v].file, vars[v].eq);
     }
 
-    // The other cut candidates (6_cuts/3_ResCuts to 5_nHits), shown only, nothing is cut on them: the true position residual, protons per event,
+    // The other cut candidates (6_cuts/3_ResCuts), shown only, nothing is cut on them: the true position residual, protons per event,
     // residual of the 2nd half over the 1st half of the tracker hits, RECONTHETA_ESTNEU, RECONTHETABL_ESTNEU and tracker hits. 9_ to 17_
     if (ang->GetBranch("nProtonsEv")){
         const Long64_t nEx = cEx.N();

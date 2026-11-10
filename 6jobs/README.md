@@ -76,7 +76,7 @@ The 4th argument is a folder of `plots/` (a leading `plots/` is dropped). The sc
 
 - `1_position`, `2_energy`: Plot3D part 1.
 - `6_cuts`: Plot3D parts 2, 3 and 4 for every cut, part 5 (the `rank_*.csv` files), QualityStudy.
-- `6_cuts/<cut folder>` (for example `6_cuts/9_megaCut3` or `6_cuts/9_megaCut3/1_1particlecut`): parts 2, 3 and 4 of that cut only, then part 5. QualityStudy also runs for `3_ResCuts`, `4_nParticles` and `5_nHits`. The cut numbers are the `P3_CUT` numbers of `Plot3D.cpp`, listed in `cut_indexes` in `SubmitPlots.sh`.
+- `6_cuts/<cut folder>` (for example `6_cuts/6_megaCut3` or `6_cuts/6_megaCut3/1_1particlecut`): parts 2, 3 and 4 of that cut only, then part 5. QualityStudy also runs for `3_ResCuts`. The cut numbers are the `P3_CUT` numbers of `Plot3D.cpp`, listed in `cut_indexes` in `SubmitPlots.sh`.
 - `3_ReconCalcVals`, `5_fomCalc`: the Fom jobs. `4_CEblock`: CEblock. `7_secondaryCE`: SecCE. `8_smear`: Smear. These write csv files the next macro reads, so the whole lane reruns and only the named folder is deleted first.
 
 An unknown folder is refused before anything is deleted. The new steps `plot3d` (Plot3D parts in `PARTS`, joined with `+`, for example `PARTS=2:1+3:1+4:1`) and `quality` can also be given to `Plot.pbs` by hand.
