@@ -25,7 +25,7 @@
 namespace {
 struct NewRow {
     double outTheta, outDTheta, outPhi, outDPhi, thetaRelND, phiRelND, impactD, r2D, resDRms, finalKED;
-    int nHits, nPlanesUsed, evClass, nCEUsed, nOtherUsed, nProtonUsed, nPionUsed, nKaonUsed, nNucleusUsed;
+    int nMaxPlane, nHits, nPlanesUsed, evClass, nCEUsed, nOtherUsed, nProtonUsed, nPionUsed, nKaonUsed, nNucleusUsed;
 };
 struct NewVar {
     const char* name; const char* title; int bins; double lo, hi; bool logY;
@@ -65,7 +65,8 @@ void PlotReconNew(){
         {"impactD", "impact of the block fit on the beam axis;impact (mm)", 60, 0.0, 60.0, true, [](const NewRow& x){return x.impactD;}},
         {"r2D", "R^{2} of the block fit;R^{2}", 60, 0.0, 1.0, true, [](const NewRow& x){return x.r2D;}},
         {"resDRms", "RMS distance of the block hits to the fit;resDRms (mm)", 60, 0.0, 12.0, true, [](const NewRow& x){return x.resDRms;}},
-        {"KEEnd", "summed KE of the charged hits on the last tracker, ZDC energy smearing;KE (MeV)", 60, 0.0, 30000.0, false, [](const NewRow& x){return x.finalKED;}}};
+        {"KEEnd", "summed KE of the charged hits on the last tracker, ZDC energy smearing;KE (MeV)", 60, 0.0, 30000.0, false, [](const NewRow& x){return x.finalKED;}},
+        {"nMaxChargedPerPlaneEv", "most charged tracks in any one tracker plane of the event (all planes, not only the fit planes);tracks", 10, 0.5, 10.5, true, [](const NewRow& x){return (double)x.nMaxPlane;}}};
 
     gStyle->SetOptStat(0);
     TCanvas c("cReconNew", "", 900, 650);
@@ -74,11 +75,11 @@ void PlotReconNew(){
     // one multithreaded read (Columns) of the 19 branches used here (not every branch of the tree), then every plot loop below runs over this vector in memory: 48 passes of GetEntry over all branches took hours at 100M events
     std::vector<NewRow> rows(n);
     NThreads(); // ROOT::EnableImplicitMT: Columns reads the tree on all the threads
-    const auto cols = Columns(t, {"outTheta", "outDTheta", "outPhi", "outDPhi", "thetaRelND", "phiRelND", "impactD", "r2D", "resDRms", "finalKED", "nHits", "nPlanesUsed", "evClass", "nCEUsed", "nOtherUsed", "nProtonUsed", "nPionUsed", "nKaonUsed", "nNucleusUsed"});
+    const auto cols = Columns(t, {"outTheta", "outDTheta", "outPhi", "outDPhi", "thetaRelND", "phiRelND", "impactD", "r2D", "resDRms", "finalKED", "nHits", "nPlanesUsed", "evClass", "nCEUsed", "nOtherUsed", "nProtonUsed", "nPionUsed", "nKaonUsed", "nNucleusUsed", "nMaxChargedPerPlaneEv"});
     for (Long64_t i = 0; i < n; i++){
         NewRow& x = rows[i]; size_t k = 0;
         x.outTheta = cols[k++][i]; x.outDTheta = cols[k++][i]; x.outPhi = cols[k++][i]; x.outDPhi = cols[k++][i]; x.thetaRelND = cols[k++][i]; x.phiRelND = cols[k++][i]; x.impactD = cols[k++][i]; x.r2D = cols[k++][i]; x.resDRms = cols[k++][i]; x.finalKED = cols[k++][i];
-        x.nHits = (int)cols[k++][i]; x.nPlanesUsed = (int)cols[k++][i]; x.evClass = (int)cols[k++][i]; x.nCEUsed = (int)cols[k++][i]; x.nOtherUsed = (int)cols[k++][i]; x.nProtonUsed = (int)cols[k++][i]; x.nPionUsed = (int)cols[k++][i]; x.nKaonUsed = (int)cols[k++][i]; x.nNucleusUsed = (int)cols[k++][i];
+        x.nHits = (int)cols[k++][i]; x.nPlanesUsed = (int)cols[k++][i]; x.evClass = (int)cols[k++][i]; x.nCEUsed = (int)cols[k++][i]; x.nOtherUsed = (int)cols[k++][i]; x.nProtonUsed = (int)cols[k++][i]; x.nPionUsed = (int)cols[k++][i]; x.nKaonUsed = (int)cols[k++][i]; x.nNucleusUsed = (int)cols[k++][i]; x.nMaxPlane = (int)cols[k++][i];
     }
     const double keCut = kKeCutPercent / 100.0 * ReadSettings().at("BeamKE"); // whole events whose summed (smeared) KE on the last tracker is not above kKeCutPercent of the beam KE are not drawn or counted
     const std::string kePct = Form("%.0f", kKeCutPercent);
@@ -130,7 +131,7 @@ void PlotReconNew(){
         // PlotTitle numbers the title from the file name; "no cuts" in the title: the sample is every event with 2 or more planes of exactly 1 hit
         const std::string raw = v.title; const size_t semi = raw.find(';');
         h[0]->SetTitle(PlotTitle(path, raw.substr(0, semi) + (theta02 ? Form(", KE cut above %s%% of the beam KE, planes in the fit even and at most %d, theta 0 to 2 degrees", kePct.c_str(), maxPlanes) : evenPlanes ? Form(", KE cut above %s%% of the beam KE, planes in the fit even and at most %d", kePct.c_str(), maxPlanes) : ke80 ? (", KE cut above " + kePct + "% of the beam KE").c_str() : ", no cuts") + raw.substr(semi)).c_str());
-        h[0]->SetMaximum(logY ? top * 3.0 : top * 1.25);
+        h[0]->SetMaximum(logY ? top * (std::string(v.name) == "nMaxChargedPerPlaneEv" ? 60.0 : 3.0) : top * 1.25);
         h[0]->SetMinimum(logY ? 0.5 : 0.0);
         h[0]->Draw("hist");
         h[1]->Draw("hist same"); h[2]->Draw("hist same");
