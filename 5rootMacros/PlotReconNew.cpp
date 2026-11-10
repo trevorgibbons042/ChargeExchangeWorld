@@ -149,7 +149,7 @@ void PlotReconNew(){
         h[0]->SetMaximum(logY ? top * ((std::string(v.name) == "nMaxChargedPerPlaneEv" || std::string(v.name) == "avgTrackerHitsPerPlane") ? 60.0 : 3.0) : top * 1.25);
         h[0]->SetMinimum(logY ? 0.5 : 0.0);
         h[0]->Draw("hist");
-        h[1]->Draw("hist same"); h[2]->Draw("hist same");
+        h[2]->Draw("hist same"); h[1]->Draw("hist same"); h[0]->Draw("hist same"); // CE (orange) is drawn last, on top, then CE + CE mix (blue), then the total (green) at the back; h[0] is drawn first too, it owns the frame
         TLegend leg(keVar ? 0.42 : 0.62, 0.74, 0.96, 0.90);
         leg.SetBorderSize(0); leg.SetFillStyle(0);
         for (int k = 0; k < 3; k++) leg.AddEntry(h[k], Form("%s, N = %.0f", ClassLabel(k), nClass[k]), "l");
