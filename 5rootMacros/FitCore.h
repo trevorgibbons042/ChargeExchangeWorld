@@ -406,18 +406,18 @@ inline void AddFitEquation(TH1* h, const std::vector<std::string>& lines){
 // each proton (aEach) has the beam spread only.
 // The error of P by source (the side box of the A_eff and P fits, PhiCosFit.h), all in quadrature in err: errFit the likelihood (statistics of the phi), errA the error of A carried over (errAStat
 // the spread of A over the theta distribution, errABeam the beam energy spread, errARange the est neutron theta range), errPhi the est neutron phi range (PhiRange). Each is |P| times a relative error.
-struct PFit {double p = 0, err = 0, errFit = 0, errA = 0, errPhi = 0, errAStat = 0, errABeam = 0, errARange = 0, errPhi2 = 0, errARange2 = 0; bool ok = false;}; // errPhi2, errARange2: the block grid range (the second range of AMean and PhiRange)
+struct PFit {double p = 0, err = 0, errFit = 0, errA = 0, errPhi = 0, errAStat = 0, errABeam = 0, errARange = 0, errPhi2 = 0, errARange2 = 0, errASmear = 0; bool ok = false;}; // errPhi2, errARange2: the block grid range (the second range of AMean and PhiRange)
 
 // The mean A of a sample with its error: A = sum / n over the protons, StatErr = std(A) / sqrt(n) (the error of the mean over the theta distribution of the sample), BeamErr the beam spread
 // (kBeamAFrac), RangeErr the est neutron theta range: every proton has A at the central theta (the value that is quoted) and at thetaMin and thetaMax of its est neutron range (Add with aLo, aHi),
 // and the range is half the difference of the means of A at the two ends. Err is the three in quadrature, RelErr is relative to the mean and is what the P of that fit carries (AddAErrToP).
 // Add per proton, or add the sums of several parts (+=): n, sum, sum^2, sLo and sHi add over slices. Add(a) alone (or a sum made without the range) has no range error.
 struct AMean {
-    double n = 0, sum = 0, sum2 = 0, sLo = 0, sHi = 0, sLo2 = 0, sHi2 = 0; // sLo2, sHi2: a second range of its own, the block grid (the slope error of the block position fit), added in quadrature with the first
+    double n = 0, sum = 0, sum2 = 0, sLo = 0, sHi = 0, sLo2 = 0, sHi2 = 0, smearErr = 0; // smearErr: the bias of A_eff from a smeared recon theta (theta is a magnitude, small angles read high), set by the caller, one more term in quadrature; sLo2, sHi2: a second range of its own, the block grid (the slope error of the block position fit), added in quadrature with the first
     void Add(double a){Add(a, a, a, a, a);}
     void Add(double a, double aLo, double aHi){Add(a, aLo, aHi, a, a);}
     void Add(double a, double aLo, double aHi, double aLo2, double aHi2){n++; sum += a; sum2 += a * a; sLo += aLo; sHi += aHi; sLo2 += aLo2; sHi2 += aHi2;}
-    AMean& operator+=(const AMean& o){n += o.n; sum += o.sum; sum2 += o.sum2; sLo += o.sLo; sHi += o.sHi; sLo2 += o.sLo2; sHi2 += o.sHi2; return *this;}
+    AMean& operator+=(const AMean& o){n += o.n; sum += o.sum; sum2 += o.sum2; sLo += o.sLo; sHi += o.sHi; sLo2 += o.sLo2; sHi2 += o.sHi2; smearErr = std::max(smearErr, o.smearErr); return *this;}
     double Mean() const {return n > 0 ? sum / n : 0.0;}
     double StatErr() const {
         if (n < 2) return 0.0;
@@ -427,7 +427,7 @@ struct AMean {
     double BeamErr() const {return std::fabs(Mean()) * kBeamAFrac;}
     double RangeErr() const {return n > 0 ? std::fabs(sHi - sLo) / (2 * n) : 0.0;}
     double RangeErr2() const {return n > 0 ? std::fabs(sHi2 - sLo2) / (2 * n) : 0.0;}
-    double Err() const {const double s = StatErr(), b = BeamErr(), r = RangeErr(), r2 = RangeErr2(); return std::sqrt(s * s + b * b + r * r + r2 * r2);}
+    double Err() const {const double s = StatErr(), b = BeamErr(), r = RangeErr(), r2 = RangeErr2(); return std::sqrt(s * s + b * b + r * r + r2 * r2 + smearErr * smearErr);}
     double RelErr() const {const double m = std::fabs(Mean()); return m > 0 ? Err() / m : kBeamAFrac;}
 };
 // The est neutron phi range: a proton whose est phi is only known within +-h (rad) has its cos(phi) modulation diluted by sin(h) / h, D is the mean of that over the protons of a fit, and P is
@@ -447,7 +447,8 @@ inline void AddAErrToP(PFit& r, const AMean& a, const PhiRange* ph = nullptr, bo
     r.errABeam = ap * kBeamAFrac;
     r.errARange = aEachBeamOnly || m <= 0 ? 0.0 : ap * a.RangeErr() / m;
     r.errARange2 = aEachBeamOnly || m <= 0 ? 0.0 : ap * a.RangeErr2() / m;
-    r.errA = std::sqrt(r.errAStat * r.errAStat + r.errABeam * r.errABeam + r.errARange * r.errARange + r.errARange2 * r.errARange2);
+    r.errASmear = aEachBeamOnly || m <= 0 ? 0.0 : ap * a.smearErr / m;
+    r.errA = std::sqrt(r.errAStat * r.errAStat + r.errABeam * r.errABeam + r.errARange * r.errARange + r.errARange2 * r.errARange2 + r.errASmear * r.errASmear);
     r.errPhi = ph ? ap * ph->RelErr() : 0.0;
     r.errPhi2 = ph2 ? ap * ph2->RelErr() : 0.0;
     r.err = std::sqrt(r.errFit * r.errFit + r.errA * r.errA + r.errPhi * r.errPhi + r.errPhi2 * r.errPhi2);
@@ -463,6 +464,7 @@ inline TPaveText* DrawErrorBySource(const AMean& a, const PFit& uf, bool hasRang
     const auto line = [&](const char* name, bool has, double v, const char* fmt){eb->AddText(has ? Form(fmt, name, v) : Form(" %s  n/a (exact angle)", name));};
     line(" est n #theta range", hasRange, a.RangeErr(), "%s  %.4f");
     line(" block grid #theta range", hasBlock, a.RangeErr2(), "%s  %.4f");
+    if (a.smearErr > 0) eb->AddText(Form(" recon #theta smear (bias)  %.4f", a.smearErr)); // only the recon theta fits that have it
     eb->AddText(Form(" statistics (#theta spread)  %.4f", a.StatErr()));
     eb->AddText(Form(" energy range (beam)  %.4f", a.BeamErr()));
     eb->AddText(Form("#bf{P} #pm %.3f", uf.err));

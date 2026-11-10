@@ -31,7 +31,7 @@ inline std::string PhiAxisName(const std::string& phiBranch){
 // range: {thetaMin, thetaMax, phiHalf} branches (degrees, degrees, rad) of the est neutron range of each proton (CalcAPandT.cpp), none for a fit with no est neutron frame. With them A_eff gets the
 // theta range error (A at the two ends, AMean) and P the phi range error (PhiRange), and the side box splits the errors of A_eff and P by source.
 // range2: the same three branches for the block grid range alone (the slope error of the block position fit, a range of its own in quadrature), only on the block fits.
-inline void PhiCosFit(TCanvas* canvas, TTree* t, const std::string& phiBranch, const std::string& thetaBranch, const std::string& cut, const std::string& name, const std::string& title, const std::string& path, const std::vector<std::string>& notes = {}, const std::string& aBranch = "", const std::vector<std::string>& range = {}, const std::vector<std::string>& range2 = {}, int color = -1){ // color: the histogram line, -1 the CE color
+inline void PhiCosFit(TCanvas* canvas, TTree* t, const std::string& phiBranch, const std::string& thetaBranch, const std::string& cut, const std::string& name, const std::string& title, const std::string& path, const std::vector<std::string>& notes = {}, const std::string& aBranch = "", const std::vector<std::string>& range = {}, const std::vector<std::string>& range2 = {}, int color = -1, double aSmearErr = 0){ // aSmearErr: the A_eff bias of the smeared recon theta, one more error term (0 none) // color: the histogram line, -1 the CE color
     const int nBins = 50;
     canvas->Clear(); canvas->SetRightMargin(0.25); canvas->SetTopMargin(0.17);
     TH1* h = MakeHist(name + "(" + std::to_string(nBins) + ",0,360)");
@@ -57,6 +57,7 @@ inline void PhiCosFit(TCanvas* canvas, TTree* t, const std::string& phiBranch, c
             if (r1 && std::isfinite(cols[iRange + 2][k])) phiRange.Add(cols[iRange + 2][k]);
             if (r2 && std::isfinite(cols[iRange2 + 2][k])) phiRange2.Add(cols[iRange2 + 2][k]);
         }
+        aMean.smearErr = aSmearErr;
         h->Draw();
     }
     if (!h || h->GetEntries() < 10){canvas->SetRightMargin(0.30); canvas->SetTopMargin(0.1); return;}
