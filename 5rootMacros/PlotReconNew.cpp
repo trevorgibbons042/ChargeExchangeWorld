@@ -294,6 +294,51 @@ void PlotReconNew(){
         }
         gStyle->SetOptStat(0);
     }
+    // the last plot of the folder: the fraction of the recon events that are CE (CE only, and CE + CE mix) in each bin of the summed KE on the last tracker (the KEEnd plot), same cuts as the folder.
+    // Per bin, fraction = events of that kind / all recon events, with the binomial error. The bins hold the events counted on all the threads (MapRows).
+    {
+        number++;
+        const double kLo = ke80 ? keCut : 0.0, kHi = 30000.0;
+        const int nb = 60;
+        struct FracPart {std::vector<double> ce, mix, all;};
+        const auto fracParts = MapRows(n, [&](Long64_t a, Long64_t z){
+            FracPart p; p.ce.assign(nb, 0.0); p.mix.assign(nb, 0.0); p.all.assign(nb, 0.0);
+            for (Long64_t i = a; i < z; i++){
+                const NewRow& r = rows[i];
+                if (r.evClass < 0 || r.evClass > 2 || !passes(r)) continue;
+                const double x = r.finalKED;
+                if (!std::isfinite(x) || x < kLo || x >= kHi) continue;
+                const int bin = std::min(nb - 1, (int)((x - kLo) / (kHi - kLo) * nb));
+                p.all[bin]++;
+                if (r.evClass == 0) p.ce[bin]++;
+                if (r.evClass <= 1) p.mix[bin]++;
+            }
+            return p;
+        });
+        TH1D* fr[2];
+        for (int k = 0; k < 2; k++){fr[k] = new TH1D(Form("hRN_keFrac_%d_%d", mode, k), "", nb, kLo, kHi); fr[k]->SetLineColor(ClassColor(k)); fr[k]->SetLineWidth(2);}
+        for (int j = 0; j < nb; j++){
+            double ce = 0, mix = 0, all = 0;
+            for (const auto& p : fracParts){ce += p.ce[j]; mix += p.mix[j]; all += p.all[j];}
+            if (all <= 0) continue;
+            const double f0 = ce / all, f1 = mix / all;
+            fr[0]->SetBinContent(j + 1, f0); fr[0]->SetBinError(j + 1, std::sqrt(f0 * (1.0 - f0) / all));
+            fr[1]->SetBinContent(j + 1, f1); fr[1]->SetBinError(j + 1, std::sqrt(f1 * (1.0 - f1) / all));
+        }
+        c.Clear(); c.SetLogy(false);
+        const std::string path = Form("%s/%d_KEEndFraction.pdf", dir.c_str(), number);
+        fr[1]->SetTitle(PlotTitle(path, "fraction of the recon events that are CE, per bin of the summed KE on the last tracker" + cutText + ";KE (MeV);fraction of the recon events in the bin").c_str());
+        fr[1]->SetMinimum(0.0); fr[1]->SetMaximum(1.05);
+        fr[1]->Draw("hist"); fr[0]->Draw("hist same"); // CE only on top, CE + CE mix behind
+        TLegend leg(0.12, 0.78, 0.60, 0.90);
+        leg.SetBorderSize(0); leg.SetFillStyle(0);
+        leg.AddEntry(fr[0], "CE recon / total recon particles", "l");
+        leg.AddEntry(fr[1], "CE + CE mix recon / total recon particles", "l");
+        leg.Draw();
+        c.SaveAs(path.c_str());
+        for (int k = 0; k < 2; k++) delete fr[k];
+        made++;
+    }
     }
     printf(">>> PlotReconNew: %d plots in plots/9_ReconNew_1 (1_noCuts, 2_KECUT%s, 3_, 4_ and 5_)\n", made, kePct.c_str());
 }
