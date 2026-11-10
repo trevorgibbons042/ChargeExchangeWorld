@@ -24,8 +24,8 @@
 // Output: plots/9_ReconNew/1_noCuts/<n>_<name>.pdf, titled "no cuts".
 namespace {
 struct NewRow {
-    double outTheta, outDTheta, outPhi, outDPhi, thetaRelND, phiRelND, impactD, r2D, resDRms, finalKED;
-    int nMaxPlane, nTrackerHits, nPlanesHit, nHits, nPlanesUsed, evClass, nCEUsed, nOtherUsed, nProtonUsed, nPionUsed, nKaonUsed, nNucleusUsed;
+    double thMin, thMax, phHalf, th2Min, th2Max, ph2Half, outTheta, outDTheta, outPhi, outDPhi, thetaRelND, phiRelND, impactD, r2D, resDRms, finalKED;
+    int eventID, nMaxPlane, nTrackerHits, nPlanesHit, nHits, nPlanesUsed, evClass, nCEUsed, nOtherUsed, nProtonUsed, nPionUsed, nKaonUsed, nNucleusUsed;
 };
 struct NewVar {
     const char* name; const char* title; int bins; double lo, hi; bool logY;
@@ -73,14 +73,15 @@ void PlotReconNew(){
     TCanvas c("cReconNew", "", 900, 650);
     c.SetRightMargin(0.04);
     const Long64_t n = t->GetEntries();
-    // one multithreaded read (Columns) of the 19 branches used here (not every branch of the tree), then every plot loop below runs over this vector in memory: 48 passes of GetEntry over all branches took hours at 100M events
+    // one multithreaded read (ColumnsUnordered, no ordered merge: the rows only need their columns aligned) of the 19 branches used here (not every branch of the tree), then every plot loop below runs over this vector in memory: 48 passes of GetEntry over all branches took hours at 100M events
     std::vector<NewRow> rows(n);
     NThreads(); // ROOT::EnableImplicitMT: Columns reads the tree on all the threads
-    const auto cols = Columns(t, {"outTheta", "outDTheta", "outPhi", "outDPhi", "thetaRelND", "phiRelND", "impactD", "r2D", "resDRms", "finalKED", "nHits", "nPlanesUsed", "evClass", "nCEUsed", "nOtherUsed", "nProtonUsed", "nPionUsed", "nKaonUsed", "nNucleusUsed", "nMaxChargedPerPlaneEv", "nTrackerHitsEv", "nPlanesHitEv"});
+    const auto cols = ColumnsUnordered(t, {"outTheta", "outDTheta", "outPhi", "outDPhi", "thetaRelND", "phiRelND", "impactD", "r2D", "resDRms", "finalKED", "nHits", "nPlanesUsed", "evClass", "nCEUsed", "nOtherUsed", "nProtonUsed", "nPionUsed", "nKaonUsed", "nNucleusUsed", "nMaxChargedPerPlaneEv", "nTrackerHitsEv", "nPlanesHitEv", "thetaRelNDMin", "thetaRelNDMax", "phiRelNDHalf", "thetaRelNDBMin", "thetaRelNDBMax", "phiRelNDBHalf", "fEvent"});
     for (Long64_t i = 0; i < n; i++){
         NewRow& x = rows[i]; size_t k = 0;
         x.outTheta = cols[k++][i]; x.outDTheta = cols[k++][i]; x.outPhi = cols[k++][i]; x.outDPhi = cols[k++][i]; x.thetaRelND = cols[k++][i]; x.phiRelND = cols[k++][i]; x.impactD = cols[k++][i]; x.r2D = cols[k++][i]; x.resDRms = cols[k++][i]; x.finalKED = cols[k++][i];
         x.nHits = (int)cols[k++][i]; x.nPlanesUsed = (int)cols[k++][i]; x.evClass = (int)cols[k++][i]; x.nCEUsed = (int)cols[k++][i]; x.nOtherUsed = (int)cols[k++][i]; x.nProtonUsed = (int)cols[k++][i]; x.nPionUsed = (int)cols[k++][i]; x.nKaonUsed = (int)cols[k++][i]; x.nNucleusUsed = (int)cols[k++][i]; x.nMaxPlane = (int)cols[k++][i]; x.nTrackerHits = (int)cols[k++][i]; x.nPlanesHit = (int)cols[k++][i];
+        x.thMin = cols[k++][i] * rad; x.thMax = cols[k++][i] * rad; x.phHalf = cols[k++][i]; x.th2Min = cols[k++][i] * rad; x.th2Max = cols[k++][i] * rad; x.ph2Half = cols[k++][i]; x.eventID = (int)cols[k++][i];
     }
     const double keCut = kKeCutPercent / 100.0 * ReadSettings().at("BeamKE"); // whole events whose summed (smeared) KE on the last tracker is not above kKeCutPercent of the beam KE are not drawn or counted
     const std::string kePct = Form("%.0f", kKeCutPercent);
@@ -203,17 +204,15 @@ void PlotReconNew(){
     // The polarization fits of the three samples (PhiCosFit.h, the unbinned fit of 3_ReconCalcVals and 6_cuts): the block phi in the est neutron frame, A_eff from the recon block theta of each event,
     // the est neutron range and block grid range errors, the phi spike at 0 left out. Same cuts as the folder.
     {
-        std::string cutExpr = Form("phiRelND * TMath::RadToDeg() > %g && phiRelND * TMath::RadToDeg() < %g && thetaRelND == thetaRelND", kBlockPhiLo, kBlockPhiHi);
-        if (ke80) cutExpr += Form(" && finalKED > %.3f", keCut);
-        if (evenPlanes) cutExpr += " && " + EvenHitsDraw("nPlanesUsed");
-        if (theta02) cutExpr += " && thetaRelND * TMath::RadToDeg() >= 0 && thetaRelND * TMath::RadToDeg() <= 2";
+        // the whole-event cuts of this folder (passes) and the fit sample, applied to the rows in memory; the phi spike at 0 is left out and theta must exist (NAN fails)
+        const auto inFit = [&](const NewRow& x, int sample){
+            const double ph = x.phiRelND * rad;
+            return (sample == 0 ? x.evClass == 0 : x.evClass <= sample) && passes(x) && ph > kBlockPhiLo && ph < kBlockPhiHi && x.thetaRelND == x.thetaRelND;
+        };
         c.SetLogy(false); // the canvas still has the log scale of the plot before
         gStyle->SetOptStat(1111); gStyle->SetOptFit(111); // PhiCosFit moves and fills the stats box with the fit, so it needs one
-        const char* sampleCut[3] = {"evClass == 0", "evClass <= 1", "evClass <= 2"};
-        const char* sampleName[3] = {"CE recon protons", "CE + CE mix recon protons", "total recon particles"};
+                const char* sampleName[3] = {"CE recon protons", "CE + CE mix recon protons", "total recon particles"};
         const char* sampleFile[3] = {"CE", "CEandMix", "all"};
-        const std::vector<std::string> range = {"thetaRelNDMin * TMath::RadToDeg()", "thetaRelNDMax * TMath::RadToDeg()", "phiRelNDHalf"};
-        const std::vector<std::string> range2 = {"thetaRelNDBMin * TMath::RadToDeg()", "thetaRelNDBMax * TMath::RadToDeg()", "phiRelNDBHalf"};
         // The CE sample is fitted at the actual CE angle (ChargeExchange_values: the true phi and theta of the CE proton in the true neutron frame, CEPHI_NEUFRAME) and its own LastAP, not at the recon angle in the est neutron frame:
         // the events are the CE recon events that pass this folder's cuts (evClass 0 and cutExpr, matched by fEvent), only the angle of each is the true one. The rows go to a small file so Columns reads them on all the threads.
         TTree* ceT = OpenCut("cuts/cut_CE.root", "ChargeExchange_values");
@@ -224,7 +223,8 @@ void PlotReconNew(){
                 const auto ce = Columns(ceT, {"fEvent", "CEPhiNeu(LastTheta, LastPhiLab, CENDirX, CENDirY, CENDirZ) * 180 / TMath::Pi()", "CEThetaNeu(LastTheta, LastPhiLab, CENDirX, CENDirY, CENDirZ) * 180 / TMath::Pi()", "LastAP"});
                 std::map<long long, size_t> byEvent;
                 for (size_t i = 0; i < ce[0].size(); i++) byEvent.emplace((long long)ce[0][i], i);
-                const auto ev = Columns(t, {"fEvent"}, std::string(sampleCut[0]) + " && " + cutExpr)[0];
+                std::vector<double> ev; // the CE recon events of this folder, in memory
+                for (const NewRow& x : rows) if (inFit(x, 0)) ev.push_back(x.eventID);
                 const std::string trueFile = Form("cuts/cut_ceTrueNew_%d.root", mode);
                 {
                     TFile out(trueFile.c_str(), "RECREATE");
@@ -250,9 +250,32 @@ void PlotReconNew(){
                     continue;
                 }
             }
-            PhiCosFit(&c, t, "phiRelND * TMath::RadToDeg()", "thetaRelND * TMath::RadToDeg()", std::string(sampleCut[k]) + " && " + cutExpr, Form("hPhiNew_%d_%d", mode, k),
-                      std::string(sampleName[k]) + ", RECONPHIBL_ESTNEU Distribution, A_{eff} at the recon block #theta" + cutText, Form("%s/%d_phiBlock_cosfit_%s.pdf", dir.c_str(), number, sampleFile[k]),
-                      {}, "", range, range2, ClassColor(k));
+            // the rows of this fit go to a small file (the est neutron frame phi and theta in degrees, the two range errors), so PhiCosFit does not read the 23M rows of the tree again
+            const std::string fitFile = Form("cuts/cut_phiFitNew_%d_%d.root", mode, k);
+            {
+                TFile out(fitFile.c_str(), "RECREATE");
+                double ph = 0, th = 0, r1[3] = {0, 0, 0}, r2[3] = {0, 0, 0};
+                TTree tp("PhiFit", "fitted events of one sample");
+                tp.Branch("phiRelNDdeg", &ph); tp.Branch("thetaDeg", &th);
+                tp.Branch("rThMin", &r1[0]); tp.Branch("rThMax", &r1[1]); tp.Branch("rPhHalf", &r1[2]);
+                tp.Branch("r2ThMin", &r2[0]); tp.Branch("r2ThMax", &r2[1]); tp.Branch("r2PhHalf", &r2[2]);
+                for (const NewRow& x : rows){
+                    if (!inFit(x, k)) continue;
+                    ph = x.phiRelND * rad; th = x.thetaRelND * rad;
+                    r1[0] = x.thMin; r1[1] = x.thMax; r1[2] = x.phHalf; r2[0] = x.th2Min; r2[1] = x.th2Max; r2[2] = x.ph2Half;
+                    tp.Fill();
+                }
+                tp.Write();
+            }
+            TFile* ff = TFile::Open(fitFile.c_str());
+            TTree* tp = ff ? (TTree*)ff->Get("PhiFit") : nullptr;
+            if (tp){
+                PhiCosFit(&c, tp, "phiRelNDdeg", "thetaDeg", "", Form("hPhiNew_%d_%d", mode, k),
+                          std::string(sampleName[k]) + ", RECONPHIBL_ESTNEU Distribution, A_{eff} at the recon block #theta" + cutText, Form("%s/%d_phiBlock_cosfit_%s.pdf", dir.c_str(), number, sampleFile[k]),
+                          {}, "", {"rThMin", "rThMax", "rPhHalf"}, {"r2ThMin", "r2ThMax", "r2PhHalf"}, ClassColor(k));
+                ff->Close();
+            }
+            gSystem->Unlink(fitFile.c_str());
             made++;
         }
         gStyle->SetOptStat(0);
