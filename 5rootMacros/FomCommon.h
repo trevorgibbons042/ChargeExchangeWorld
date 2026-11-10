@@ -1,5 +1,6 @@
 #pragma once
 #include <TCanvas.h>
+#include "Palette.h"
 #include <TGraph.h>
 #include <TMultiGraph.h>
 #include <TObject.h>
@@ -17,7 +18,7 @@
 inline const std::vector<std::string>& Sets(){static const std::vector<std::string> v = {"1_reconTheta_estneu", "2_reconBlockTheta_estneu"}; return v;}
 // the KE cut (CutFiles.h); its csv file comes from PlotAngle.cpp
 inline const std::vector<std::string>& Kes(){static const std::vector<std::string> v = {"ke_gt80"}; return v;} // the FOM plots have the 80% KE cut and no residual cut folders
-static const int kColors[] = {kBlack, kRed, kBlue, kGreen + 2, kMagenta, kOrange + 7, kCyan + 2, kGray + 2};
+inline const int* FomColors(){static const int c[] = {kBlack, CbCE(), CbProton(), CbAll(), kMagenta, kOrange + 7, kCyan + 2, kGray + 2}; return c;} // a function, not a global: the palette colors are made at run time
 inline const std::map<std::string, std::string>& SetNames(){static const std::map<std::string, std::string> m = {{"1_reconTheta_estneu", "true position"}, {"2_reconBlockTheta_estneu", "block position"}}; return m;}
 
 // Base folder of the FOM and polarization plots, under it <theta set>/<ke>/... (PlotFomPolarization.cpp)

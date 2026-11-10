@@ -1,4 +1,5 @@
 #include <TCanvas.h>
+#include "Palette.h"
 #include <TFile.h>
 #include <TGraphErrors.h>
 #include <TH1D.h>
@@ -185,8 +186,8 @@ static void SaveResidual(TH1D* hNeutron, TH1D* hLab, const char* angle, const st
     PageMargins(c);
     hNeutron->SetTitle(PlotTitle(path, title).c_str());
     hNeutron->SetStats(0);
-    hNeutron->SetLineColor(kRed + 1); hNeutron->SetLineWidth(2);
-    hLab->SetLineColor(kBlue + 1); hLab->SetLineWidth(2);
+    hNeutron->SetLineColor(CbCE()); hNeutron->SetLineWidth(2);
+    hLab->SetLineColor(CbProton()); hLab->SetLineWidth(2);
     hNeutron->SetMaximum(1.15 * std::max(hNeutron->GetMaximum(), hLab->GetMaximum()));
     hNeutron->Draw("HIST");
     hLab->Draw("HIST SAME");
@@ -688,8 +689,8 @@ void SmearMatrix(){
         TCanvas c("cSmearD", "Plots", 1500, 1200);
         PageMargins(c);
         TMultiGraph mg;
-        gN[r].SetMarkerStyle(20); gN[r].SetMarkerSize(1.2); gN[r].SetMarkerColor(kRed + 1); gN[r].SetLineColor(kRed + 1);
-        gL[r].SetMarkerStyle(20); gL[r].SetMarkerSize(1.2); gL[r].SetMarkerColor(kBlue + 1); gL[r].SetLineColor(kBlue + 1);
+        gN[r].SetMarkerStyle(20); gN[r].SetMarkerSize(1.2); gN[r].SetMarkerColor(CbCE()); gN[r].SetLineColor(CbCE());
+        gL[r].SetMarkerStyle(20); gL[r].SetMarkerSize(1.2); gL[r].SetMarkerColor(CbProton()); gL[r].SetLineColor(CbProton());
         mg.Add(&gN[r], "PE"); mg.Add(&gL[r], "PE");
         mg.SetTitle(PlotTitle(path, Form("Dilution D = <cos(#phi_{%s, %s} - #phi_{CE, real neutron or neutron estimate frame})>, %s, CE recon protons, %s theta 0 to %.1f deg, no other cuts;%s theta, %s (deg);D", reText[r], reFrame[r], sd.c_str(), reText[r], tMax, reText[r], reFrame[r])).c_str());
         mg.Draw("A");
@@ -706,8 +707,8 @@ void SmearMatrix(){
             TCanvas cp("cSmearP", "Plots", 1500, 1200);
             PageMargins(cp);
             TMultiGraph mgP;
-            pgN[r].SetMarkerStyle(20); pgN[r].SetMarkerSize(1.2); pgN[r].SetMarkerColor(kRed + 1); pgN[r].SetLineColor(kRed + 1);
-            pgL[r].SetMarkerStyle(20); pgL[r].SetMarkerSize(1.2); pgL[r].SetMarkerColor(kBlue + 1); pgL[r].SetLineColor(kBlue + 1);
+            pgN[r].SetMarkerStyle(20); pgN[r].SetMarkerSize(1.2); pgN[r].SetMarkerColor(CbCE()); pgN[r].SetLineColor(CbCE());
+            pgL[r].SetMarkerStyle(20); pgL[r].SetMarkerSize(1.2); pgL[r].SetMarkerColor(CbProton()); pgL[r].SetLineColor(CbProton());
             mgP.Add(&pgN[r], "PE"); mgP.Add(&pgL[r], "PE");
             mgP.SetTitle(PlotTitle(pathP, Form("%s theta (%s) - CE theta, mean (point) and RMS (bar) per truth phi bin of 10 deg, %s, %s;CE phi (deg);#Delta#theta (deg)", reText[r], reFrame[r], sd.c_str(), cutPair.c_str())).c_str());
             mgP.Draw("A");

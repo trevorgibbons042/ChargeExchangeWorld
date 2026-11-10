@@ -16,6 +16,8 @@ public:
     ~MyRunAction();
     virtual void BeginOfRunAction(const G4Run*);
     virtual void EndOfRunAction(const G4Run*);
+    //EventSummary vector columns (hitTrackerZ, hitTrackerKE): bound to the ntuple in the constructor, filled through gEventHitZ / gEventHitKE (6detector.hh), which 8event.cc points at these
+    std::vector<G4double> hitZ, hitKE;
 private:
     G4GenericMessenger *fMessenger;
     G4GenericMessenger *fCEMessenger;

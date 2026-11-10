@@ -38,6 +38,11 @@ inline thread_local std::vector<ParticleRow> gTrackRows;
 //hits: every charged tracker entry of every particle, tracks: charged tracks that hit at least kMinTrackerPlanesSaved distinct planes
 inline thread_local G4int gEventTrackerHits = 0;
 inline thread_local G4int gEventTrackerTracks = 0;
+//one entry per charged tracker hit of the event (every particle, saved track or not): the z of the tracker centre (mm) and the KE at the entry (MeV).
+//No position is kept. Counting the entries of one z gives the charged hits of that tracker. Written to EventSummary (7run.cc), cleared in BeginOfEventAction (8event.cc).
+//Pointers to the vectors of this thread's MyRunAction (the ntuple columns), set in BeginOfEventAction (8event.cc).
+inline thread_local std::vector<G4double>* gEventHitZ = nullptr;
+inline thread_local std::vector<G4double>* gEventHitKE = nullptr;
 
 //boundaryType: 0 tracker entry, 1 tracker exit, 2 ZDC, 3 track start
 //the row is only buffered here, FlushParticleInfo (MyTrackingAction::PostUserTrackingAction) decides if the track is saved
@@ -47,7 +52,10 @@ inline void FillParticleInfo(const G4Track *track, G4int boundaryType, const G4T
 {
     if (track->GetParticleDefinition()->GetPDGCharge() == 0.){return;}
     gTrackRows.push_back({boundaryType, pos, KE, detectorCenter, measuredKE});
-    if (boundaryType == 0){gEventTrackerHits++;}
+    if (boundaryType == 0){
+        gEventTrackerHits++;
+        if (gEventHitZ){gEventHitZ->push_back(detectorCenter.z() / mm); gEventHitKE->push_back(KE / MeV);}
+    }
 }
 
 //writes the buffered rows of the finished track to ntuple 0 if it is worth saving, then empties the buffer
@@ -60,6 +68,29 @@ inline void FlushParticleInfo(const G4Track *track)
     }
 
     if (static_cast<G4int>(planes.size()) >= kMinTrackerPlanesSaved){gEventTrackerTracks++;}
+
+    //TrackerHitsAll (ntuple 3, 7run.cc): a track that entered any tracker plane, its tracker entries only, whatever ParticleInfo below decides
+    if (!planes.empty()){
+        G4AnalysisManager *man = G4AnalysisManager::Instance();
+        const G4int eventID = G4RunManager::GetRunManager()->GetCurrentEvent()->GetEventID();
+        for (const auto &row : gTrackRows){
+            if (row.boundaryType != 0){continue;}
+            man->FillNtupleIColumn(3, 0, eventID);
+            man->FillNtupleIColumn(3, 1, track->GetTrackID());
+            man->FillNtupleIColumn(3, 2, track->GetParentID());
+            man->FillNtupleIColumn(3, 3, track->GetParticleDefinition()->GetPDGEncoding());
+            man->FillNtupleIColumn(3, 4, row.boundaryType);
+            man->FillNtupleDColumn(3, 5, row.pos.x());
+            man->FillNtupleDColumn(3, 6, row.pos.y());
+            man->FillNtupleDColumn(3, 7, row.pos.z());
+            man->FillNtupleDColumn(3, 8, row.KE);
+            man->FillNtupleDColumn(3, 9, row.detectorCenter.x());
+            man->FillNtupleDColumn(3, 10, row.detectorCenter.y());
+            man->FillNtupleDColumn(3, 11, row.detectorCenter.z());
+            man->FillNtupleDColumn(3, 12, row.measuredKE);
+            man->AddNtupleRow(3);
+        }
+    }
 
     const G4VProcess *creator = track->GetCreatorProcess();
     const bool ceProton = track->GetParticleDefinition()->GetPDGEncoding() == 2212 && creator != nullptr &&

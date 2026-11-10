@@ -1,4 +1,5 @@
 #include <TCanvas.h>
+#include "Palette.h"
 #include <TF1.h>
 #include <TFile.h>
 #include <TH1D.h>
@@ -262,7 +263,7 @@ void PlotFomPolarization(std::string energy = "fKEnergy"){ // energy: "fKEnergy"
             for (const int range : {0, 1}){
                 if (!ovl[range][0].ok && !ovl[range][1].ok && !ovl[range][2].ok) continue;
                 const std::string dir = FomRoot() + "/" + set.dir + "/" + kFitDir;
-                const int colors[3] = {kRed, kBlue, kGreen + 2};
+                const int colors[3] = {CbCE(), CbProton(), CbAll()};
                 double pFit[3] = {0, 0, 0}, pErr[3] = {0, 0, 0}, hMax = 0;
                 c.Clear(); c.SetLogz(0); c.SetLogy(0);
                 c.SetRightMargin(0.25); c.SetTopMargin(0.36); c.SetLeftMargin(0.14);
@@ -309,7 +310,7 @@ tx.DrawLatex(0.15, 0.865, AEffEq());
                 if (ovl[range][0].ok){ // the CE recon protons alone, their few entries vanish next to the recon protons and particles above: own pdf, the next number after the overlay
                     TH1D* h = ovl[range][0].h;
                     c.Clear(); c.SetTopMargin(0.27);
-                    h->SetLineColor(kRed); h->SetLineWidth(2); h->SetStats(0); h->SetMinimum(0); h->SetMaximum(-1111); h->SetMaximum(1.1 * h->GetMaximum()); // -1111: drop the overlay maximum, the axis follows the CE bins
+                    h->SetLineColor(CbCE()); h->SetLineWidth(2); h->SetStats(0); h->SetMinimum(0); h->SetMaximum(-1111); h->SetMaximum(1.1 * h->GetMaximum()); // -1111: drop the overlay maximum, the axis follows the CE bins
                     h->SetTitle((std::string("CE recon protons only (not all CE protons), ") + set.name + " angles" + (range == 0 ? ", phi fit over all theta, no cuts (no KE, residual or theta cut)" : ", phi fit over theta 0 to 1 deg (no KE or residual cut)") + ";Angle (degrees);Count").c_str());
                     h->Draw("hist");
                     TF1* fd = new TF1(Form("fPhiRangeCE%d", range), "[0] * (1 + [1] * [2] * cos(x * TMath::Pi() / 180))", 0, 360);

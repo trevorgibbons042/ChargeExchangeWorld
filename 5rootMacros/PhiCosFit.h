@@ -1,5 +1,6 @@
 #pragma once
 #include <TCanvas.h>
+#include "Palette.h"
 #include <TF1.h>
 #include <TH1.h>
 #include <TLatex.h>
@@ -18,7 +19,7 @@ inline std::string PhiAxisName(const std::string& phiBranch){
     if (phiBranch.rfind("CEPhiNeu", 0) == 0) return "CEPHI_NEUFRAME";
     if (phiBranch.rfind("phiReDLab", 0) == 0) return "recon block phi about the lab z axis";
     if (phiBranch.rfind("phiReLab", 0) == 0) return "recon phi about the lab z axis";
-    if (phiBranch.rfind("phiReD", 0) == 0) return "RECONPHIBL_ESTNEU";
+    if (phiBranch.rfind("phiReD", 0) == 0 || phiBranch.rfind("phiRelND", 0) == 0) return "RECONPHIBL_ESTNEU"; // phiRelND: the same angle in AnglesRaw (rad), used by PlotReconNew.cpp
     if (phiBranch.rfind("phiRe", 0) == 0) return "RECONPHI_ESTNEU";
     if (phiBranch.find("LastPhiLab") != std::string::npos) return "CE phi about the lab z axis";
     return "Angle";
@@ -30,7 +31,7 @@ inline std::string PhiAxisName(const std::string& phiBranch){
 // range: {thetaMin, thetaMax, phiHalf} branches (degrees, degrees, rad) of the est neutron range of each proton (CalcAPandT.cpp), none for a fit with no est neutron frame. With them A_eff gets the
 // theta range error (A at the two ends, AMean) and P the phi range error (PhiRange), and the side box splits the errors of A_eff and P by source.
 // range2: the same three branches for the block grid range alone (the slope error of the block position fit, a range of its own in quadrature), only on the block fits.
-inline void PhiCosFit(TCanvas* canvas, TTree* t, const std::string& phiBranch, const std::string& thetaBranch, const std::string& cut, const std::string& name, const std::string& title, const std::string& path, const std::vector<std::string>& notes = {}, const std::string& aBranch = "", const std::vector<std::string>& range = {}, const std::vector<std::string>& range2 = {}){
+inline void PhiCosFit(TCanvas* canvas, TTree* t, const std::string& phiBranch, const std::string& thetaBranch, const std::string& cut, const std::string& name, const std::string& title, const std::string& path, const std::vector<std::string>& notes = {}, const std::string& aBranch = "", const std::vector<std::string>& range = {}, const std::vector<std::string>& range2 = {}, int color = -1){ // color: the histogram line, -1 the CE color
     const int nBins = 50;
     canvas->Clear(); canvas->SetRightMargin(0.25); canvas->SetTopMargin(0.17);
     TH1* h = MakeHist(name + "(" + std::to_string(nBins) + ",0,360)");
@@ -61,8 +62,8 @@ inline void PhiCosFit(TCanvas* canvas, TTree* t, const std::string& phiBranch, c
     if (!h || h->GetEntries() < 10){canvas->SetRightMargin(0.30); canvas->SetTopMargin(0.1); return;}
     const double nFit = h->GetEntries();
     h->SetTitle((title + Form(", %d phi bins of %.1f deg", nBins, 360.0 / nBins) + ";" + PhiAxisName(phiBranch) + " (degrees);Count").c_str());
-    h->SetLineColor(kRed); // CE protons are red
-    const bool block = phiBranch.rfind("phiReD", 0) == 0; // the block phi fit leaves out the spike at 0 (kBlockPhiLo to kBlockPhiHi), the likelihood is normalised over that range
+    h->SetLineColor(color >= 0 ? color : CbCE()); // CE protons are vermillion
+    const bool block = phiBranch.rfind("phiReD", 0) == 0 || phiBranch.rfind("phiRelND", 0) == 0; // the block phi fit leaves out the spike at 0 (kBlockPhiLo to kBlockPhiHi), the likelihood is normalised over that range
     const PFit uf = UnbinnedP(phiAll, aMean, block ? kBlockPhiLo : 0, block ? kBlockPhiHi : 360, nullptr, true, range.size() == 3 ? &phiRange : nullptr, range2.size() == 3 ? &phiRange2 : nullptr); // unbinned fit of every proton's phi (FitCore.h), A fixed to A_eff
     TF1& fit = *AddUnbinnedFit(h, "fPhiCos", uf, aMean.Mean(), aMean.Err(), true);
     fit.SetParameter(0, nFit / nBins);

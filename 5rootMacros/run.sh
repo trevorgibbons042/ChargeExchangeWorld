@@ -14,6 +14,7 @@ run 'CutEvents.cpp' # writes the cut files cuts/cut_*.root (CutOpen.h)
 # One after the other, all the cores each: ReconAngleAll alone on 8 threads took 39 s and CountCE (it reads only cut_CE.root) 4 s, against 61 s for the two side by side on half of the cores each
 export ANA_NTHREADS=$NCPU
 run 'ReconAngleAll.cpp'
+run 'ReconAngleAll.cpp(true)' # the event recon for plots/9_ReconNew (cuts/cut_angles_new.root): needs a sim with the per-tracker hit columns of EventSummary, else it stops with an error and the chain goes on
 run 'CountCE.cpp'
 run 'CalcAPandT.cpp' # true KE, then detector KE
 unset ANA_NTHREADS

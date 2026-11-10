@@ -27,6 +27,7 @@ public:
     };
 
 private:
+    MyRunAction* fRunAction = nullptr; //owner of the EventSummary hit vectors
     G4int fNZdcAll = 0, fNZdcCharged = 0;       //particles that reached the ZDC in this event
     G4double fZdcKEAll = 0., fZdcKECharged = 0.; //their summed kinetic energy at the ZDC entry (MeV)
 };

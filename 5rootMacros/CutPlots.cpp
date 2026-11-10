@@ -153,7 +153,8 @@ static void CutSamples(){
 
     const std::vector<std::string> rawCols = {"fEvent", "TrackID", "PDG", "isFromCE", "inCE", "finalKE", "resRms", "resDRms", "impact", "impactD", "r2", "r2D", "nProtonsEv", "nZdcCharged", "nTrackerHitsEv", "nTrackerTracksEv",
                                               "resHalfRatioD", "thetaRelN", "thetaRelND", "phiRelN", "phiRelND", "nHits", "firstXD", "firstYD", "z_bx_reconVertexOut", "ParentID", "nMaxChargedPerPlaneEv",
-                                              "thetaRelNDMin", "thetaRelNDMax", "phiRelNDHalf", "thetaRelNDBMin", "thetaRelNDBMax", "phiRelNDBHalf", "nPlanesHitEv"}; // thetaRelNDMin to phiRelNDBHalf: the est neutron range of the block recon proton (error by source of the phi fits); nPlanesHitEv: the tracker planes hit in the event (5_avgTrackerHitsPerPlane)
+                                              "thetaRelNDMin", "thetaRelNDMax", "phiRelNDHalf", "thetaRelNDBMin", "thetaRelNDBMax", "phiRelNDBHalf", "nPlanesHitEv",
+                                              "tubeX0", "tubeY0", "tubeZ0", "tubeX1", "tubeY1", "tubeZ1"}; // the tube end points (TubeCenter.cpp reads the tube centre of each cut sample from its cut file, not from all of AnglesRaw) // thetaRelNDMin to phiRelNDBHalf: the est neutron range of the block recon proton (error by source of the phi fits); nPlanesHitEv: the tracker planes hit in the event (5_avgTrackerHitsPerPlane)
     ROOT::RDataFrame raw("AnglesRaw", "cuts/cut_angles_all.root");
     // baseline of every cut of 6_cuts: RECONTHETA_ESTNEU and RECONTHETABL_ESTNEU from 0 to 2 degrees (NaN fails)
     const auto thetaWithin = [&raw](double maxDeg){return raw.Filter([maxDeg](double theta, double thetaBlock){const double deg = theta * TMath::RadToDeg(), degBlock = thetaBlock * TMath::RadToDeg(); return deg >= 0 && deg <= maxDeg && degBlock >= 0 && degBlock <= maxDeg;}, {"thetaRelN", "thetaRelND"});};

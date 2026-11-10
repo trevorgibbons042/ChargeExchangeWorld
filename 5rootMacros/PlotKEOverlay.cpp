@@ -5,6 +5,7 @@
 // so no fit is redone. All recon protons, all recon charged particles and the CE recon protons of the P plots, and the proton and particle ratios, are separate pdfs because they are separate plots there.
 // Run from the run folder after every part 4 and before tidy_plots.py, which moves the csv files (the 6_cuts lane of plot.sh, the Plot3D step of Plot.pbs).
 #include "TCanvas.h"
+#include "Palette.h"
 #include "TString.h"
 #include "TGraphErrors.h"
 #include "TGraphAsymmErrors.h"
@@ -81,8 +82,8 @@ double KePTrue(){
 void KeOverlayFolder(const std::string& family, const std::string& name){
     const std::string base = "plots/6_cuts/";
     std::vector<KeLevel> levels;
-    levels.push_back({"ZDC KE > 80%", family + "/" + name, kRed});
-    const int colors[3] = {kBlue, kGreen + 2, kMagenta + 1}, pcts[3] = {85, 90, 95};
+    levels.push_back({"ZDC KE > 80%", family + "/" + name, CbCE()});
+    const int colors[3] = {CbProton(), CbAll(), kMagenta + 1}, pcts[3] = {85, 90, 95};
     for (int i = 0; i < 3; i++) levels.push_back({Form("ZDC KE > %d%%", pcts[i]), family + "/" + name + Form("_KE%d", pcts[i]), colors[i]});
 
     const std::string csvDir = "/2_phi_cosfit/";

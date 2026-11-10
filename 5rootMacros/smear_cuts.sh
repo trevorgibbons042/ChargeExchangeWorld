@@ -20,6 +20,8 @@ for d in "${dirs[@]}"; do
     (( ++n % nj == 0 )) && wait
 done
 wait
+# the tube centre pages 15 to 18 of the 6_cuts folders that have an AnglesRaw cut file (TubeCenter.cpp, one pass of each cut file): here so the PBS smearcuts step (Plot.pbs) runs them too; a folder argument runs only that one
+if (( $# )); then for d in "$@"; do (export TUBE_CUT=$d; run 'TubeCenter.cpp'); done; else run 'TubeCenter.cpp'; fi
 # the unfolding of the megaCut3 phi cosfits (and of the full sample matrix) needs the matrices written above: after them, one process with all the cores for its toys
 case " ${dirs[*]} " in *" 6_megaCut3/1_1particlecut "*) ANA_NTHREADS=$NCPU run 'UnfoldPhi.cpp' ;; esac
 echo ">>> smear_cuts ($n folders) took $((SECONDS - total)) s"

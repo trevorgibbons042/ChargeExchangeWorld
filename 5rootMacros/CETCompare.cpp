@@ -1,4 +1,5 @@
 #include <TCanvas.h>
+#include "Palette.h"
 #include <TH1D.h>
 #include <TLegend.h>
 #include <TStyle.h>
@@ -40,8 +41,8 @@ void CETCompare(){
         plan.H(tAll, "fZ>>hZAll", "", "", &hAll); plan.H(tCarbon, "fZ>>hZCarbon", "", "", &hZC); plan.H(tAll, "fZ>>hZTracker", noCarbon, "", &hZT);
         plan.H(tCarbon, "LastT>>hTCarbon", "", "", &hC); plan.H(tAll, "LastT>>hTTracker", noCarbon, "", &hT);
         plan.Run();
-        const long long nC = tCarbon->GetEntries(), nT = tAll->GetEntries(noCarbon.c_str()), nA = tAll->GetEntries();
-        hAll.SetLineColor(kGray + 1); hZC.SetLineColor(kRed); hZT.SetLineColor(kBlack); // carbon CE red (CE protons are red), tracker CE black, the total gray so it stays apart from the tracker curve
+        const long long nC = tCarbon->GetEntries(), nT = (long long)hZT.GetEntries(), nA = tAll->GetEntries();
+        hAll.SetLineColor(kGray + 1); hZC.SetLineColor(CbCE()); hZT.SetLineColor(kBlack); // carbon CE red (CE protons are red), tracker CE black, the total gray so it stays apart from the tracker curve
         for (TH1D* h : {&hAll, &hZC, &hZT}) h->SetLineWidth(2);
         hAll.SetTitle("Z position where Charge Exchange happens, all CE protons (sim);Z Position (mm);Count");
         hAll.SetMaximum(1.15 * hAll.GetMaximum());
@@ -57,7 +58,7 @@ void CETCompare(){
     for (const bool norm : {false, true}){
         TH1D* a = (TH1D*)hC.Clone(), *b = (TH1D*)hT.Clone();
         if (norm){a->Scale(1.0 / a->Integral()); b->Scale(1.0 / b->Integral());}
-        a->SetLineColor(kRed); b->SetLineColor(kBlack); a->SetLineWidth(2); b->SetLineWidth(2);
+        a->SetLineColor(CbCE()); b->SetLineColor(kBlack); a->SetLineWidth(2); b->SetLineWidth(2);
         a->SetTitle(Form("t of the charge exchange, all CE protons (sim), carbon blocks vs silicon trackers%s;t;%s", norm ? ", unit area" : "", norm ? "Fraction" : "Count"));
         a->SetMaximum(1.15 * std::max(a->GetMaximum(), b->GetMaximum()));
         a->Draw("hist"); b->Draw("hist same");

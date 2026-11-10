@@ -71,6 +71,7 @@ export ANA_NTHREADS=$(( NCPU / 5 > 0 ? NCPU / 5 : 1 )) # 5 lanes below
 } &
 run 'SmearMatrix.cpp' & # response matrices of RECONTHETABL_ESTNEU and phi vs the truth relative to the neutron, plots/8_smear: a lane of its own, it reads only cut_angles_all.root and cut_APandT.root and writes only plots/8_smear
 run 'SecondaryCE.cpp' & # CE of the beam neutron vs the secondary neutrons by creator, plots/7_secondaryCE
+run 'PlotReconNew.cpp' & # the event recon (ReconAngleAll.cpp(true), cuts/cut_angles_new.root), no cuts, plots/9_ReconNew/1_noCuts; skips itself when that file is missing
 wait
 zsh smear_cuts.sh # the SmearMatrix pages 2_matrix2 and 3_matrix3 of every 6_cuts folder's sample (1_additionalinfo); needs the cuts.txt of Plot3D part 2, so after the lanes
 
