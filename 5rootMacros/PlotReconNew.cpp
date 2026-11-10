@@ -89,21 +89,21 @@ void PlotReconNew(){
     // plots/9_ReconNew_1/1_noCuts (every event; its KE plot alone shows the events above the KE cut) and plots/9_ReconNew_1/2_KECUT80 (every plot with the 80% KE cut).
     const int maxPlanes = MaxTrackerHits(); // 2 * nBlocks, the most planes a track can cross
     // 3_KECUTnPlanesUsedEven: the KE cut and a whole-event cut on the planes in the fit, an even number and at most 2 * nBlocks (EvenHits, FitCore.h)
-    // 4_KECUTnPlanesUsedEvenTheta0_2: those two cuts and the block fit theta in the est neutron frame (the thetaBlock plot) from 0 to 2 degrees
+    // 4_KECUTnPlanesUsedEvenTheta0_1: those two cuts and the block fit theta in the est neutron frame (the thetaBlock plot) from 0 to 1 degree
     for (const int mode : {0, 1, 2, 3, 4}){
-    const bool ke80 = mode >= 1, evenPlanes = mode >= 2, theta02 = mode >= 3, avgOne = mode == 4; // 5_: the cuts of 4_ and on average one charged tracker hit per hit plane (nTrackerHitsEv == planes hit, the avgTrackerHitsPerPlane plot at 1)
-    const std::string dir = mode == 0 ? "plots/9_ReconNew_1/1_noCuts" : mode == 1 ? "plots/9_ReconNew_1/2_KECUT" + kePct : mode == 2 ? "plots/9_ReconNew_1/3_KECUTnPlanesUsedEven" : mode == 3 ? "plots/9_ReconNew_1/4_KECUTnPlanesUsedEvenTheta0_2" : "plots/9_ReconNew_1/5_KECUTnPlanesUsedEvenTheta0_2avgTrackerHitsPerPlane1";
+    const bool ke80 = mode >= 1, evenPlanes = mode >= 2, theta01 = mode >= 3, avgOne = mode == 4; // 5_: the cuts of 4_ and on average one charged tracker hit per hit plane (nTrackerHitsEv == planes hit, the avgTrackerHitsPerPlane plot at 1)
+    const std::string dir = mode == 0 ? "plots/9_ReconNew_1/1_noCuts" : mode == 1 ? "plots/9_ReconNew_1/2_KECUT" + kePct : mode == 2 ? "plots/9_ReconNew_1/3_KECUTnPlanesUsedEven" : mode == 3 ? "plots/9_ReconNew_1/4_KECUTnPlanesUsedEvenTheta0_1" : "plots/9_ReconNew_1/5_KECUTnPlanesUsedEvenTheta0_1avgTrackerHitsPerPlane1";
     gSystem->mkdir(dir.c_str(), true);
     // the whole-event cuts of this folder
     const auto passes = [&](const NewRow& x){
         if (ke80 && !(std::isfinite(x.finalKED) && x.finalKED > keCut)) return false;
         if (evenPlanes && !EvenHits(x.nPlanesUsed, maxPlanes)) return false;
-        if (theta02 && !(x.thetaRelND * rad >= 0.0 && x.thetaRelND * rad <= 2.0)) return false; // NAN (no tube) fails too
+        if (theta01 && !(x.thetaRelND * rad >= 0.0 && x.thetaRelND * rad <= 1.0)) return false; // NAN (no tube) fails too
         if (avgOne && !(x.nPlanesHit > 0 && x.nTrackerHits == x.nPlanesHit)) return false;
         return true;
     };
-    const std::string cutText = avgOne ? ", KE cut above " + kePct + "% of the beam KE, planes in the fit even and at most " + std::to_string(maxPlanes) + ", theta 0 to 2 degrees, average tracker hits per hit plane = 1"
-        : theta02 ? ", KE cut above " + kePct + "% of the beam KE, planes in the fit even and at most " + std::to_string(maxPlanes) + ", theta 0 to 2 degrees"
+    const std::string cutText = avgOne ? ", KE cut above " + kePct + "% of the beam KE, planes in the fit even and at most " + std::to_string(maxPlanes) + ", theta 0 to 1 degree, average tracker hits per hit plane = 1"
+        : theta01 ? ", KE cut above " + kePct + "% of the beam KE, planes in the fit even and at most " + std::to_string(maxPlanes) + ", theta 0 to 1 degree"
         : evenPlanes ? ", KE cut above " + kePct + "% of the beam KE, planes in the fit even and at most " + std::to_string(maxPlanes)
         : ke80 ? ", KE cut above " + kePct + "% of the beam KE" : ", no cuts";
     int number = 0;
