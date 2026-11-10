@@ -219,12 +219,24 @@ void PlotReconNew(){
         // the events are the CE recon events that pass this folder's cuts (evClass 0 and cutExpr, matched by fEvent), only the angle of each is the true one. The rows go to a small file so Columns reads them on all the threads.
         TTree* ceT = OpenCut("cuts/cut_CE.root", "ChargeExchange_values");
         gROOT->cd();
+        std::vector<std::vector<double>> ce;
+        std::map<long long, size_t> byEvent;
+        double smearErr = 0; // the A_eff bias of the recon theta: the CE recon events of this folder, mean AP at the recon block theta minus mean AP at the true CE theta; it is an error term of the two recon fits (the CE fit uses the true angle)
+        if (ceT){
+            ce = Columns(ceT, {"fEvent", "CEPhiNeu(LastTheta, LastPhiLab, CENDirX, CENDirY, CENDirZ) * 180 / TMath::Pi()", "CEThetaNeu(LastTheta, LastPhiLab, CENDirX, CENDirY, CENDirZ) * 180 / TMath::Pi()", "LastAP"});
+            for (size_t i = 0; i < ce[0].size(); i++) byEvent.emplace((long long)ce[0][i], i);
+            const double apScale = ReadSettings().at("APScale");
+            double nA = 0, sRec = 0, sTrue = 0;
+            for (const NewRow& x : rows) if (inFit(x, 0)){
+                const auto it = byEvent.find((long long)x.eventID);
+                if (it == byEvent.end()) continue;
+                nA++; sRec += AEffOfTheta(x.thetaRelND * rad, apScale); sTrue += AEffOfTheta(ce[2][it->second], apScale);
+            }
+            if (nA > 0) smearErr = std::fabs(sRec - sTrue) / nA;
+        }
         for (int k = 0; k < 3; k++){
             number++;
             if (k == 0 && ceT){
-                const auto ce = Columns(ceT, {"fEvent", "CEPhiNeu(LastTheta, LastPhiLab, CENDirX, CENDirY, CENDirZ) * 180 / TMath::Pi()", "CEThetaNeu(LastTheta, LastPhiLab, CENDirX, CENDirY, CENDirZ) * 180 / TMath::Pi()", "LastAP"});
-                std::map<long long, size_t> byEvent;
-                for (size_t i = 0; i < ce[0].size(); i++) byEvent.emplace((long long)ce[0][i], i);
                 std::vector<double> ev; // the CE recon events of this folder, in memory
                 for (const NewRow& x : rows) if (inFit(x, 0)) ev.push_back(x.eventID);
                 const std::string trueFile = Form("cuts/cut_ceTrueNew_%d.root", mode);
@@ -274,7 +286,7 @@ void PlotReconNew(){
             if (tp){
                 PhiCosFit(&c, tp, "phiRelNDdeg", "thetaDeg", "", Form("hPhiNew_%d_%d", mode, k),
                           std::string(sampleName[k]) + ", RECONPHIBL_ESTNEU Distribution, A_{eff} at the recon block #theta" + cutText, Form("%s/%d_phiBlock_cosfit_%s.pdf", dir.c_str(), number, sampleFile[k]),
-                          {}, "", {"rThMin", "rThMax", "rPhHalf"}, {"r2ThMin", "r2ThMax", "r2PhHalf"}, ClassColor(k));
+                          {}, "", {"rThMin", "rThMax", "rPhHalf"}, {"r2ThMin", "r2ThMax", "r2PhHalf"}, ClassColor(k), smearErr);
                 ff->Close();
             }
             gSystem->Unlink(fitFile.c_str());
