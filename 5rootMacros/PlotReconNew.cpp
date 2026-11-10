@@ -90,18 +90,20 @@ void PlotReconNew(){
     const int maxPlanes = MaxTrackerHits(); // 2 * nBlocks, the most planes a track can cross
     // 3_KECUTnPlanesUsedEven: the KE cut and a whole-event cut on the planes in the fit, an even number and at most 2 * nBlocks (EvenHits, FitCore.h)
     // 4_KECUTnPlanesUsedEvenTheta0_2: those two cuts and the block fit theta in the est neutron frame (the thetaBlock plot) from 0 to 2 degrees
-    for (const int mode : {0, 1, 2, 3}){
-    const bool ke80 = mode >= 1, evenPlanes = mode >= 2, theta02 = mode == 3;
-    const std::string dir = mode == 0 ? "plots/9_ReconNew_1/1_noCuts" : mode == 1 ? "plots/9_ReconNew_1/2_KECUT" + kePct : mode == 2 ? "plots/9_ReconNew_1/3_KECUTnPlanesUsedEven" : "plots/9_ReconNew_1/4_KECUTnPlanesUsedEvenTheta0_2";
+    for (const int mode : {0, 1, 2, 3, 4}){
+    const bool ke80 = mode >= 1, evenPlanes = mode >= 2, theta02 = mode >= 3, avgOne = mode == 4; // 5_: the cuts of 4_ and on average one charged tracker hit per hit plane (nTrackerHitsEv == planes hit, the avgTrackerHitsPerPlane plot at 1)
+    const std::string dir = mode == 0 ? "plots/9_ReconNew_1/1_noCuts" : mode == 1 ? "plots/9_ReconNew_1/2_KECUT" + kePct : mode == 2 ? "plots/9_ReconNew_1/3_KECUTnPlanesUsedEven" : mode == 3 ? "plots/9_ReconNew_1/4_KECUTnPlanesUsedEvenTheta0_2" : "plots/9_ReconNew_1/5_KECUTnPlanesUsedEvenTheta0_2avgTrackerHitsPerPlane1";
     gSystem->mkdir(dir.c_str(), true);
     // the whole-event cuts of this folder
     const auto passes = [&](const NewRow& x){
         if (ke80 && !(std::isfinite(x.finalKED) && x.finalKED > keCut)) return false;
         if (evenPlanes && !EvenHits(x.nPlanesUsed, maxPlanes)) return false;
         if (theta02 && !(x.thetaRelND * rad >= 0.0 && x.thetaRelND * rad <= 2.0)) return false; // NAN (no tube) fails too
+        if (avgOne && !(x.nPlanesHit > 0 && x.nTrackerHits == x.nPlanesHit)) return false;
         return true;
     };
-    const std::string cutText = theta02 ? ", KE cut above " + kePct + "% of the beam KE, planes in the fit even and at most " + std::to_string(maxPlanes) + ", theta 0 to 2 degrees"
+    const std::string cutText = avgOne ? ", KE cut above " + kePct + "% of the beam KE, planes in the fit even and at most " + std::to_string(maxPlanes) + ", theta 0 to 2 degrees, average tracker hits per hit plane = 1"
+        : theta02 ? ", KE cut above " + kePct + "% of the beam KE, planes in the fit even and at most " + std::to_string(maxPlanes) + ", theta 0 to 2 degrees"
         : evenPlanes ? ", KE cut above " + kePct + "% of the beam KE, planes in the fit even and at most " + std::to_string(maxPlanes)
         : ke80 ? ", KE cut above " + kePct + "% of the beam KE" : ", no cuts";
     int number = 0;
@@ -145,7 +147,7 @@ void PlotReconNew(){
         const std::string path = Form("%s/%d_%s.pdf", dir.c_str(), number, v.name);
         // PlotTitle numbers the title from the file name; "no cuts" in the title: the sample is every event with 2 or more planes of exactly 1 hit
         const std::string raw = v.title; const size_t semi = raw.find(';');
-        h[0]->SetTitle(PlotTitle(path, raw.substr(0, semi) + (theta02 ? Form(", KE cut above %s%% of the beam KE, planes in the fit even and at most %d, theta 0 to 2 degrees", kePct.c_str(), maxPlanes) : evenPlanes ? Form(", KE cut above %s%% of the beam KE, planes in the fit even and at most %d", kePct.c_str(), maxPlanes) : ke80 ? (", KE cut above " + kePct + "% of the beam KE").c_str() : ", no cuts") + raw.substr(semi)).c_str());
+        h[0]->SetTitle(PlotTitle(path, raw.substr(0, semi) + cutText + raw.substr(semi)).c_str());
         h[0]->SetMaximum(logY ? top * ((std::string(v.name) == "nMaxChargedPerPlaneEv" || std::string(v.name) == "avgTrackerHitsPerPlane") ? 60.0 : 3.0) : top * 1.25);
         h[0]->SetMinimum(logY ? 0.5 : 0.0);
         h[0]->Draw("hist");
@@ -281,5 +283,5 @@ void PlotReconNew(){
         gStyle->SetOptStat(0);
     }
     }
-    printf(">>> PlotReconNew: %d plots in plots/9_ReconNew_1 (1_noCuts, 2_KECUT%s, 3_ and 4_)\n", made, kePct.c_str());
+    printf(">>> PlotReconNew: %d plots in plots/9_ReconNew_1 (1_noCuts, 2_KECUT%s, 3_, 4_ and 5_)\n", made, kePct.c_str());
 }
