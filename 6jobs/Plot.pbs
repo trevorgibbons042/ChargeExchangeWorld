@@ -14,6 +14,7 @@
 BASE=${BASE:-/lcrc/project/eic/tgibbons/G4ChargeExchange}
 
 cd $BASE/build/root/$RUN || exit 1
+mkdir -p cuts plots # a fresh run folder from the sim has neither; run.sh makes them for the local chain
 
 module load root
 export LD_LIBRARY_PATH=/lcrc/project/eic/tgibbons/xxhash-install/lib:$LD_LIBRARY_PATH
