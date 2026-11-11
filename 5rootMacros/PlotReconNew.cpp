@@ -376,7 +376,7 @@ void PlotReconNew(){
                     const double a = AEffOfTheta(th, apScale);
                     all.push_back({x.phiRelND * rad, a, r1 ? AEffOfTheta(x.thMin, apScale) : a, r1 ? AEffOfTheta(x.thMax, apScale) : a, r2 ? AEffOfTheta(x.th2Min, apScale) : a, r2 ? AEffOfTheta(x.th2Max, apScale) : a, r1 ? x.phHalf : NAN, r2 ? x.ph2Half : NAN});
                 }
-                const int nSub = 10, nb = 20; const double frac = 0.7;
+                const int nSub = 100, nShow = 5, nb = 20; const double frac = 0.7; // 100 subsamples are fitted, the phi plots of the first 5 are drawn, the P page has all 100
                 const std::string path = dir + "/2_phi_cosfit/4_phiBlock_cosfit_all_70pct_subsamples.pdf";
                 std::vector<double> pSub, eSub; double pFull = 0, eFull = 0;
                 if (all.size() >= 10){
@@ -403,10 +403,11 @@ void PlotReconNew(){
                         aM.smearErr = smearErr;
                         const PFit uf = UnbinnedP(phS, aM, kBlockPhiLo, kBlockPhiHi, nullptr, true, &r1, &r2);
                         pSub.push_back(uf.p); eSub.push_back(uf.err);
+                        if (s >= nShow) continue;
                         c.Clear(); c.cd();
                         c.SetLeftMargin(0.16); c.SetRightMargin(0.25); c.SetTopMargin(0.17); c.SetBottomMargin(0.13);
                         hS.SetStats(0); hS.SetLineColor(ClassColor(2)); hS.SetLineWidth(2); hS.SetMinimum(0); hS.SetMaximum(1.1 * hS.GetMaximum());
-                        hS.SetTitle(Form("random 70%% subsample %d of %d, %s, RECONPHIBL_ESTNEU Distribution, %d phi bins of %.1f deg%s;RECONPHIBL_ESTNEU (degrees);Count", s + 1, nSub, sampleName[2], nb, 360.0 / nb, cutText.c_str()));
+                        hS.SetTitle(Form("random 70%% subsample %d of %d (first %d shown), %s, RECONPHIBL_ESTNEU Distribution, %d phi bins of %.1f deg%s;RECONPHIBL_ESTNEU (degrees);Count", s + 1, nSub, nShow, sampleName[2], nb, 360.0 / nb, cutText.c_str()));
                         hS.Draw("hist");
                         TF1 fd("fSubDrawNew", "[0] * (1 + [1] * [2] * cos(x * TMath::Pi() / 180))", 0, 360);
                         fd.SetParameters(hS.GetEntries() / nb, uf.p, aM.Mean()); fd.SetLineColor(kBlack); fd.SetLineStyle(2); fd.SetLineWidth(3); fd.Draw("same");
@@ -425,11 +426,11 @@ void PlotReconNew(){
                     for (const double p : pSub) rms += (p - mean) * (p - mean);
                     rms = pSub.size() > 1 ? std::sqrt(rms / (pSub.size() - 1)) : 0;
                     const double pad = 0.08 * (ymax - ymin);
-                    TH2D axis("hSubAxisNew", Form("P of 10 random 70%% subsamples, %s%s;Subsample;Polarization fit P", sampleName[2], cutText.c_str()), nSub + 1, 0, nSub + 1, 10, ymin - pad, ymax + pad);
-                    axis.SetStats(0); axis.GetXaxis()->SetNdivisions(nSub + 1, 0, 0, kFALSE); axis.Draw();
+                    TH2D axis("hSubAxisNew", Form("P of %d random 70%% subsamples, %s%s;Subsample;Polarization fit P", nSub, sampleName[2], cutText.c_str()), nSub + 1, 0, nSub + 1, 10, ymin - pad, ymax + pad);
+                    axis.SetStats(0); axis.GetXaxis()->SetNdivisions(510); axis.Draw();
                     TGraphErrors gr((int)pSub.size());
                     for (size_t i = 0; i < pSub.size(); i++){gr.SetPoint((int)i, i + 1, pSub[i]); gr.SetPointError((int)i, 0, eSub[i]);}
-                    gr.SetMarkerStyle(20); gr.SetMarkerColor(ClassColor(2)); gr.SetLineColor(ClassColor(2)); gr.Draw("P same");
+                    gr.SetMarkerStyle(20); gr.SetMarkerSize(0.6); gr.SetMarkerColor(ClassColor(2)); gr.SetLineColor(ClassColor(2)); gr.Draw("P same");
                     TLine lf(0.5, pFull, nSub + 0.5, pFull); lf.SetLineColor(ClassColor(2)); lf.SetLineWidth(2); lf.Draw();
                     TLine lt(0.5, pTrue, nSub + 0.5, pTrue); lt.SetLineStyle(3); lt.SetLineWidth(2); lt.Draw();
                     TLatex tx; tx.SetNDC(); tx.SetTextSize(0.026);
@@ -438,7 +439,7 @@ void PlotReconNew(){
                     c.Modified(); c.Update();
                     c.Print((path + ")").c_str());
                     c.Clear(); c.SetLeftMargin(0.13); c.SetRightMargin(0.30); c.SetTopMargin(0.1); c.SetBottomMargin(0.13);
-                    made += nSub + 1;
+                    made += nShow + 1;
                 }
             }
         }
