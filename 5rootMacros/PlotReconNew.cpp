@@ -329,7 +329,7 @@ void PlotReconNew(){
                 if (tt){
                     PhiCosFit(&c, tt, "CEPhiNeuTrue", "CEThetaNeuTrue", "", Form("hPhiNew_%d_%d", mode, k),
                               std::string(sampleName[k]) + ", CEPHI_NEUFRAME Distribution, the actual CE angle, A_{eff} from the CE #theta and LastAP" + cutText, Form("%s/2_phi_cosfit/%d_phiBlock_cosfit_%s.pdf", dir.c_str(), k + 1, sampleFile[k]),
-                              {}, "LastAP", {}, {}, ClassColor(k));
+                              {}, "LastAP", {}, {}, ClassColor(k), 0, 20);
                     made++;
                     tf->Close();
                     continue;
@@ -357,7 +357,7 @@ void PlotReconNew(){
             if (tp){
                 PhiCosFit(&c, tp, "phiRelNDdeg", "thetaDeg", "", Form("hPhiNew_%d_%d", mode, k),
                           std::string(sampleName[k]) + ", RECONPHIBL_ESTNEU Distribution, A_{eff} at the recon block #theta" + cutText, Form("%s/2_phi_cosfit/%d_phiBlock_cosfit_%s.pdf", dir.c_str(), k + 1, sampleFile[k]),
-                          {}, "", {"rThMin", "rThMax", "rPhHalf"}, {"r2ThMin", "r2ThMax", "r2PhHalf"}, ClassColor(k), smearErr);
+                          {}, "", {"rThMin", "rThMax", "rPhHalf"}, {"r2ThMin", "r2ThMax", "r2PhHalf"}, ClassColor(k), smearErr, 20);
                 ff->Close();
             }
             gSystem->Unlink(fitFile.c_str());
