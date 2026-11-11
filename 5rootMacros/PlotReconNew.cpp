@@ -155,7 +155,7 @@ void PlotReconNew(){
         }
         double top = 0;
         for (int k = 0; k < 3; k++) top = std::max(top, h[k]->GetMaximum());
-        const bool logY = v.logY || (keVar && !ke80); // the KE plot is log without the KE cut, linear in the folders that have it
+        const bool logY = v.logY || keVar; // the KE plot is log in every folder
         c.Clear(); c.SetLogy(logY);
         const std::string path = keVar ? Form("%s/1_KEEnd.pdf", dir.c_str()) : Form("%s/%d_%s.pdf", infoDir.c_str(), number, v.name);
         // PlotTitle numbers the title from the file name; "no cuts" in the title: the sample is every event with 2 or more planes of exactly 1 hit
