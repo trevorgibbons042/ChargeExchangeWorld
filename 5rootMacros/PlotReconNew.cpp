@@ -218,7 +218,8 @@ void PlotReconNew(){
     }
     // The polarization fits of the three samples (PhiCosFit.h, the unbinned fit of 3_ReconCalcVals and 6_cuts): the block phi in the est neutron frame, A_eff from the recon block theta of each event,
     // the est neutron range and block grid range errors, the phi spike at 0 left out. Same cuts as the folder.
-    if (mega){
+    // Every folder gets the CE and CE + CE mix fits, the megaCut also the total recon fit, its 70% subsamples and the matrix pages.
+    {
         gSystem->mkdir((dir + "/2_phi_cosfit").c_str(), true);
         // the whole-event cuts of this folder (passes) and the fit sample, applied to the rows in memory; the phi spike at 0 is left out and theta must exist (NAN fails)
         const auto inFit = [&](const NewRow& x, int sample){
@@ -250,7 +251,7 @@ void PlotReconNew(){
             // 1_additionalinfo/2_matrix2 and 3_matrix3 of the megaCut, as plots/6_cuts/<cut>/1_additionalinfo of SmearMatrix.cpp (the CE recon events of this folder, every cut on):
             // matrix2 M_recB_est_to_lab: the recon block angle in the est neutron frame (x, the "truth" of the page) against the recon block angle in the lab frame (y); matrix3 N_true_to_est: the true neutron direction (CENDir) against the est one (the tube centre at the block middle).
             // theta, phi and the flattened (theta slice, phi bin); the probability pages are normalised per column of x, the counts pages are the counts. Same bins as SmearMatrix.cpp (0.1 deg theta bins, 36 phi bins, 10 x 50 flat bins).
-            {
+            if (mega){
                 gStyle->SetPalette(kViridis);
                 const double tMaxM = 2.3, tMaxN = 2.0;
                 const int kSlice = 10, kFlat = 50;
@@ -307,7 +308,7 @@ void PlotReconNew(){
                 for (int a = 0; a < 3; a++){delete m2[a]; delete m3[a];}
             }
         }
-        for (int k = 0; k < 3; k++){
+        for (int k = 0; k < (mega ? 3 : 2); k++){
             number++;
             if (k == 0 && ceT){
                 std::vector<double> ev; // the CE recon events of this folder, in memory
