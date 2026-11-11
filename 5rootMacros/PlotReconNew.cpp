@@ -224,7 +224,7 @@ void PlotReconNew(){
             return (sample == 0 ? x.evClass == 0 : x.evClass <= sample) && passes(x) && ph > kBlockPhiLo && ph < kBlockPhiHi && x.thetaRelND == x.thetaRelND;
         };
         c.SetLogy(false); // the canvas still has the log scale of the plot before
-        gStyle->SetOptStat(1111); gStyle->SetOptFit(111); // PhiCosFit moves and fills the stats box with the fit, so it needs one
+        gStyle->SetOptStat(1111); gStyle->SetOptFit(11); // fit parameters with errors (the fits are unbinned: no chi2 or probability) // PhiCosFit moves and fills the stats box with the fit, so it needs one
                 const char* sampleName[3] = {"CE recon protons", "CE + CE mix recon protons", "total recon particles"};
         const char* sampleFile[3] = {"CE", "CEandMix", "all"};
         // The CE sample is fitted at the actual CE angle (ChargeExchange_values: the true phi and theta of the CE proton in the true neutron frame, CEPHI_NEUFRAME) and its own LastAP, not at the recon angle in the est neutron frame:
