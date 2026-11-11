@@ -18,13 +18,15 @@
 #include "PhiCosFit.h"
 #include "CutOpen.h"
 #include <map>
+#include <fstream>
+#include <TH2D.h>
 
 // 9_ReconNew: the event recon of ReconAngleAll.cpp(true) (cuts/cut_angles_new.root): one fit per event through the tracker planes with exactly 1 charged hit, no cut of any kind.
 // Every plot overlays the three kinds of event (evClass): CE only (every fitted hit a CE child proton), CE mix (CE child hits and other particles), non-CE (no CE child hit).
 // Output: plots/9_ReconNew/1_noCuts/<n>_<name>.pdf, titled "no cuts".
 namespace {
 struct NewRow {
-    double thMin, thMax, phHalf, th2Min, th2Max, ph2Half, outTheta, outDTheta, outPhi, outDPhi, thetaRelND, phiRelND, impactD, r2D, resDRms, finalKED;
+    double tubeX0, tubeY0, tubeZ0, tubeX1, tubeY1, tubeZ1, thMin, thMax, phHalf, th2Min, th2Max, ph2Half, outTheta, outDTheta, outPhi, outDPhi, thetaRelND, phiRelND, impactD, r2D, resDRms, finalKED;
     int eventID, nMaxPlane, nTrackerHits, nPlanesHit, nHits, nPlanesUsed, evClass, nCEUsed, nOtherUsed, nProtonUsed, nPionUsed, nKaonUsed, nNucleusUsed;
 };
 struct NewVar {
@@ -76,12 +78,13 @@ void PlotReconNew(){
     // one multithreaded read (ColumnsUnordered, no ordered merge: the rows only need their columns aligned) of the 19 branches used here (not every branch of the tree), then every plot loop below runs over this vector in memory: 48 passes of GetEntry over all branches took hours at 100M events
     std::vector<NewRow> rows(n);
     NThreads(); // ROOT::EnableImplicitMT: Columns reads the tree on all the threads
-    const auto cols = ColumnsUnordered(t, {"outTheta", "outDTheta", "outPhi", "outDPhi", "thetaRelND", "phiRelND", "impactD", "r2D", "resDRms", "finalKED", "nHits", "nPlanesUsed", "evClass", "nCEUsed", "nOtherUsed", "nProtonUsed", "nPionUsed", "nKaonUsed", "nNucleusUsed", "nMaxChargedPerPlaneEv", "nTrackerHitsEv", "nPlanesHitEv", "thetaRelNDMin", "thetaRelNDMax", "phiRelNDHalf", "thetaRelNDBMin", "thetaRelNDBMax", "phiRelNDBHalf", "fEvent"});
+    const auto cols = ColumnsUnordered(t, {"outTheta", "outDTheta", "outPhi", "outDPhi", "thetaRelND", "phiRelND", "impactD", "r2D", "resDRms", "finalKED", "nHits", "nPlanesUsed", "evClass", "nCEUsed", "nOtherUsed", "nProtonUsed", "nPionUsed", "nKaonUsed", "nNucleusUsed", "nMaxChargedPerPlaneEv", "nTrackerHitsEv", "nPlanesHitEv", "thetaRelNDMin", "thetaRelNDMax", "phiRelNDHalf", "thetaRelNDBMin", "thetaRelNDBMax", "phiRelNDBHalf", "fEvent", "tubeX0", "tubeY0", "tubeZ0", "tubeX1", "tubeY1", "tubeZ1"});
     for (Long64_t i = 0; i < n; i++){
         NewRow& x = rows[i]; size_t k = 0;
         x.outTheta = cols[k++][i]; x.outDTheta = cols[k++][i]; x.outPhi = cols[k++][i]; x.outDPhi = cols[k++][i]; x.thetaRelND = cols[k++][i]; x.phiRelND = cols[k++][i]; x.impactD = cols[k++][i]; x.r2D = cols[k++][i]; x.resDRms = cols[k++][i]; x.finalKED = cols[k++][i];
         x.nHits = (int)cols[k++][i]; x.nPlanesUsed = (int)cols[k++][i]; x.evClass = (int)cols[k++][i]; x.nCEUsed = (int)cols[k++][i]; x.nOtherUsed = (int)cols[k++][i]; x.nProtonUsed = (int)cols[k++][i]; x.nPionUsed = (int)cols[k++][i]; x.nKaonUsed = (int)cols[k++][i]; x.nNucleusUsed = (int)cols[k++][i]; x.nMaxPlane = (int)cols[k++][i]; x.nTrackerHits = (int)cols[k++][i]; x.nPlanesHit = (int)cols[k++][i];
         x.thMin = cols[k++][i] * rad; x.thMax = cols[k++][i] * rad; x.phHalf = cols[k++][i]; x.th2Min = cols[k++][i] * rad; x.th2Max = cols[k++][i] * rad; x.ph2Half = cols[k++][i]; x.eventID = (int)cols[k++][i];
+        x.tubeX0 = cols[k++][i]; x.tubeY0 = cols[k++][i]; x.tubeZ0 = cols[k++][i]; x.tubeX1 = cols[k++][i]; x.tubeY1 = cols[k++][i]; x.tubeZ1 = cols[k++][i];
     }
     const double keCut = kKeCutPercent / 100.0 * ReadSettings().at("BeamKE"); // whole events whose summed (smeared) KE on the last tracker is not above kKeCutPercent of the beam KE are not drawn or counted
     const std::string kePct = Form("%.0f", kKeCutPercent);
@@ -97,7 +100,8 @@ void PlotReconNew(){
     const bool mega = mode == 5;
     const bool ke80 = mode == 1 || mega, evenPlanes = mode == 2 || mega, theta01 = mode == 3 || mega, avgOne = mode == 4 || mega;
     const std::string dir = mode == 0 ? "plots/9_ReconNew_1/1_noCuts" : mode == 1 ? "plots/9_ReconNew_1/2_KECUT" + kePct : mode == 2 ? "plots/9_ReconNew_1/3_nPlanesUsedEven" : mode == 3 ? "plots/9_ReconNew_1/4_Theta0_1" : mode == 4 ? "plots/9_ReconNew_1/5_avgTrackerHitsPerPlane1" : "plots/9_ReconNew_1/6_megaCut";
-    gSystem->mkdir(dir.c_str(), true);
+    const std::string infoDir = dir + "/1_additionalinfo"; // like plots/6_cuts/<cut>: the main plot (KEEnd) in the folder, the other plots in 1_additionalinfo, the polarization fits of the megaCut in 2_phi_cosfit
+    gSystem->mkdir(infoDir.c_str(), true);
     // the whole-event cuts of this folder
     const auto passes = [&](const NewRow& x){
         if (ke80 && !(std::isfinite(x.finalKED) && x.finalKED > keCut)) return false;
@@ -112,6 +116,7 @@ void PlotReconNew(){
     if (theta01) cutText += ", theta 0 to 1 degree";
     if (avgOne) cutText += ", average tracker hits per hit plane = 1";
     if (cutText.empty()) cutText = ", no cuts";
+    {std::ofstream cutsTxt(dir + "/cuts.txt"); cutsTxt << "Folder " << dir << ": every recon event of cuts/cut_angles_new.root (AnglesRaw, planes with exactly 1 charged hit), cuts" << cutText << "\n";}
     int number = 0;
     for (const auto& v : vars){
         number++;
@@ -150,7 +155,7 @@ void PlotReconNew(){
         for (int k = 0; k < 3; k++) top = std::max(top, h[k]->GetMaximum());
         const bool logY = v.logY || (keVar && !ke80); // the KE plot is log without the KE cut, linear in the folders that have it
         c.Clear(); c.SetLogy(logY);
-        const std::string path = Form("%s/%d_%s.pdf", dir.c_str(), number, v.name);
+        const std::string path = keVar ? Form("%s/1_KEEnd.pdf", dir.c_str()) : Form("%s/%d_%s.pdf", infoDir.c_str(), number, v.name);
         // PlotTitle numbers the title from the file name; "no cuts" in the title: the sample is every event with 2 or more planes of exactly 1 hit
         const std::string raw = v.title; const size_t semi = raw.find(';');
         h[0]->SetTitle(PlotTitle(path, raw.substr(0, semi) + cutText + raw.substr(semi)).c_str());
@@ -197,7 +202,7 @@ void PlotReconNew(){
         double top = 0;
         for (int k = 0; k < 3; k++) top = std::max(top, b[k]->GetMaximum());
         c.Clear(); c.SetLogy(true);
-        const std::string path = Form("%s/%d_particleTypes.pdf", dir.c_str(), number);
+        const std::string path = Form("%s/%d_particleTypes.pdf", infoDir.c_str(), number);
         b[0]->SetTitle(PlotTitle(path, "fitted hits by particle type" + cutText + ";particle of the fitted hit;fitted hits").c_str());
         b[0]->SetMaximum(top * 60.0); b[0]->SetMinimum(0.5); // room above the bars for the legend
         b[0]->Draw("bar"); b[1]->Draw("bar same"); b[2]->Draw("bar same");
@@ -211,7 +216,8 @@ void PlotReconNew(){
     }
     // The polarization fits of the three samples (PhiCosFit.h, the unbinned fit of 3_ReconCalcVals and 6_cuts): the block phi in the est neutron frame, A_eff from the recon block theta of each event,
     // the est neutron range and block grid range errors, the phi spike at 0 left out. Same cuts as the folder.
-    {
+    if (mega){
+        gSystem->mkdir((dir + "/2_phi_cosfit").c_str(), true);
         // the whole-event cuts of this folder (passes) and the fit sample, applied to the rows in memory; the phi spike at 0 is left out and theta must exist (NAN fails)
         const auto inFit = [&](const NewRow& x, int sample){
             const double ph = x.phiRelND * rad;
@@ -229,7 +235,7 @@ void PlotReconNew(){
         std::map<long long, size_t> byEvent;
         double smearErr = 0; // the A_eff bias of the recon theta: the CE recon events of this folder, mean AP at the recon block theta minus mean AP at the true CE theta; it is an error term of the two recon fits (the CE fit uses the true angle)
         if (ceT){
-            ce = Columns(ceT, {"fEvent", "CEPhiNeu(LastTheta, LastPhiLab, CENDirX, CENDirY, CENDirZ) * 180 / TMath::Pi()", "CEThetaNeu(LastTheta, LastPhiLab, CENDirX, CENDirY, CENDirZ) * 180 / TMath::Pi()", "LastAP"});
+            ce = Columns(ceT, {"fEvent", "CEPhiNeu(LastTheta, LastPhiLab, CENDirX, CENDirY, CENDirZ) * 180 / TMath::Pi()", "CEThetaNeu(LastTheta, LastPhiLab, CENDirX, CENDirY, CENDirZ) * 180 / TMath::Pi()", "LastAP", "CENDirX", "CENDirY", "CENDirZ"});
             for (size_t i = 0; i < ce[0].size(); i++) byEvent.emplace((long long)ce[0][i], i);
             const double apScale = ReadSettings().at("APScale");
             double nA = 0, sRec = 0, sTrue = 0;
@@ -239,6 +245,65 @@ void PlotReconNew(){
                 nA++; sRec += AEffOfTheta(x.thetaRelND * rad, apScale); sTrue += AEffOfTheta(ce[2][it->second], apScale);
             }
             if (nA > 0) smearErr = std::fabs(sRec - sTrue) / nA;
+            // 1_additionalinfo/2_matrix2 and 3_matrix3 of the megaCut, as plots/6_cuts/<cut>/1_additionalinfo of SmearMatrix.cpp (the CE recon events of this folder, every cut on):
+            // matrix2 M_recB_est_to_lab: the recon block angle in the est neutron frame (x, the "truth" of the page) against the recon block angle in the lab frame (y); matrix3 N_true_to_est: the true neutron direction (CENDir) against the est one (the tube centre at the block middle).
+            // theta, phi and the flattened (theta slice, phi bin); the probability pages are normalised per column of x, the counts pages are the counts. Same bins as SmearMatrix.cpp (0.1 deg theta bins, 36 phi bins, 10 x 50 flat bins).
+            {
+                gStyle->SetPalette(kViridis);
+                const double tMaxM = 2.3, tMaxN = 2.0;
+                const int kSlice = 10, kFlat = 50;
+                const auto wrap360 = [](double a){a = std::fmod(a, 360.0); return a < 0 ? a + 360.0 : a;};
+                const auto flatBin = [&](double th, double ph, double tm){return std::min(kSlice - 1, (int)(th / (tm / kSlice))) * kFlat + std::min(kFlat - 1, (int)(ph / (360.0 / kFlat)));};
+                TH2D* m2[3] = {new TH2D("hM2_theta", "", 23, 0, tMaxM, 23, 0, tMaxM), new TH2D("hM2_phi", "", 36, 0, 360, 36, 0, 360), new TH2D("hM2_flat", "", kSlice * kFlat, 0, kSlice * kFlat, kSlice * kFlat, 0, kSlice * kFlat)};
+                TH2D* m3[3] = {new TH2D("hN_theta", "", 50, 0, tMaxN, 50, 0, tMaxN), new TH2D("hN_phi", "", 36, 0, 360, 36, 0, 360), new TH2D("hN_flat", "", kSlice * kFlat, 0, kSlice * kFlat, kSlice * kFlat, 0, kSlice * kFlat)};
+                for (const NewRow& x : rows){
+                    if (x.evClass != 0 || !passes(x) || !std::isfinite(x.thetaRelND) || !std::isfinite(x.outDTheta)) continue;
+                    const double thE = x.thetaRelND * rad, phE = wrap360(x.phiRelND * rad), thL = x.outDTheta * rad, phL = wrap360(x.outDPhi * rad);
+                    if (thE < tMaxM && thL < tMaxM){
+                        m2[0]->Fill(thE, thL); m2[1]->Fill(phE, phL); m2[2]->Fill(flatBin(thE, phE, tMaxM) + 0.5, flatBin(thL, phL, tMaxM) + 0.5);
+                    }
+                    const auto it = byEvent.find((long long)x.eventID);
+                    if (it == byEvent.end() || !std::isfinite(x.tubeZ0) || !std::isfinite(x.tubeZ1)) continue;
+                    const double tx = ce[4][it->second], ty = ce[5][it->second], tz = ce[6][it->second];
+                    const double ex = 0.5 * (x.tubeX0 + x.tubeX1), ey = 0.5 * (x.tubeY0 + x.tubeY1), ez = 0.5 * (x.tubeZ0 + x.tubeZ1);
+                    const double thT = std::acos(std::max(-1.0, std::min(1.0, tz / std::sqrt(tx * tx + ty * ty + tz * tz)))) * rad, thN = std::acos(std::max(-1.0, std::min(1.0, ez / std::sqrt(ex * ex + ey * ey + ez * ez)))) * rad;
+                    const double phT = wrap360(std::atan2(ty, tx) * rad), phN = wrap360(std::atan2(ey, ex) * rad);
+                    if (thT < tMaxN && thN < tMaxN){
+                        m3[0]->Fill(thT, thN); m3[1]->Fill(phT, phN); m3[2]->Fill(flatBin(thT, phT, tMaxN) + 0.5, flatBin(thN, phN, tMaxN) + 0.5);
+                    }
+                }
+                const auto save2D = [&](TH2D* h, const std::string& path, const std::string& title, const std::string& axes, const char* zTitle, bool norm){
+                    TH2D* pr = (TH2D*)h->Clone(Form("%s_%s", h->GetName(), norm ? "p" : "n"));
+                    if (norm){ // P(est | truth): each column of x (the truth) sums to 1
+                        for (int bx = 1; bx <= pr->GetNbinsX(); bx++){
+                            double col = 0; for (int by = 1; by <= pr->GetNbinsY(); by++) col += h->GetBinContent(bx, by);
+                            for (int by = 1; by <= pr->GetNbinsY(); by++) pr->SetBinContent(bx, by, col > 0 ? h->GetBinContent(bx, by) / col : 0.0);
+                        }
+                    }
+                    double lo = 1e300; for (int bx = 1; bx <= pr->GetNbinsX(); bx++) for (int by = 1; by <= pr->GetNbinsY(); by++){const double v = pr->GetBinContent(bx, by); if (v > 0) lo = std::min(lo, v);}
+                    c.Clear(); c.SetLogy(false); c.SetLogz(true); c.SetRightMargin(0.18);
+                    pr->SetStats(false);
+                    pr->SetMinimum(lo < 1e300 ? 0.5 * lo : 1e-3); if (norm) pr->SetMaximum(1.0);
+                    pr->SetTitle(PlotTitle(path, title + cutText + axes).c_str());
+                    pr->GetZaxis()->SetTitle(zTitle);
+                    pr->Draw("COLZ");
+                    c.SaveAs(path.c_str());
+                    c.SetLogz(false); c.SetRightMargin(0.04);
+                    delete pr;
+                };
+                const char* pg[3] = {"theta", "phi", "thetaphi"};
+                const std::string ax2[3] = {";recon block theta, neutron estimate frame (deg);recon block theta, lab frame (deg)", ";recon block phi, neutron estimate frame (deg);recon block phi, lab frame (deg)", ";recon block (theta, phi) bin number, neutron estimate frame;recon block (theta, phi) bin number, lab frame"};
+                const std::string ax3[3] = {";true neutron theta, lab (deg);estimated neutron theta, lab (deg)", ";true neutron phi, lab (deg);estimated neutron phi, lab (deg)", ";true neutron (theta, phi) bin number;estimated neutron (theta, phi) bin number"};
+                gSystem->mkdir((infoDir + "/2_matrix2").c_str(), true); gSystem->mkdir((infoDir + "/3_matrix3").c_str(), true);
+                for (int a = 0; a < 3; a++){
+                    save2D(m2[a], Form("%s/2_matrix2/%d_M_recB_est_to_lab_%s.pdf", infoDir.c_str(), a + 1, pg[a]), "M_recB_est_to_lab, CE recon protons", ax2[a], "P(recon | true)", true);
+                    save2D(m2[a], Form("%s/2_matrix2/%d_M_recB_est_to_lab_%s_counts.pdf", infoDir.c_str(), a + 4, pg[a]), "M_recB_est_to_lab counts, CE recon protons", ax2[a], "Protons per bin", false);
+                    save2D(m3[a], Form("%s/3_matrix3/%d_N_true_to_est_%s.pdf", infoDir.c_str(), a + 1, pg[a]), "N_true_to_est, CE recon protons", ax3[a], "P(recon | true)", true);
+                    save2D(m3[a], Form("%s/3_matrix3/%d_N_true_to_est_%s_counts.pdf", infoDir.c_str(), a + 4, pg[a]), "N_true_to_est counts, CE recon protons", ax3[a], "Neutrons per bin", false);
+                    made += 4;
+                }
+                for (int a = 0; a < 3; a++){delete m2[a]; delete m3[a];}
+            }
         }
         for (int k = 0; k < 3; k++){
             number++;
@@ -263,7 +328,7 @@ void PlotReconNew(){
                 TTree* tt = tf ? (TTree*)tf->Get("CETrue") : nullptr;
                 if (tt){
                     PhiCosFit(&c, tt, "CEPhiNeuTrue", "CEThetaNeuTrue", "", Form("hPhiNew_%d_%d", mode, k),
-                              std::string(sampleName[k]) + ", CEPHI_NEUFRAME Distribution, the actual CE angle, A_{eff} from the CE #theta and LastAP" + cutText, Form("%s/%d_phiBlock_cosfit_%s.pdf", dir.c_str(), number, sampleFile[k]),
+                              std::string(sampleName[k]) + ", CEPHI_NEUFRAME Distribution, the actual CE angle, A_{eff} from the CE #theta and LastAP" + cutText, Form("%s/2_phi_cosfit/%d_phiBlock_cosfit_%s.pdf", dir.c_str(), k + 1, sampleFile[k]),
                               {}, "LastAP", {}, {}, ClassColor(k));
                     made++;
                     tf->Close();
@@ -291,7 +356,7 @@ void PlotReconNew(){
             TTree* tp = ff ? (TTree*)ff->Get("PhiFit") : nullptr;
             if (tp){
                 PhiCosFit(&c, tp, "phiRelNDdeg", "thetaDeg", "", Form("hPhiNew_%d_%d", mode, k),
-                          std::string(sampleName[k]) + ", RECONPHIBL_ESTNEU Distribution, A_{eff} at the recon block #theta" + cutText, Form("%s/%d_phiBlock_cosfit_%s.pdf", dir.c_str(), number, sampleFile[k]),
+                          std::string(sampleName[k]) + ", RECONPHIBL_ESTNEU Distribution, A_{eff} at the recon block #theta" + cutText, Form("%s/2_phi_cosfit/%d_phiBlock_cosfit_%s.pdf", dir.c_str(), k + 1, sampleFile[k]),
                           {}, "", {"rThMin", "rThMax", "rPhHalf"}, {"r2ThMin", "r2ThMax", "r2PhHalf"}, ClassColor(k), smearErr);
                 ff->Close();
             }
@@ -332,7 +397,7 @@ void PlotReconNew(){
             fr[1]->SetBinContent(j + 1, f1); fr[1]->SetBinError(j + 1, std::sqrt(f1 * (1.0 - f1) / all));
         }
         c.Clear(); c.SetLogy(false);
-        const std::string path = Form("%s/%d_KEEndFraction.pdf", dir.c_str(), number);
+        const std::string path = Form("%s/%d_KEEndFraction.pdf", infoDir.c_str(), number);
         fr[1]->SetTitle(PlotTitle(path, "fraction of the recon events that are CE, per bin of the summed KE on the last tracker" + cutText + ";KE (MeV);fraction of the recon events in the bin").c_str());
         fr[1]->SetMinimum(0.0); fr[1]->SetMaximum(1.05);
         fr[1]->Draw("hist"); fr[0]->Draw("hist same"); // CE only on top, CE + CE mix behind
