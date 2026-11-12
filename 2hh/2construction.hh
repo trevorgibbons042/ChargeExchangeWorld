@@ -73,6 +73,7 @@ private:
     G4GenericMessenger *fMessenger;
     G4int nCols, nRows, nBlocks, nBlocksTracking;
     G4int nCols_detector, nRows_detector;
+    G4int patchCells = 0; //0 = full detector grid, N = only the N x N cells at the lower left corner (display only, /detector/patchCells)
 
     ////Defining World
     G4NistManager *nist;

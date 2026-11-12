@@ -218,7 +218,7 @@ void PlotReconNew(){
     }
     // The polarization fits of the three samples (PhiCosFit.h, the unbinned fit of 3_ReconCalcVals and 6_cuts): the block phi in the est neutron frame, A_eff from the recon block theta of each event,
     // the est neutron range and block grid range errors, the phi spike at 0 left out. Same cuts as the folder.
-    // Every folder gets the CE and CE + CE mix fits, the megaCut also the total recon fit, its 70% subsamples and the matrix pages.
+    // Every folder gets the CE and CE + CE mix fits, the megaCut also the total recon fit, its 50% subsamples and the matrix pages.
     {
         gSystem->mkdir((dir + "/2_phi_cosfit").c_str(), true);
         // the whole-event cuts of this folder (passes) and the fit sample, applied to the rows in memory; the phi spike at 0 is left out and theta must exist (NAN fails)
@@ -332,7 +332,7 @@ void PlotReconNew(){
                 if (tt){
                     PhiCosFit(&c, tt, "CEPhiNeuTrue", "CEThetaNeuTrue", "", Form("hPhiNew_%d_%d", mode, k),
                               std::string(sampleName[k]) + ", CEPHI_NEUFRAME Distribution, the actual CE angle, A_{eff} from the CE #theta and LastAP" + cutText, Form("%s/2_phi_cosfit/%d_phiBlock_cosfit_%s.pdf", dir.c_str(), k + 1, sampleFile[k]),
-                              {}, "LastAP", {}, {}, ClassColor(k), 0, 20);
+                              {}, "LastAP", {}, {}, ClassColor(k), 0, 33);
                     made++;
                     tf->Close();
                     continue;
@@ -360,12 +360,12 @@ void PlotReconNew(){
             if (tp){
                 PhiCosFit(&c, tp, "phiRelNDdeg", "thetaDeg", "", Form("hPhiNew_%d_%d", mode, k),
                           std::string(sampleName[k]) + ", RECONPHIBL_ESTNEU Distribution, A_{eff} at the recon block #theta" + cutText, Form("%s/2_phi_cosfit/%d_phiBlock_cosfit_%s.pdf", dir.c_str(), k + 1, sampleFile[k]),
-                          {}, "", {"rThMin", "rThMax", "rPhHalf"}, {"r2ThMin", "r2ThMax", "r2PhHalf"}, ClassColor(k), smearErr, 20);
+                          {}, "", {"rThMin", "rThMax", "rPhHalf"}, {"r2ThMin", "r2ThMax", "r2PhHalf"}, ClassColor(k), smearErr, 33);
                 ff->Close();
             }
             gSystem->Unlink(fitFile.c_str());
             made++;
-            if (k == 2){ // the all recon fit again for 10 random 70% subsamples (no replacement, fixed seeds), one page each, then a page of the 10 P values, to see the effect of the statistics
+            if (k == 2){ // the all recon fit again for 10 random 50% subsamples (no replacement, fixed seeds), one page each, then a page of the 10 P values, to see the effect of the statistics
                 struct SubIn {double ph, a, a1lo, a1hi, a2lo, a2hi, h1, h2;};
                 std::vector<SubIn> all;
                 const double apScale = ReadSettings().at("APScale"), pTrue = ReadSettings().at("PPValue");
@@ -376,8 +376,8 @@ void PlotReconNew(){
                     const double a = AEffOfTheta(th, apScale);
                     all.push_back({x.phiRelND * rad, a, r1 ? AEffOfTheta(x.thMin, apScale) : a, r1 ? AEffOfTheta(x.thMax, apScale) : a, r2 ? AEffOfTheta(x.th2Min, apScale) : a, r2 ? AEffOfTheta(x.th2Max, apScale) : a, r1 ? x.phHalf : NAN, r2 ? x.ph2Half : NAN});
                 }
-                const int nSub = 100, nShow = 5, nb = 20; const double frac = 0.7; // 100 subsamples are fitted, the phi plots of the first 5 are drawn, the P page has all 100
-                const std::string path = dir + "/2_phi_cosfit/4_phiBlock_cosfit_all_70pct_subsamples.pdf";
+                const int nSub = 100, nShow = 5, nb = 33; const double frac = 0.5; // 100 subsamples are fitted, the phi plots of the first 5 are drawn, the P page has all 100
+                const std::string path = dir + "/2_phi_cosfit/4_phiBlock_cosfit_all_50pct_subsamples.pdf";
                 std::vector<double> pSub, eSub; double pFull = 0, eFull = 0;
                 if (all.size() >= 10){
                     std::vector<double> phA; AMean aA; PhiRange pr1, pr2;
@@ -407,7 +407,7 @@ void PlotReconNew(){
                         c.Clear(); c.cd();
                         c.SetLeftMargin(0.16); c.SetRightMargin(0.25); c.SetTopMargin(0.17); c.SetBottomMargin(0.13);
                         hS.SetStats(0); hS.SetLineColor(ClassColor(2)); hS.SetLineWidth(2); hS.SetMinimum(0); hS.SetMaximum(1.1 * hS.GetMaximum());
-                        hS.SetTitle(Form("random 70%% subsample %d of %d (first %d shown), %s, RECONPHIBL_ESTNEU Distribution, %d phi bins of %.1f deg%s;RECONPHIBL_ESTNEU (degrees);Count", s + 1, nSub, nShow, sampleName[2], nb, 360.0 / nb, cutText.c_str()));
+                        hS.SetTitle(Form("random 50%% subsample %d of %d (first %d shown), %s, RECONPHIBL_ESTNEU Distribution, %d phi bins of %.1f deg%s;RECONPHIBL_ESTNEU (degrees);Count", s + 1, nSub, nShow, sampleName[2], nb, 360.0 / nb, cutText.c_str()));
                         hS.Draw("hist");
                         TF1 fd("fSubDrawNew", "[0] * (1 + [1] * [2] * cos(x * TMath::Pi() / 180))", 0, 360);
                         fd.SetParameters(hS.GetEntries() / nb, uf.p, aM.Mean()); fd.SetLineColor(kBlack); fd.SetLineStyle(2); fd.SetLineWidth(3); fd.Draw("same");
@@ -421,21 +421,21 @@ void PlotReconNew(){
                     }
                     c.Clear(); c.cd();
                     c.SetLeftMargin(0.12); c.SetRightMargin(0.04); c.SetTopMargin(0.17); c.SetBottomMargin(0.12);
-                    double ymin = pTrue, ymax = pTrue, mean = 0, rms = 0;
-                    for (size_t i = 0; i < pSub.size(); i++){ymin = std::min(ymin, std::max(pSub[i] - eSub[i], -1.0)); ymax = std::max(ymax, std::min(pSub[i] + eSub[i], 1.0)); mean += pSub[i] / pSub.size();}
+                    double lo = pSub[0], hi = pSub[0], mean = 0, rms = 0;
+                    for (size_t i = 0; i < pSub.size(); i++){lo = std::min(lo, pSub[i]); hi = std::max(hi, pSub[i]); mean += pSub[i] / pSub.size();}
                     for (const double p : pSub) rms += (p - mean) * (p - mean);
                     rms = pSub.size() > 1 ? std::sqrt(rms / (pSub.size() - 1)) : 0;
-                    const double pad = 0.08 * (ymax - ymin);
-                    TH2D axis("hSubAxisNew", Form("P of %d random 70%% subsamples, %s%s;Subsample;Polarization fit P", nSub, sampleName[2], cutText.c_str()), nSub + 1, 0, nSub + 1, 10, ymin - pad, ymax + pad);
-                    axis.SetStats(0); axis.GetXaxis()->SetNdivisions(510); axis.Draw();
-                    TGraphErrors gr((int)pSub.size());
-                    for (size_t i = 0; i < pSub.size(); i++){gr.SetPoint((int)i, i + 1, pSub[i]); gr.SetPointError((int)i, 0, eSub[i]);}
-                    gr.SetMarkerStyle(20); gr.SetMarkerSize(0.6); gr.SetMarkerColor(ClassColor(2)); gr.SetLineColor(ClassColor(2)); gr.Draw("P same");
-                    TLine lf(0.5, pFull, nSub + 0.5, pFull); lf.SetLineColor(ClassColor(2)); lf.SetLineWidth(2); lf.Draw();
-                    TLine lt(0.5, pTrue, nSub + 0.5, pTrue); lt.SetLineStyle(3); lt.SetLineWidth(2); lt.Draw();
+                    lo = std::min(lo, std::min(pFull, pTrue)); hi = std::max(hi, std::max(pFull, pTrue));
+                    const double pad = 0.1 * (hi - lo > 0 ? hi - lo : 0.1);
+                    TH1D hP("hSubPNew", Form("P of %d random 50%% subsamples, %s%s;Polarization fit P;Subsamples", nSub, sampleName[2], cutText.c_str()), 20, lo - pad, hi + pad);
+                    for (const double p : pSub) hP.Fill(p);
+                    hP.SetStats(0); hP.SetLineColor(ClassColor(2)); hP.SetLineWidth(2); hP.SetFillColorAlpha(ClassColor(2), 0.35); hP.SetMinimum(0); hP.SetMaximum(1.3 * hP.GetMaximum());
+                    hP.Draw("hist");
+                    TLine lf(pFull, 0, pFull, hP.GetMaximum()); lf.SetLineColor(ClassColor(2)); lf.SetLineWidth(3); lf.Draw();
+                    TLine lt(pTrue, 0, pTrue, hP.GetMaximum()); lt.SetLineStyle(3); lt.SetLineWidth(3); lt.Draw();
                     TLatex tx; tx.SetNDC(); tx.SetTextSize(0.026);
-                    tx.DrawLatex(0.14, 0.93, "solid line = P of the full sample, dotted black = true P (PPValue), bars = fit error of each subsample");
-                    tx.DrawLatex(0.14, 0.89, Form("full P = %.3g #pm %.2g, subsample mean %.3g, RMS %.2g, expected RMS %.2g (full error #times #sqrt{0.3/0.7})", pFull, eFull, mean, rms, eFull * std::sqrt((1 - frac) / frac)));
+                    tx.DrawLatex(0.14, 0.93, "solid line = P of the full sample, dotted black = true P (PPValue)");
+                    tx.DrawLatex(0.14, 0.89, Form("full P = %.3g #pm %.2g, subsample mean %.3g, RMS %.2g, expected RMS %.2g (full error #times #sqrt{(1-f)/f}, f = 0.5)", pFull, eFull, mean, rms, eFull * std::sqrt((1 - frac) / frac)));
                     c.Modified(); c.Update();
                     c.Print((path + ")").c_str());
                     c.Clear(); c.SetLeftMargin(0.13); c.SetRightMargin(0.30); c.SetTopMargin(0.1); c.SetBottomMargin(0.13);

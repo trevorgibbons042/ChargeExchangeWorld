@@ -22,4 +22,7 @@
 /Polarization/PPValue 0.7
 /Polarization/PrintPPValue
 
+#Physics, all on (default is charge exchange only)
+/CE/otherPhysics true
+
 /run/beamOn 100000

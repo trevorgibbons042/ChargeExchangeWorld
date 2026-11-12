@@ -16,6 +16,9 @@
 
 #Folder
 /output/folder default
+#Physics, all on (default is charge exchange only)
+/CE/otherPhysics true
+
 /run/beamOn 100000000
  
 /randGun/randPos 1

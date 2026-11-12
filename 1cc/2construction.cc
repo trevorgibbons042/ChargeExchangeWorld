@@ -8,6 +8,7 @@ MyDetectorConstruction::MyDetectorConstruction()
     fMessenger = new G4GenericMessenger(this, "/detector/", "Detector Construction");
     fMessenger->DeclareProperty("nBlocks", nBlocks, "Number of Blocks");
     fMessenger->DeclareProperty("nBlocksTracking", nBlocksTracking, "Number of Tracking Blocks");
+    fMessenger->DeclareProperty("patchCells", patchCells, "Display only, build just the N x N detector cells at the lower left corner (0 = all cells)");
 
     fMessenger->DeclareProperty("nCols_blocks", nCols, "Number of columns for tracking");
     fMessenger->DeclareProperty("nRows_blocks", nRows, "Number of rows for tracking");
@@ -21,12 +22,12 @@ MyDetectorConstruction::MyDetectorConstruction()
     fMessenger->DeclareProperty("randPosScaling", randPosScaling, "randPos Scaling Factor");
 
     //default values
-    nBlocks = 4;
+    nBlocks = 3; //default 3 blocks with their trackers, /detector/nBlocks 0 leaves only the ZDC
     nBlocksTracking = 2;
     nCols = 11;
     nRows = 11;
-    nCols_detector= 11;
-    nRows_detector = 11;
+    nCols_detector= 5;
+    nRows_detector = 5;
     dz = 0.025;
     CarbonThickness = 0.2;
 
@@ -112,7 +113,7 @@ G4VPhysicalVolume *MyDetectorConstruction::Construct() //defines volume and mate
         if (i > 0) placeTracker(zCarbon - trackerOffset);
         placeTracker(zCarbon + trackerOffset);
     }
-    placeTracker(zdcFront - dz * m - detectorThickness / 2.0);
+    if (nBlocks > 0) placeTracker(zdcFront - dz * m - detectorThickness / 2.0); //no blocks, no trackers
 
     G4double cellXd = detectorX / nCols_detector;
     G4double cellYd = detectorY / nRows_detector;
@@ -120,12 +121,21 @@ G4VPhysicalVolume *MyDetectorConstruction::Construct() //defines volume and mate
     solidDetector = new G4Box("solidDetector", cellXd / 2.0, cellYd / 2.0, detectorZ / 2.0);
     logicDetector = new G4LogicalVolume(solidDetector, DMat, "logicDetector");
 
-    G4Box *solidDetectorSlab = new G4Box("solidDetectorSlab", detectorX / 2.0, detectorY / 2.0, detectorZ / 2.0);
+    //patchCells > 0 builds only the first patchCells x patchCells cells at the lower left corner of the grid (same pitch), so the GUI can draw it
+    G4bool patch = patchCells > 0 && patchCells < nCols_detector && patchCells < nRows_detector;
+    G4int detCols = patch ? patchCells : nCols_detector;
+    G4int detRows = patch ? patchCells : nRows_detector;
+    G4double slabX = detCols * cellXd;
+    G4double slabY = detRows * cellYd;
+    G4ThreeVector slabPos = detectorPos;
+    if (patch) slabPos += G4ThreeVector(-detectorX / 2.0 + slabX / 2.0, -detectorY / 2.0 + slabY / 2.0, 0);
+
+    G4Box *solidDetectorSlab = new G4Box("solidDetectorSlab", slabX / 2.0, slabY / 2.0, detectorZ / 2.0);
     G4LogicalVolume *logicDetectorSlab = new G4LogicalVolume(solidDetectorSlab, DMat, "logicDetectorSlab");
     physDetector = new G4PVParameterised("physDetector", logicDetector, logicDetectorSlab, kUndefined,
-                    nRows_detector * nCols_detector,
-                    new GridParameterisation(nCols_detector, cellXd, cellYd, detectorX, detectorY));
-    new G4PVPlacement(nullptr, detectorPos, logicDetectorSlab, "physDetectorSlab", logicWorld, false, 0, false);
+                    detRows * detCols,
+                    new GridParameterisation(detCols, cellXd, cellYd, slabX, slabY));
+    new G4PVPlacement(nullptr, slabPos, logicDetectorSlab, "physDetectorSlab", logicWorld, false, 0, false);
 
     return physWorld;
 }

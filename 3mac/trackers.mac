@@ -1,0 +1,15 @@
+# Shows only the tracker planes (logicTrack cells), everything else hidden. No geometry rebuild, so it is safe in the open viewer.
+# In the GUI (./sim, started from build/) run /control/execute ../3mac/trackers.mac
+# To bring everything back run /vis/geometry/set/visibility all 0 true
+
+/vis/geometry/set/visibility all 0 false
+/vis/geometry/set/visibility logicWorld 0 true
+/vis/geometry/set/colour logicWorld 0 0.6 0.6 0.6 1
+/vis/geometry/set/visibility logicDetectorSlab 0 true
+/vis/geometry/set/colour logicDetectorSlab 0 1 1 1 1
+/vis/geometry/set/visibility logicDetector 0 true
+/vis/geometry/set/colour logicDetector 0 1 1 1 1
+/vis/geometry/set/visibility logicTrack 0 true
+/vis/geometry/set/colour logicTrack 0 0.9 0.4 0.1 1
+/vis/viewer/set/style wireframe
+/vis/viewer/rebuild

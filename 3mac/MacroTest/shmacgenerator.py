@@ -45,6 +45,9 @@ for i in range(totalfiles):
 #Analyzing power scale (set before the first beamOn)
 /CE/APScale 1
 
+#Physics, all on (default is charge exchange only)
+/CE/otherPhysics true
+
 /run/beamOn 100000
 """)
 

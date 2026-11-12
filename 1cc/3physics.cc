@@ -24,6 +24,8 @@ MyPhysicsList::MyPhysicsList()
     fCEMessenger->DeclareProperty("APScale", APScale, "Factor on the analyzing power, AP is clamped to -1.0 at the low end (1 = regular value)");
     fCEMessenger->DeclareProperty("noFTFNeutronCE", noFTFNeutronCE, "true turns off the quark exchange (charge exchange) of neutrons inside the FTF model, your own neutronChargeExNP stays on");
 
+    fCEMessenger->DeclareProperty("otherPhysics", otherPhysics, "true keeps the electromagnetic, hadronic and decay physics on, default false leaves only neutronChargeExNP");
+
     // only use physics u need, otherwise too laggy
     RegisterPhysics (new G4EmStandardPhysics());
     RegisterPhysics (new G4EmExtraPhysics());
@@ -45,12 +47,20 @@ MyPhysicsList::~MyPhysicsList()
 
 G4double MyPhysicsList::APScale = 1.0;
 G4bool MyPhysicsList::noFTFNeutronCE = false;
+G4bool MyPhysicsList::otherPhysics = false;
 
 //the NP models are per thread and built at /run/initialize, before the macro sets /CE/APScale, so this runs every run
 //also pushes /CE/noFTFNeutronCE into the FTF model (one flag shared by all threads)
 void MyPhysicsList::ApplyAPScale()
 {
     G4DiffractiveExcitation::SetNoNeutronCE(noFTFNeutronCE);
+    //default is charge exchange only, same as the old noPhys macros (/process/inactivate EM, Hadronic, Decay, then activate neutronChargeExNP)
+    if (!otherPhysics){
+        auto* table = G4ProcessTable::GetProcessTable();
+        table->SetProcessActivation(fElectromagnetic, false);
+        table->SetProcessActivation(fHadronic, false);
+        table->SetProcessActivation(fDecay, false);
+        table->SetProcessActivation("neutronChargeExNP", "neutron", true);    }
     auto* ceProcess = dynamic_cast<G4HadronicProcess*>(G4ProcessTable::GetProcessTable()->FindProcess("neutronChargeExNP", "neutron"));
     if (ceProcess != nullptr){
         for (auto* model : ceProcess->GetHadronicInteractionList()){
