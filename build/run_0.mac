@@ -50,4 +50,7 @@
 #/run/setCut 0.7 mm
 
 /run/printProgress 100000
+#Physics, all on (default is charge exchange only)
+/CE/otherPhysics true
+
 /run/beamOn 100000000

@@ -25,6 +25,7 @@ public:
     static G4double GetAPScale() {return APScale;}
 private:
     G4GenericMessenger *fCEMessenger;
+    static G4bool otherPhysics; //false (default) inactivates electromagnetic, hadronic and decay processes each run, only neutronChargeExNP stays on, /CE/otherPhysics true keeps the full list
     static G4bool noFTFNeutronCE; //true turns off neutron quark exchange inside FTF, /CE/noFTFNeutronCE, static like APScale
     static G4double APScale; //multiplies the analyzing power (clamped at -1.0), /CE/APScale, static so worker threads read the master's value
 };

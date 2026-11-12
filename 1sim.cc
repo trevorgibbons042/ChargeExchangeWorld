@@ -51,7 +51,8 @@ int main(int argc, char** argv)
         UImanager->ApplyCommand("/vis/scene/add/scale 10 cm"); //adds a scale
         //UImanager->ApplyCommand("/vis/scene/add/axes"); //axis for rotations @ center
         UImanager->ApplyCommand("/vis/scene/add/eventID"); //should which event happened
-        UImanager->ApplyCommand("/tracking/verbose 1");
+        UImanager->ApplyCommand("/run/printProgress 100"); //one progress line every 100 events
+        UImanager->ApplyCommand("/tracking/verbose 0"); //step log off in the GUI, set /tracking/verbose 1 in the session to get it back
     
         //UImanager->ApplyCommand("/vis/filtering/trajectories/create/particleFilter");
         //UImanager->ApplyCommand("/vis/filtering/trajectories/particleFilter-0/add proton");

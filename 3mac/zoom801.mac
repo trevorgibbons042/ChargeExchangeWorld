@@ -1,0 +1,28 @@
+# Photo view of the 801x801 detector grid (0.4 m wide, 0.5 mm pitch). Display only.
+# In the GUI (./sim, started from build/) run /control/execute ../3mac/zoom801.mac
+# Rebuilds the detector as an 801x801 grid but builds only the 101x101 cells at its lower left corner (641k cells take minutes to draw),
+# then looks down the beam at that patch. For a bigger or smaller patch change /detector/patchCells.
+
+/vis/disable
+/detector/nCols_detector 801
+/detector/nRows_detector 801
+/detector/patchCells 101
+/run/reinitializeGeometry
+/run/initialize
+/vis/enable
+
+# fresh scene so the viewer does not keep the old world ("World mis-match")
+/vis/scene/create
+/vis/scene/add/volume
+/vis/sceneHandler/attach
+
+/vis/geometry/set/visibility all 0 false
+/vis/geometry/set/visibility logicDetector 0 true
+/vis/geometry/set/colour logicDetector 0 0.1 0.4 0.9 1
+/vis/viewer/set/style wireframe
+/vis/viewer/set/viewpointVector 0 0 -1
+/vis/viewer/set/upVector 0 1 0
+/vis/viewer/set/targetPoint -175 -175 7700 mm
+/vis/viewer/zoomTo 20
+
+# To check the cell count in the geometry tree, run /vis/ASCIITree/verbose 4 then /vis/drawTree

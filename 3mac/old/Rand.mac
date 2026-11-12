@@ -1,2 +1,5 @@
 /run/reinitializeGeometry
+#Physics, all on (default is charge exchange only)
+/CE/otherPhysics true
+
 /run/beamOn 1000000

@@ -1,3 +1,6 @@
 /Polarization/PolarizationIndex {loopvar}
 /Polarization/PrintPolarization
+#Physics, all on (default is charge exchange only)
+/CE/otherPhysics true
+
 /run/beamOn 100000
