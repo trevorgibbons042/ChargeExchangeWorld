@@ -22,9 +22,9 @@ namespace
   const double pBeam = kBeamMomentum;
 }
 
-// One row of a track: the recon rows carry the est neutron range (ThMin, ThMax, PhHalf: rad, ReconAngleAll.cpp) and the lab angles (LabPhi, LabTheta: about the lab z axis, no neutron estimate), FinalKED the detector KE.
+// One row of a track: the recon rows carry the est neutron range (ThMin, ThMax, PhHalf: rad, ReconAngleAll.cpp) and the lab angles (LabPhi, LabTheta: about the lab z axis, no neutron estimate), ZdcKEAllD the detector KE.
 // ThB*, PhB*: the block grid range in the est neutron frame; ThL*, PhL*: the same about the lab z axis (block only).
-struct Angles {double LastPhi, LastTheta; ULong64_t entry = 0; double FinalKED = 0; double LabPhi = 0, LabTheta = 0; double ThMin = 0, ThMax = 0, PhHalf = 0; double ThBMin = NAN, ThBMax = NAN, PhBHalf = NAN, ThLMin = NAN, ThLMax = NAN, PhLHalf = NAN;};
+struct Angles {double LastPhi, LastTheta; ULong64_t entry = 0; double ZdcKEAllD = 0; double LabPhi = 0, LabTheta = 0; double ThMin = 0, ThMax = 0, PhHalf = 0; double ThBMin = NAN, ThBMax = NAN, PhBHalf = NAN, ThLMin = NAN, ThLMax = NAN, PhLHalf = NAN;};
 
 struct Track {std::vector<Angles> points;};
 
@@ -97,17 +97,17 @@ static void CalcAPandTBoth(){
 
     std::vector<TrackMap> slotTracksAngles(dfAngles.GetNSlots());
     dfAngles.ForeachSlot([&](unsigned slot,
-    int eventID, double thetaRelN, double phiRelN, double thetaRelND, double phiRelND, ULong64_t entry, double finalKED, double labPhi, double labTheta, double labPhiD, double labThetaD, double thMin, double thMax, double phHalf, double thMinD, double thMaxD, double phHalfD, double thBMinD, double thBMaxD, double phBHalfD, double thLMinD, double thLMaxD, double phLHalfD, int trackNo){
+    int eventID, double thetaRelN, double phiRelN, double thetaRelND, double phiRelND, ULong64_t entry, double zdcKEAllD, double labPhi, double labTheta, double labPhiD, double labThetaD, double thMin, double thMax, double phHalf, double thMinD, double thMaxD, double phHalfD, double thBMinD, double thBMaxD, double phBHalfD, double thLMinD, double thLMaxD, double phLHalfD, int trackNo){
         if (trackNo != pickOf.at(eventID).second) return; // the recon track of the event the CE is paired with (pickOf)
         // the key has no CE track (-1): every CE track of the event gets the recon track picked above
         auto &tRecon = slotTracksAngles[slot][{eventID, -1, 1}];
 
 
-        tRecon.points.push_back({phiRelN, thetaRelN, entry, finalKED, labPhi, labTheta, thMin, thMax, phHalf});
+        tRecon.points.push_back({phiRelN, thetaRelN, entry, zdcKEAllD, labPhi, labTheta, thMin, thMax, phHalf});
 
         auto &tReconBlock = slotTracksAngles[slot][{eventID, -1, 2}];
 
-        tReconBlock.points.push_back({phiRelND, thetaRelND, entry, finalKED, labPhiD, labThetaD, thMinD, thMaxD, phHalfD, thBMinD, thBMaxD, phBHalfD, thLMinD, thLMaxD, phLHalfD});
+        tReconBlock.points.push_back({phiRelND, thetaRelND, entry, zdcKEAllD, labPhiD, labThetaD, thMinD, thMaxD, phHalfD, thBMinD, thBMaxD, phBHalfD, thLMinD, thLMaxD, phLHalfD});
         },{"fEvent", "thetaRelN", "phiRelN", "thetaRelND", "phiRelND", "entryNo", KeVar("_DE"), "outPhi", "outTheta", "outDPhi", "outDTheta", "thetaRelNMin", "thetaRelNMax", "phiRelNHalf", "thetaRelNDMin", "thetaRelNDMax", "phiRelNDHalf", "thetaRelNDBMin", "thetaRelNDBMax", "phiRelNDBHalf", "thetaLabDBMin", "thetaLabDBMax", "phiLabDBHalf", "trackNo"});
     std::vector<TrackMap> tracksAngles = mergeSlots(slotTracksAngles);
     
@@ -122,7 +122,7 @@ static void CalcAPandTBoth(){
     pool.Foreach([&](unsigned chunk){
         auto outFile = merger.GetFile();
         int outEventID;
-        double outFinalKE; // the detector KE of the event (finalKED of AnglesRaw)
+        double outZdcKEAllD; // the detector KE of the event (zdcKEAllD of AnglesRaw)
         double outThetaCE, outPhiCE, outTCE, outAPCE;
         double outThetaRe, outPhiRe, outTRe, outAPRe;
         double outThetaReD, outPhiReD, outTReD, outAPReD;
@@ -134,14 +134,14 @@ static void CalcAPandTBoth(){
         double outThetaReDIFF, outPhiReDIFF, outTReDIFF, outAPReDIFF;
         double outThetaReDDIFF, outPhiReDDIFF, outTReDDIFF, outAPReDDIFF;
 
-        // the five trees, finalKE bound to the detector KE
+        // the five trees, zdcKEAllD bound to the detector KE
         auto makeSet = [&]() -> std::array<TTree*, 5> {
         const std::string suffix = "_DE";
         // the two branches every tree starts with
         auto makeTree = [&](const std::string& name, const char* title){
             TTree* t = new TTree((name + suffix).c_str(), title);
             t->Branch("fEvent", &outEventID);
-            t->Branch("finalKE", &outFinalKE);
+            t->Branch("zdcKEAllD", &outZdcKEAllD);
             return t;
         };
         TTree *outTree = makeTree("CE", "values from ChargeExchange directly");
@@ -248,7 +248,7 @@ static void CalcAPandTBoth(){
                 outAPReDBMin = APFromT(pBeam, TFromAngle(pBeam, reD.ThBMin), apScale); outAPReDBMax = APFromT(pBeam, TFromAngle(pBeam, reD.ThBMax), apScale);
                 outThetaReDLabMin = reD.ThLMin*180/TMath::Pi(); outThetaReDLabMax = reD.ThLMax*180/TMath::Pi(); outPhiReDLabHalf = reD.PhLHalf;
 
-                outFinalKE = re.FinalKED;
+                outZdcKEAllD = re.ZdcKEAllD;
         
                 outThetaReDIFF = outThetaRe - outThetaCE;
                 outPhiReDIFF = std::remainder(outPhiRe - outPhiCE, 360.0);

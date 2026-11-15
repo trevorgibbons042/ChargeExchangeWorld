@@ -49,7 +49,7 @@ void PlotDiffPhiCuts(double absLo = 50, double absHi = 180, std::string energy =
     // CE events in the phi diff window, either sign: the only cut
     auto cDiff = plan.C(diff, {"fEvent"}, Form("fabs(phiReD) >= %g && fabs(phiReD) <= %g", absLo, absHi));
     // Every recon event (the rows of AnglesRaw in cut_angles_all.root): fEvent for the positions,
-    // the KE of the energy (finalKE / finalKED), isFromCE and the block line fit quality (ReconAngleAll.cpp)
+    // the KE of the energy (zdcKEAll / zdcKEAllD), isFromCE and the block line fit quality (ReconAngleAll.cpp)
     TFile* fAng = TFile::Open("cuts/cut_angles_all.root", "READ");
     TTree* ang = fAng ? (TTree*)fAng->Get(kAngleTree) : nullptr;
     if (!ang){Error("PlotDiffPhiCuts", "no AnglesRaw in cuts/cut_angles_all.root (rerun ReconAngleAll.cpp)"); return;}
@@ -200,7 +200,7 @@ void PlotDiffPhiCuts(double absLo = 50, double absHi = 180, std::string energy =
         for (const Hist2& p : parts){hRecon.Add(p.recon.get()); hCE.Add(p.ce.get());}
     };
 
-    // KE: every recon event and the CE ones in the phi diff window (finalKE of the Angles tree)
+    // KE: every recon event and the CE ones in the phi diff window (zdcKEAll of the Angles tree)
     {
         const double keMax = KeAxisMax(); // 30000 MeV at 25 GeV/c, FitCore.h
         TH1D hKERecon("hKERecon", "", 100, 0, keMax), hKECE("hKECE", "", 100, 0, keMax);

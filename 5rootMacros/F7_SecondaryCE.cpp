@@ -160,7 +160,7 @@ void F7_SecondaryCE(){
     TLine pRef(0, ppValue, 5, ppValue); pRef.SetLineStyle(3); pRef.SetLineWidth(2); pRef.SetLineColor(CbCE()); pRef.Draw(); // input PPValue
     WritePlotNumbers(&hP, outDir + pFile, numbersStarted);
     canvas.SaveAs((outDir + pFile).c_str());
-    // ZDC KE of the event of each CE, smeared (finalKED, /zdc/resStochastic and /zdc/resConstant in the sim, equal to the true KE when the smearing is off), filled for plot 8 and the 80% KE cut of the plots below,
+    // ZDC KE of the event of each CE, smeared (zdcKEAllD, /zdc/resStochastic and /zdc/resConstant in the sim, equal to the true KE when the smearing is off), filled for plot 8 and the 80% KE cut of the plots below,
     // one curve per process that made the CE neutron. The KE is matched on fEvent only (the CE neutron of the event, TrackID = ParentID of its proton, is the key of groupOf).
     const char* gName[4] = {"beam neutron", "neutronInelastic", "protonInelastic", "all other creators"};
     const int gColor[4] = {kBlack, CbCE(), CbProton(), CbAll()};
@@ -172,11 +172,11 @@ void F7_SecondaryCE(){
     };
     TH1D hKE[4]; // smeared ZDC KE
     for (int g = 0; g < 4; g++) hKE[g] = TH1D(Form("hKE%d", g), "", 100, 0, KeAxisMax()); // 30000 MeV at 25 GeV/c, FitCore.h
-    // The ZDC KE of an event is the sum over the charged particles that hit the ZDC (finalKE true, finalKED smeared, NAN without a hit): the columns of the recon events in AnglesRaw.
-    const auto keCol = Columns(raw, {"fEvent", "finalKED"});
+    // The ZDC KE of an event is the sum over all particles, charged and neutral, that hit the ZDC (zdcKEAll true, zdcKEAllD smeared, -1 / NAN without the sim column, 0 without a hit): the columns of the recon events in AnglesRaw.
+    const auto keCol = Columns(raw, {"fEvent", "zdcKEAllD"});
     std::map<int, double> evKE; // fEvent -> smeared ZDC KE, only the events that have a ZDC KE
-    for (size_t k = 0; k < keCol[0].size(); k++) if (std::isfinite(keCol[1][k])) evKE[(int)keCol[0][k]] = keCol[1][k];
-    const double cutKE = 0.80 * kBeamKE; // MeV, 80% of the beam KE, the cut on the smeared ZDC KE finalKED of the event
+    for (size_t k = 0; k < keCol[0].size(); k++) if (std::isfinite(keCol[1][k]) && keCol[1][k] > 0) evKE[(int)keCol[0][k]] = keCol[1][k];
+    const double cutKE = 0.80 * kBeamKE; // MeV, 80% of the beam KE, the cut on the smeared ZDC KE zdcKEAllD of the event
     long long nAbove[4] = {0, 0, 0, 0}; // CE of each creator whose event is above the cut
     // f(group, event, CE neutron TrackID, smeared KE) for every CE with a creator group whose event has a ZDC KE: the KE is the one of the event, shared by its CE
     const auto forPi = [&](auto&& f){
@@ -191,7 +191,7 @@ void F7_SecondaryCE(){
     // 8_CE_proton_smeared_KE_cut80_by_creator.pdf: the smeared energy plot with the 80% KE cut (dashed), how many CE protons of each creator stay above it
     const std::string cutFile = "3_energy/8_CE_proton_smeared_KE_cut80_by_creator.pdf";
     canvas.Clear(); canvas.SetLogy(1);
-    hKE[0].SetTitle(PlotTitle(cutFile, Form("Smeared ZDC KE sum of the event, one entry per CE, by the process that made the CE neutron, %s, 80%% KE cut = %.0f MeV;Smeared ZDC KE finalKED (MeV);Count", kZdcNote.c_str(), cutKE)).c_str());
+    hKE[0].SetTitle(PlotTitle(cutFile, Form("Smeared ZDC KE sum of the event, one entry per CE, by the process that made the CE neutron, %s, 80%% KE cut = %.0f MeV;Smeared ZDC KE zdcKEAllD (MeV);Count", kZdcNote.c_str(), cutKE)).c_str());
     TLegend legCut(0.745, 0.55, 0.99, 0.88); legCut.SetTextSize(0.016);
     for (int g = 0; g < 4; g++){
         hKE[g].Draw(g ? "hist same" : "hist");
