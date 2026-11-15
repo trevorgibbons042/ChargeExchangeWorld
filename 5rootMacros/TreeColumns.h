@@ -1,13 +1,11 @@
 #pragma once
 #include <TDirectory.h>
 #include <TError.h>
-#include <TEntryList.h>
 #include <TFile.h>
 #include <TFriendElement.h>
 #include <TH1F.h>
 #include <TH2F.h>
 #include <TList.h>
-#include <TObject.h>
 #include <TNamed.h>
 #include <TAttLine.h>
 #include <TAttFill.h>
@@ -27,26 +25,11 @@
 
 // Multithreaded replacement for TTree::Draw(exprs, cut, "goff") and for GetEntry loops: one RDataFrame event loop on all the threads (ROOT::EnableImplicitMT(NThreads()) first, FitCore.h),
 // on all threads, with the entry numbers of WithEntryNumber (FitCore.h; rdfentry_ is wrong under implicit MT on a tree with several clusters)
-// copies expressions of the tree out as columns. Like TTree::Draw it sees the TEntryList set on t (ApplyCut, CutFiles.h) and the friends of t, written "Friend.branch" in the expressions.
+// copies expressions of the tree out as columns. Like TTree::Draw it sees the friends of t, written "Friend.branch" in the expressions.
 // The rows come back in entry order, one vector per expression, so a fill or a sum over them runs in the same order as the serial Draw loop did.
 // T is double or std::string (CECreator: "std::string(CECreator.data())"). filter is an optional row selection, a C++ expression like a TTree::Draw cut.
 // Every call JIT compiles its expressions: ask for all the columns of a tree at once.
 inline std::string ColumnsExpr(TTree* t, std::string expr, std::map<std::string, std::string>& aliases){
-    // a TTree alias (SetAlias, e.g. raw_k of Plot3DRawAliases) is not a column of the RDataFrame: write its expansion in its place, again until no alias is left (ok_9 -> TMath::Finite(raw_9) -> ...)
-    if (t->GetListOfAliases() && t->GetListOfAliases()->GetSize() > 0){
-        for (int round = 0; round < 8; round++){
-            bool changed = false;
-            for (auto* o : *t->GetListOfAliases()){
-                const std::string name = o->GetName();
-                if (t->GetBranch(name.c_str()) || expr.find(name) == std::string::npos) continue;
-                const std::string out = std::regex_replace(expr, std::regex("\\b" + name + "\\b"), "(" + std::string(((TNamed*)o)->GetTitle()) + ")");
-                if (out != expr){expr = out; changed = true;}
-            }
-            if (!changed) break;
-        }
-        // TMath::Finite(int branch) is ambiguous (Double_t or Float_t overload) in the JIT: the argument as a double
-        expr = std::regex_replace(expr, std::regex("TMath::Finite\\("), "TMath::Finite((double)");
-    }
     // a friend's branch is the column "Friend.branch" of the RDataFrame, which an expression cannot spell: it goes through the alias Friend__branch
     if (t->GetListOfFriends()) for (auto* o : *t->GetListOfFriends()){
         const std::string name = ((TFriendElement*)o)->GetTree()->GetName();
@@ -92,7 +75,7 @@ inline std::vector<std::vector<T>> Columns(TTree* t, const std::vector<std::stri
 
 // Like Columns for double expressions, but the rows come back in no particular order, and a tree with several clusters is read on all threads: no entry number, no sort.
 // Row k of every column is one entry (RowsAppend), so a loop over the columns sees the same rows as Columns, only permuted. Use it where the result does not depend on the order (counts,
-// sorts, matching by key); a sum over the rows can differ in the last digits between runs. Expressions, aliases, friends, the filter and the entry list of t work as in Columns.
+// sorts, matching by key); a sum over the rows can differ in the last digits between runs. Expressions, friends and the filter work as in Columns.
 inline std::vector<std::vector<double>> ColumnsUnordered(TTree* t, const std::vector<std::string>& exprs, const std::string& filter = ""){
     std::map<std::string, std::string> aliases;
     const std::string cut = filter.empty() ? "" : ColumnsExpr(t, filter, aliases);
@@ -148,12 +131,11 @@ inline TH1* MakeHist(const std::string& target){
     return nullptr;
 }
 
-// The entries of t that pass cut (a TTree::GetEntries(cut) with all the threads): the entry list set on t and the friends are honoured as in Columns. Empty cut or "1": every entry.
-// Key of the CountsMT and HistsMT memos: the file, name, entries, entry list and friends of the tree, then the expression text. The trees do not change while a macro runs, so a request that
+// The entries of t that pass cut (a TTree::GetEntries(cut) with all the threads): the friends are honoured as in Columns. Empty cut or "1": every entry.
+// Key of the CountsMT and HistsMT memos: the file, name, entries and friends of the tree, then the expression text. The trees do not change while a macro runs, so a request that
 // repeats (same tree, same cut) is answered from the memo instead of another event loop.
 inline std::string MemoKey(TTree* t, const std::string& s){
     std::string k = std::string(t->GetCurrentFile() ? t->GetCurrentFile()->GetName() : "") + "|" + t->GetName() + "|" + std::to_string(t->GetEntries());
-    if (TEntryList* el = t->GetEntryList()) k += std::string("|el:") + el->GetName() + ":" + std::to_string(el->GetN());
     if (t->GetListOfFriends()) for (auto* o : *t->GetListOfFriends()) k += std::string("|fr:") + ((TFriendElement*)o)->GetTree()->GetName();
     return k + "|" + s;
 }

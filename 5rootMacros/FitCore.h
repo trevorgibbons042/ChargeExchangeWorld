@@ -1,7 +1,10 @@
 #pragma once
 #include <memory>
 #include <TAxis.h>
+#include <TCanvas.h>
 #include <TF1.h>
+#include <TLatex.h>
+#include <TTree.h>
 #include <TGraph.h>
 #include <TH1.h>
 
@@ -31,7 +34,20 @@
 #include <sys/stat.h>
 #include <TStyle.h>
 #include <TROOT.h>
-#include <TTree.h>
+#include <TColor.h>
+
+// There is no residual cut on any plot, entry list or column. AnglesRaw keeps every fitted proton and the Angles view selects all of them (CutFiles.h).
+// resDRms (RMS transverse distance of the track's hits to its fitted line, detector block position, mm) stays a branch of AnglesRaw (ReconAngleAll.cpp), so it can be plotted.
+
+// Color blind friendly colors (Okabe and Ito), the same three in every plot of the analysis:
+//   CbCE()      CE recon protons                  vermillion   (213, 94, 0)
+//   CbProton()  all recon protons                 blue         (0, 114, 178)
+//   CbAll()     all recon charged particles       bluish green (0, 158, 115)
+// They stand in for ROOT's kRed, kBlue and kGreen + 2. Functions with a function-local static, not globals: a namespace-scope global with a runtime initializer
+// fails on the cluster (5rootMacros/CLAUDE.md, Failed to materialize symbols).
+inline int CbCE(){static const int c = TColor::GetColor(213, 94, 0); return c;}
+inline int CbProton(){static const int c = TColor::GetColor(0, 114, 178); return c;}
+inline int CbAll(){static const int c = TColor::GetColor(0, 158, 115); return c;}
 
 // Every plotting macro includes this header: plain (not bold) Helvetica for every title, label, stats box, legend and text box.
 // A function, not a global with a lambda initializer: ACLiC cannot load a macro with a runtime-initialized global on LCRC (Failed to materialize symbols).
@@ -127,28 +143,10 @@ inline std::map<std::string, double> ReadSettings(const std::string& path = "set
     return settings;
 }
 
-// EvenHits / MaxTrackerHits: the even tracker hit counts 2, 4, ... 2 * nBlocks (1 block: 2; 3 blocks: 2, 4, 6; 7 blocks: 2 to 14), one pair of hits per block. No 6_cuts folder cuts on them now.
+// EvenHits / MaxTrackerHits: the even tracker hit counts 2, 4, ... 2 * nBlocks (1 block: 2; 3 blocks: 2, 4, 6; 7 blocks: 2 to 14), one pair of hits per block. No plot cuts on them now.
 // MaxTrackerHits reads settings.csv, so call it once outside an event loop and pass the value to EvenHits.
 inline int MaxTrackerHits(){return 2 * (int)std::lround(ReadSettings().at("nBlocks"));}
 inline bool EvenHits(int n, int maxHits){return n >= 2 && n <= maxHits && n % 2 == 0;}
-// the Draw string of the same cut on expression e, e.g. (e == 2 || e == 4 || e == 6)
-inline std::string EvenHitsDraw(const std::string& e){
-    std::string s = "(";
-    for (int n = 2, maxHits = MaxTrackerHits(); n <= maxHits; n += 2) s += (n > 2 ? " || " : "") + e + " == " + std::to_string(n);
-    return s + ")";
-}
-// the ratio and FOM graphs: round markers (size 0.6) joined by a width 1 line in one color, drawn "APL" with x from 0 to xMax
-inline void DrawPointsLine(TGraph& g, int color, double xMax){
-    g.SetMarkerStyle(20); g.SetMarkerSize(0.6); g.SetLineWidth(1); g.SetLineColor(color); g.SetMarkerColor(color);
-    g.Draw("APL");
-    g.GetXaxis()->SetLimits(0, xMax);
-}
-// the counts for a title, "2, 4, 6"
-inline std::string EvenHitsText(){
-    std::string s;
-    for (int n = 2, maxHits = MaxTrackerHits(); n <= maxHits; n += 2) s += (n > 2 ? ", " : "") + std::to_string(n);
-    return s;
-}
 
 // Threads for ROOT::EnableImplicitMT: env ANA_NTHREADS, else the hardware thread count (plot.sh splits the cores between its lanes).
 inline unsigned NThreads(){
@@ -204,50 +202,46 @@ inline bool MultiCluster(TTree* t){
     const Long64_t n = t->GetEntries();
     return n > 0 && it.Next() < n && it.Next() < n; // a second cluster starts before the last entry
 }
-// The entry number of each row in its tree, exact under implicit MT, as a ULong64_t column col (default "entryNo"); use it instead of rdfentry_ (tested on a 5-cluster AnglesRaw: rdfentry_ labelled 48 to 76% of
+// The entry number of each row in its tree, exact under implicit MT, as the ULong64_t column "entryNo"; use it instead of rdfentry_ (tested on a 5-cluster AnglesRaw: rdfentry_ labelled 48 to 76% of
 // the rows wrong at 4 and 8 threads, this was exact in 18 of 18 runs). Every task starts at s.EntryRange().first and counts the rows it reads. The counter has to see every row of the tree, so the column is
 // forced by an always true Filter right here, before any Filter of the caller drops rows. Call it on a node of an RDataFrame built after ROOT::EnableImplicitMT; nSlots is df.GetNSlots().
 // For a TChain the number is the one inside the file of the row, which orders the rows of one file (and so of one event) correctly.
-inline ROOT::RDF::RNode WithEntryNumber(ROOT::RDF::RNode df, unsigned nSlots, const std::string& col = "entryNo"){
+inline ROOT::RDF::RNode WithEntryNumber(ROOT::RDF::RNode df, unsigned nSlots){
     auto count = std::make_shared<std::vector<Long64_t>>(std::max(1u, nSlots) + 1, 0);
-    return df.DefinePerSample(col + "_b", [count](unsigned slot, const ROOT::RDF::RSampleInfo& s){(*count)[slot] = 0; return (Long64_t)s.EntryRange().first;})
-             .DefineSlot(col, [count](unsigned slot, Long64_t first){return (ULong64_t)(first + (*count)[slot]++);}, {col + "_b"})
-             .Filter([](ULong64_t){return true;}, {col});
+    return df.DefinePerSample("entryNo_b", [count](unsigned slot, const ROOT::RDF::RSampleInfo& s){(*count)[slot] = 0; return (Long64_t)s.EntryRange().first;})
+             .DefineSlot("entryNo", [count](unsigned slot, Long64_t first){return (ULong64_t)(first + (*count)[slot]++);}, {"entryNo_b"})
+             .Filter([](ULong64_t){return true;}, {"entryNo"});
 }
 
-// z (mm) of the carbon blocks and tracker planes of the run (2construction.cc). stackSpread = 1 (settings.csv): the blocks sit in evenly spaced slots between z = 0 and the ZDC
-// front face (7700 mm), the face being the last slot (block i at i * 7700 / (nBlocks + 1)); a tracker plane dz behind every block and dz in front of every block but the first,
+// z (mm) of the carbon blocks and tracker planes of the run (2construction.cc), from settings.csv stackSpread (1 or 3; a run without either is an error).
+// stackSpread = 3: the ZDC front face is at zdcFrontZ (m, from the gun at z = 0), the blocks fill the last blockRegion (m) before it, the front face of the first block sits firstBlockZ (m) into that
+// region, and the front faces of the others are spread evenly from there to the ZDC front face:
+// face of block i = F + i * (Z - F) / nBlocks with Z the ZDC face and F = Z - blockRegion + firstBlockZ, block centre = face + half the block.
+// stackSpread = 1: the blocks sit in evenly spaced slots between z = 0 and the ZDC
+// front face (7700 mm), the face being the last slot (block i centred at (i + 1) * 7700 / (nBlocks + 1)). In both, a tracker plane dz behind every block and dz in front of every block but the first,
 // and one plane dz in front of the ZDC (last in planeZ). Here dz is the gap between the edge of the block and the edge of the 0.5 mm tracker (the ZDC face for the last plane).
-// A run without the key is the old layout, stack centred at 4 m, elements dz apart centre to centre: each block is followed by nBlocksTracking
-// tracker planes; frontTrackers (settings.csv, 1 when the run has none, an older sim) puts one more group of planes before the first block.
-struct StackLayout {std::vector<double> blockZ, planeZ;};
+struct StackLayout {std::vector<double> blockZ, planeZ; double zdcFront = 7700.0;}; // zdcFront: z (mm) of the ZDC front face
 inline StackLayout StackZ(const std::map<std::string, double>& s){
-    const int nBlocks = (int)std::lround(s.at("nBlocks")), nTrk = (int)std::lround(s.at("nBlocksTracking"));
+    const int nBlocks = (int)std::lround(s.at("nBlocks"));
     const double dzMm = s.at("dz") * 1000.0;
-    if (s.count("stackSpread") && std::lround(s.at("stackSpread")) == 1){
-        const double zdcFrontMm = 7700.0, pitch = zdcFrontMm / (nBlocks + 1);
-        const double offset = s.at("CarbonThickness") * 1000.0 / 2.0 + dzMm + 0.25; // block centre to tracker centre: half block + gap + half tracker (0.5 mm)
-        StackLayout sp;
-        for (int i = 0; i < nBlocks; i++){
-            const double zc = (i + 1) * pitch;
-            sp.blockZ.push_back(zc);
-            if (i > 0) sp.planeZ.push_back(zc - offset);
-            sp.planeZ.push_back(zc + offset);
-        }
-        sp.planeZ.push_back(zdcFrontMm - dzMm - 0.25);
-        return sp;
+    const long spread = s.count("stackSpread") ? std::lround(s.at("stackSpread")) : 0;
+    if (spread != 1 && spread != 3) throw std::runtime_error("StackZ: settings.csv needs stackSpread 1 or 3");
+    const double zdcFrontMm = spread == 3 ? s.at("zdcFrontZ") * 1000.0 : 7700.0, pitch = zdcFrontMm / (nBlocks + 1);
+    const double firstFaceMm = spread == 3 ? zdcFrontMm - s.at("blockRegion") * 1000.0 + s.at("firstBlockZ") * 1000.0 : 0.0;
+    const double spacing = nBlocks > 0 ? (zdcFrontMm - firstFaceMm) / nBlocks : 0.0;
+    const double offset = s.at("CarbonThickness") * 1000.0 / 2.0 + dzMm + 0.25; // block centre to tracker centre: half block + gap + half tracker (0.5 mm)
+    StackLayout sp; sp.zdcFront = zdcFrontMm;
+    for (int i = 0; i < nBlocks; i++){
+        const double zc = spread == 3 ? firstFaceMm + i * spacing + s.at("CarbonThickness") * 1000.0 / 2.0 : (i + 1) * pitch;
+        sp.blockZ.push_back(zc);
+        if (i > 0) sp.planeZ.push_back(zc - offset);
+        sp.planeZ.push_back(zc + offset);
     }
-    const int front = s.count("frontTrackers") ? (int)std::lround(s.at("frontTrackers")) : 1;
-    const int nElements = (nBlocks + front) * nTrk + nBlocks;
-    const double zStart = 4000.0 - (nElements - 1) * dzMm / 2.0;
-    StackLayout st; int element = 0;
-    auto planes = [&](){for (int j = 0; j < nTrk; j++, element++) st.planeZ.push_back(zStart + element * dzMm);};
-    if (front) planes();
-    for (int i = 0; i < nBlocks; i++){st.blockZ.push_back(zStart + element * dzMm); element++; planes();}
-    return st;
+    sp.planeZ.push_back(zdcFrontMm - dzMm - 0.25);
+    return sp;
 }
 
-// theta and phi (rad, phi in [0, 2 pi)) of the direction p in the frame where the direction n points along z: the minimal rotation about n x z, the one of RelToNeutron in SmearMatrix.cpp.
+// theta and phi (rad, phi in [0, 2 pi)) of the direction p in the frame where the direction n points along z: the minimal rotation about n x z.
 // p and n need no unit length. ReconAngleAll.cpp (the estimated neutron) uses it.
 inline void RelToDir(const double p[3], const double n[3], double& theta, double& phi){
     const double pn = std::sqrt(p[0] * p[0] + p[1] * p[1] + p[2] * p[2]), nn = std::sqrt(n[0] * n[0] + n[1] * n[1] + n[2] * n[2]);
@@ -265,7 +259,7 @@ inline void RelToDir(const double p[3], const double n[3], double& theta, double
 }
 
 // The CE proton (lab theta th, lab phi ph, rad) relative to the TRUE neutron direction (CENDirX/Y/Z): CETHETA_NEUFRAME and CEPHI_NEUFRAME (rad, phi in [0, 2 pi)).
-// Plain functions of the branch values, so they also work inside Draw strings and RDataFrame expressions (CalcAPandT.cpp, PlotAngle.cpp, SecondaryCE.cpp).
+// Plain functions of the branch values, so they also work inside Draw strings and RDataFrame expressions (CalcAPandT.cpp, F7_SecondaryCE.cpp).
 inline double CEAngleNeu(double th, double ph, double nx, double ny, double nz, bool wantPhi){
     const double p[3] = {std::sin(th) * std::cos(ph), std::sin(th) * std::sin(ph), std::cos(th)}, n[3] = {nx, ny, nz};
     double t = 0, f = 0; RelToDir(p, n, t, f);
@@ -275,19 +269,21 @@ inline double CEThetaNeu(double th, double ph, double nx, double ny, double nz){
 inline double CEPhiNeu(double th, double ph, double nx, double ny, double nz){return CEAngleNeu(th, ph, nx, ny, nz, true);}
 
 // The charge exchange selection of every stage: a CE with its vertex inside one of the carbon blocks (CE in the tracker silicon is left out).
-// The block z positions mirror MyDetectorConstruction (2construction.cc): the blocks and planes as StackZ gives them. fZ < 7700 is the front face of the ZDC.
+// The block z positions mirror MyDetectorConstruction (2construction.cc): the blocks and planes as StackZ gives them. fZ < the ZDC front face (StackZ(s).zdcFront) is in front of the ZDC.
 inline std::string CarbonCeCut(){
     static std::string memo; static std::map<std::string, double> memoSettings;
     const auto s = ReadSettings();
     if (!memo.empty() && s == memoSettings) return memo;
     memoSettings = s;
     const double halfMm = s.at("CarbonThickness") * 1000.0 / 2.0;
+    const StackLayout lay = StackZ(s);
     std::string windows;
-    for (const double zc : StackZ(s).blockZ){
+    for (const double zc : lay.blockZ){
         char w[96]; std::snprintf(w, sizeof w, "%s(fZ>%.3f && fZ<%.3f)", windows.empty() ? "" : " || ", zc - halfMm, zc + halfMm);
         windows += w;
     }
-    memo = "didChargeExchange>0 && fZ<7700 && (" + windows + ")";
+    char zdc[48]; std::snprintf(zdc, sizeof zdc, "%.3f", lay.zdcFront);
+    memo = std::string("didChargeExchange>0 && fZ<") + zdc + " && (" + windows + ")";
     return memo;
 }
 
@@ -362,7 +358,7 @@ inline void DrawCELost(double nCE, double nCEAll){
     for (TObject* o : *gPad->GetListOfPrimitives()){
         if (auto* l = dynamic_cast<TLegend*>(o)) leg = l; // the last legend drawn
         else if (auto* hh = dynamic_cast<TH1*>(o)){if (!h || h->TestBit(TH1::kNoStats)) h = hh;} // the first histogram with a stats box (a DrawFrame frame has none)
-        else if (auto* p = dynamic_cast<TPave*>(o)) if (p->GetX1NDC() >= 0.7 && p->GetY1NDC() >= 0.4 && strcmp(p->GetName(), "fitEquation")) info = p; // a fit info box in the right margin (PlotPolarization)
+        else if (auto* p = dynamic_cast<TPave*>(o)) if (p->GetX1NDC() >= 0.7 && p->GetY1NDC() >= 0.4 && strcmp(p->GetName(), "fitEquation")) info = p; // a fit info box in the right margin
     }
     double x1 = 0.745, x2 = 0.99, top = gStyle->GetStatY() - gStyle->GetStatH(), size = 0.016;
     if (leg){x1 = leg->GetX1NDC(); x2 = leg->GetX2NDC(); top = leg->GetY1NDC(); if (leg->GetTextSize() > 0) size = leg->GetTextSize();}
@@ -372,7 +368,7 @@ inline void DrawCELost(double nCE, double nCEAll){
         if (st) top = st->GetY1NDC();
         else if (info) top = info->GetY1NDC();
     }
-    TPaveText* pt = new TPaveText(x1, top - 0.05, x2, top - 0.01, "NDC"); // 0.01 gap: cut_side_box.py tells the frames apart
+    TPaveText* pt = new TPaveText(x1, top - 0.05, x2, top - 0.01, "NDC");
     pt->SetName("ceLost");
     pt->SetBorderSize(1); pt->SetFillColor(0); pt->SetTextAlign(12); pt->SetTextSize(size);
     pt->AddText(Form("CE lost by cuts = %.0f / %.0f = %.1f%%", nCEAll - nCE, nCEAll, 100.0 * (nCEAll - nCE) / nCEAll));
@@ -404,7 +400,7 @@ inline void AddFitEquation(TH1* h, const std::vector<std::string>& lines){
 // err is the error on P that every caller quotes: the likelihood error (errFit) and the error from A (errA = |P| * the relative error of A, see AMean) in quadrature.
 // A fixed to the mean of a sample has the error of that mean (the spread of A over the theta distribution of the sample, std(A) / sqrt(N)) and the beam spread (kBeamAFrac, see BeamAFrac); the A of
 // each proton (aEach) has the beam spread only.
-// The error of P by source (the side box of the A_eff and P fits, PhiCosFit.h), all in quadrature in err: errFit the likelihood (statistics of the phi), errA the error of A carried over (errAStat
+// The error of P by source (the side box of the A_eff and P fits, PhiCosFit at the end of this file), all in quadrature in err: errFit the likelihood (statistics of the phi), errA the error of A carried over (errAStat
 // the spread of A over the theta distribution, errABeam the beam energy spread, errARange the est neutron theta range), errPhi the est neutron phi range (PhiRange). Each is |P| times a relative error.
 struct PFit {double p = 0, err = 0, errFit = 0, errA = 0, errPhi = 0, errAStat = 0, errABeam = 0, errARange = 0, errPhi2 = 0, errARange2 = 0, errASmear = 0; bool ok = false;}; // errPhi2, errARange2: the block grid range (the second range of AMean and PhiRange)
 
@@ -475,7 +471,6 @@ inline TPaveText* DrawErrorBySource(const AMean& a, const PFit& uf, bool hasRang
     eb->Draw();
     return eb;
 }
-inline AMean AMeanOf(const std::vector<double>& v){AMean a; for (double x : v) a.Add(x); return a;}
 // P of an unbinned fit by Newton's method from 0, limited to -1 to 1: derivs(p, d1, d2) gives dlnL/dP and d2lnL/dP2. Stops when P moves less than tol, or when d2 is not negative.
 template <class D>
 inline double NewtonP(D derivs, double tol){
@@ -540,40 +535,6 @@ inline TF1* AddUnbinnedFit(TH1* h, const char* name, const PFit& r, double aFix,
     return f;
 }
 
-// The same unbinned fit from sums, for the maps that fit thousands of theta ranges (PlotFomPolarization.cpp): ln(1 + x) = x - x^2/2 + ... with x = P A cos(phi) never exceeds |0.12| (|A| < 0.2),
-// so the log likelihood of any set of protons is the polynomial sum_k (-1)^(k+1) (P A)^k m_k / k - n ln N(P), m_k = sum over the protons of cos^k(phi), and the sums of cos^k add over slices.
-// Eight terms: the left out term is below 1e-8 of n. Same density, range and limit of P as UnbinnedP.
-inline constexpr int kPhiMoments = 8;
-inline void AddCosMoments(double* m, double phiDeg){
-    const double c = std::cos(phiDeg * TMath::Pi() / 180);
-    double pw = 1;
-    for (int k = 0; k < kPhiMoments; k++){pw *= c; m[k] += pw;}
-}
-inline PFit UnbinnedPFromMoments(const double* m, double n, const AMean& aMean, double loDeg = 0, double hiDeg = 360, const PhiRange* ph = nullptr, const PhiRange* ph2 = nullptr){
-    PFit r;
-    const double aFix = aMean.Mean();
-    if (n < 10 || std::fabs(aFix) < 1e-12) return r;
-    const double lo = loDeg * TMath::Pi() / 180, hi = hiDeg * TMath::Pi() / 180, span = hi - lo, as = aFix * (std::sin(hi) - std::sin(lo));
-    const auto derivs = [&](double p, double& d1, double& d2){
-        d1 = 0; d2 = 0;
-        double ak = 1; // A^k
-        for (int k = 1; k <= kPhiMoments; k++){
-            ak *= aFix;
-            const double sign = k % 2 ? 1 : -1;
-            d1 += sign * ak * std::pow(p, k - 1) * m[k - 1];
-            if (k > 1) d2 += sign * (k - 1) * ak * std::pow(p, k - 2) * m[k - 1];
-        }
-        const double nr = span + p * as;
-        d1 -= n * as / nr; d2 += n * as * as / (nr * nr);
-    };
-    const double p = NewtonP(derivs, 1e-12);
-    double d1, d2;
-    derivs(p, d1, d2);
-    r.p = p; r.err = d2 < 0 ? 1 / std::sqrt(-d2) : 0; r.ok = true;
-    AddAErrToP(r, aMean, ph, false, ph2);
-    return r;
-}
-
 // The RDataFrame string expressions (Filter, Define, Histo of a Draw string) are compiled by cling when the macro runs, with the optimizer on, and that was most of the time of the plot macros:
 // they read small trees, so the code of an expression runs for a few hundred thousand rows only. ".O 0" halved the time of Plot3D (ANA_JIT_O1=1 keeps the default). Not for the macros that read the big trees.
 inline void FastJit(){if (!std::getenv("ANA_JIT_O1")) gInterpreter->ProcessLine(".O 0");}
@@ -600,7 +561,7 @@ inline std::string BlockBins(int nCols, double targetMm, double halfRangeMm){
 // the ZDC blocks) the probability of a value is the gaussian probability of its cell, normalised over [lo, hi].
 // Parameters, in this order: mu, s, [mu2, s2, f2 if nGaus is 2], [fb if flat]. The minimiser is a plain Nelder-Mead (no Minuit2: it is not in every ROOT build) and the errors come from the
 // inverse of the finite-difference Hessian of -ln L at the minimum, like the P fit's 1 / sqrt(-d2lnL/dP2).
-constexpr int kFitNone = 0, kFitCore = 1, kFitBlocks = 2; // the gaussian fit a plot gets (Plot3D.cpp drawPlot): none, FitCore (window, background, second gaussian), FitBlocks (block cells)
+constexpr int kFitNone = 0, kFitCore = 1, kFitBlocks = 2; // the gaussian fit a plot gets (F1_2_Plot3D.cpp drawPlot): none, FitCore (window, background, second gaussian), FitBlocks (block cells)
 inline double GausCdf(double z){return 0.5 * std::erfc(-z / 1.4142135623730951);}
 
 struct UGaussModel {
@@ -864,9 +825,8 @@ inline void FitCore(TH1* h, const std::vector<double>& x){
 // The first line of a stats box is the histogram's name: "Fit results" when h has a fit function, else what (or "Statistics").
 // Set it with h->SetName right before the canvas is painted and saved, and put the old name back after, so Draw ">>name" and gDirectory->Get still find h.
 // RECONPHIBL_ESTNEU sits on the block grid: tracks along the x axis pile up at exactly 0 (a spike in the first phi bin). Every fit of the RECONPHIBL_ESTNEU
-// (the thetaReconBlock sets) only uses the protons with phi from kBlockPhiLo to kBlockPhiHi degrees, and says so on its plot.
+// (the block phi fits) only uses the protons with phi from kBlockPhiLo to kBlockPhiHi degrees, and says so on its plot.
 constexpr double kBlockPhiLo = 0, kBlockPhiHi = 360; // the fit range, the protons with phi exactly 0 or exactly 360 are left out (the spike on the block grid)
-inline bool InBlockPhi(double phi){return phi > kBlockPhiLo && phi < kBlockPhiHi;}
 inline const char* BlockPhiNote(){return "block phi fit: 0 to 360 deg, protons at exactly 0 or 360 left out (the spike)";}
 
 inline std::string StatsTitle(TH1* h, const std::string& what = ""){
@@ -923,10 +883,81 @@ inline void WritePlotNumbers(TH1* h, const std::string& plotPath, std::set<std::
     WriteFitValues(h, plotPath, started);
 }
 
-// The side box with the cut numbers on every 6_cuts pdf and the crop of every pdf to its content (cut_side_box.py, crop_pdfs.py in the run folder, plot.sh runs them last
-// too): called at the end of the macros that write 6_cuts plots, so a single macro run leaves finished plots.
+// The crop of every pdf to its content (python/crop_pdfs.py in the run folder, plot.sh runs it last
+// too): called at the end of the macros that write plots, so a single macro run leaves finished plots.
 inline void BoxAndCropPlots(){
-    if (std::getenv("PLOT_PIPELINE")) return; // plot.sh / Plot.pbs run both scripts after all lanes finished; running them here races with other lanes
-    for (const char* script : {"cut_side_box.py", "crop_pdfs.py"})
+    if (std::getenv("PLOT_PIPELINE")) return; // plot.sh / Plot.pbs run the crop after all lanes finished; running them here races with other lanes
+    for (const char* script : {"python/crop_pdfs.py"})
         if (!gSystem->AccessPathName(script)) gSystem->Exec((std::string("python3 -I ") + script + " plots").c_str());
+}
+
+// TreeColumns.h includes FitCore.h itself: include FitCore.h before TreeColumns.h, never the other way round (Columns and MakeHist are used below).
+#include "TreeColumns.h"
+
+// The name of the phi on the x axis, from the branch or expression that is fitted: CEPHI_NEUFRAME (true CE phi about the true neutron), RECONPHI_ESTNEU, RECONPHIBL_ESTNEU (block), or the lab phi (no neutron frame).
+inline std::string PhiAxisName(const std::string& phiBranch){
+    if (phiBranch.rfind("CEPhiNeu", 0) == 0) return "CEPHI_NEUFRAME";
+    if (phiBranch.rfind("phiReDLab", 0) == 0) return "recon block phi about the lab z axis";
+    if (phiBranch.rfind("phiReLab", 0) == 0) return "recon phi about the lab z axis";
+    if (phiBranch.rfind("phiReD", 0) == 0 || phiBranch.rfind("phiRelND", 0) == 0) return "RECONPHIBL_ESTNEU"; // phiRelND: the same angle in AnglesRaw (rad), used by F9_PlotReconNew.cpp
+    if (phiBranch.rfind("phiRe", 0) == 0) return "RECONPHI_ESTNEU";
+    if (phiBranch.find("LastPhiLab") != std::string::npos) return "CE phi about the lab z axis";
+    return "Angle";
+}
+// phi histogram (50 bins) of t with the polarization fit N(phi) = N0 (1 + P A_eff cos(phi)): N0 = entries / bins (the protons that pass cut) and A_eff = sum_i N_i AP(theta_i) / N0 are fixed, only P is fitted.
+// theta_i is the own theta of each of those protons, no theta bins (AEffOfTheta, FitCore.h); thetaBranch is the theta of the plot in degrees, the CETHETA_NEUFRAME for a CEPHI_NEUFRAME and the RECONTHETA_ESTNEU for a RECONPHI_ESTNEU.
+// Used by F9_PlotReconNew.cpp.
+// notes: extra text lines under the fit formula (which frame the angles are in, which neutron).
+// range: {thetaMin, thetaMax, phiHalf} branches (degrees, degrees, rad) of the est neutron range of each proton (CalcAPandT.cpp), none for a fit with no est neutron frame. With them A_eff gets the
+// theta range error (A at the two ends, AMean) and P the phi range error (PhiRange), and the side box splits the errors of A_eff and P by source.
+// range2: the same three branches for the block grid range alone (the slope error of the block position fit, a range of its own in quadrature), only on the block fits.
+inline void PhiCosFit(TCanvas* canvas, TTree* t, const std::string& phiBranch, const std::string& thetaBranch, const std::string& cut, const std::string& name, const std::string& title, const std::string& path, const std::vector<std::string>& notes = {}, const std::string& aBranch = "", const std::vector<std::string>& range = {}, const std::vector<std::string>& range2 = {}, int color = -1, double aSmearErr = 0, int nBins = 50){ // aSmearErr: the A_eff bias of the smeared recon theta, one more error term (0 none) // color: the histogram line, -1 the CE color // nBins: phi bins of the plot
+    canvas->Clear(); canvas->SetRightMargin(0.25); canvas->SetTopMargin(0.17);
+    TH1* h = MakeHist(name + "(" + std::to_string(nBins) + ",0,360)");
+    std::vector<double> phiAll;
+    AMean aMean; // A_eff of the protons of the fit, with its error
+    PhiRange phiRange, phiRange2; // the est neutron phi range of those protons, and the block grid one
+    if (h){
+        std::vector<std::string> exprs = {phiBranch, thetaBranch};
+        if (!aBranch.empty()) exprs.push_back(aBranch); // the A the model weighted each event with (LastAP), used as it is
+        const size_t iRange = exprs.size();
+        if (range.size() == 3) for (const auto& r : range) exprs.push_back(r); // est neutron range: thetaMin, thetaMax (degrees), phi half width (rad)
+        const size_t iRange2 = exprs.size();
+        if (range2.size() == 3) for (const auto& r : range2) exprs.push_back(r); // block grid range: thetaMin, thetaMax (degrees), phi half width (rad)
+        const auto cols = Columns(t, exprs, cut); // phi, theta (degrees), A (if aBranch), range (if range), range2 (if range2)
+        phiAll = cols[0];
+        const double apScale = ReadSettings().at("APScale"); // settings.csv from the sim, read once
+        for (size_t k = 0; k < phiAll.size(); k++){
+            h->Fill(phiAll[k]);
+            const double a = aBranch.empty() ? AEffOfTheta(cols[1][k], apScale) : cols[2][k];
+            const bool r1 = range.size() == 3 && std::isfinite(cols[iRange][k]) && std::isfinite(cols[iRange + 1][k]);
+            const bool r2 = range2.size() == 3 && std::isfinite(cols[iRange2][k]) && std::isfinite(cols[iRange2 + 1][k]);
+            aMean.Add(a, r1 ? AEffOfTheta(cols[iRange][k], apScale) : a, r1 ? AEffOfTheta(cols[iRange + 1][k], apScale) : a, r2 ? AEffOfTheta(cols[iRange2][k], apScale) : a, r2 ? AEffOfTheta(cols[iRange2 + 1][k], apScale) : a);
+            if (r1 && std::isfinite(cols[iRange + 2][k])) phiRange.Add(cols[iRange + 2][k]);
+            if (r2 && std::isfinite(cols[iRange2 + 2][k])) phiRange2.Add(cols[iRange2 + 2][k]);
+        }
+        aMean.smearErr = aSmearErr;
+        h->Draw();
+    }
+    if (!h || h->GetEntries() < 10){canvas->SetRightMargin(0.30); canvas->SetTopMargin(0.1); return;}
+    const double nFit = h->GetEntries();
+    h->SetTitle((title + Form(", %d phi bins of %.1f deg", nBins, 360.0 / nBins) + ";" + PhiAxisName(phiBranch) + " (degrees);Count").c_str());
+    h->SetLineColor(color >= 0 ? color : CbCE()); // CE protons are vermillion
+    const PFit uf = UnbinnedP(phiAll, aMean, kBlockPhiLo, kBlockPhiHi, nullptr, true, range.size() == 3 ? &phiRange : nullptr, range2.size() == 3 ? &phiRange2 : nullptr); // unbinned fit of every proton's phi (FitCore.h), A fixed to A_eff
+    TF1& fit = *AddUnbinnedFit(h, "fPhiCos", uf, aMean.Mean(), aMean.Err(), true);
+    fit.SetParameter(0, nFit / nBins);
+    fit.SetLineColor(kBlack);
+    h->SetMinimum(0); h->SetMaximum(1.1 * h->GetMaximum());
+    h->SetName("Fit results"); // the first line of the stats box is the histogram name
+    canvas->Update();
+    if (auto* st = (TPaveStats*)h->FindObject("stats")){st->SetX1NDC(0.76); st->SetX2NDC(0.995); st->SetY1NDC(0.55); st->SetY2NDC(0.83);}
+    TLatex tx; tx.SetNDC(); tx.SetTextSize(0.028);
+    tx.DrawLatex(0.13, 0.90, "Unbinned fit  N(#phi) #propto N_{0} (1 + P #upoint A_{eff} cos#phi) (every proton, no bins), N_{0} = protons / bins, fixed");
+    tx.DrawLatex(0.13, 0.865, Form(aBranch.empty() ? "%s = %.4f #pm %.4f (fixed, per-proton #theta),   P = %.2f #pm %.2f" : "%s = %.4f #pm %.4f (fixed, AP = LastAP of each CE),   P = %.2f #pm %.2f", AEffEq(), aMean.Mean(), aMean.Err(), uf.p, uf.err));
+    tx.SetTextSize(0.026);
+    DrawErrorBySource(aMean, uf, range.size() == 3); // side box (under the stats box): the errors of A_eff and P by source
+    for (size_t i = 0; i < notes.size(); i++) tx.DrawLatex(0.13, 0.83 - 0.034 * i, notes[i].c_str());
+    canvas->Modified(); canvas->Update();
+    canvas->SaveAs(path.c_str());
+    canvas->SetRightMargin(0.30); canvas->SetTopMargin(0.1);
 }

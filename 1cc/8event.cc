@@ -9,7 +9,7 @@ MyEventAction::~MyEventAction(){};
 
 void MyEventAction::BeginOfEventAction(const G4Event*)
 {
-    fNZdcAll = 0; fNZdcCharged = 0; fZdcKEAll = 0.; fZdcKECharged = 0.;
+    fNZdcCharged = 0; fZdcKEAll = 0.;
     gEventTrackerHits = 0; gEventTrackerTracks = 0;
     gEventHitZ = &fRunAction->hitZ; gEventHitKE = &fRunAction->hitKE;
     gEventHitZ->clear(); gEventHitKE->clear();
@@ -20,11 +20,9 @@ void MyEventAction::EndOfEventAction(const G4Event* event)
 {
     G4AnalysisManager *man = G4AnalysisManager::Instance();
     man->FillNtupleIColumn(2, 0, event->GetEventID());
-    man->FillNtupleIColumn(2, 1, fNZdcAll);
-    man->FillNtupleIColumn(2, 2, fNZdcCharged);
-    man->FillNtupleDColumn(2, 3, fZdcKEAll);
-    man->FillNtupleDColumn(2, 4, fZdcKECharged);
-    man->FillNtupleIColumn(2, 5, gEventTrackerHits);
-    man->FillNtupleIColumn(2, 6, gEventTrackerTracks);
+    man->FillNtupleIColumn(2, 1, fNZdcCharged);
+    man->FillNtupleIColumn(2, 2, gEventTrackerHits);
+    man->FillNtupleIColumn(2, 3, gEventTrackerTracks);
+    man->FillNtupleDColumn(2, 6, fZdcKEAll);
     man->AddNtupleRow(2);
 }

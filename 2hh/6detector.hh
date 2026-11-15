@@ -11,6 +11,7 @@
 #include "G4VNtupleManager.hh"
 #include "G4Event.hh"
 #include "G4Track.hh"
+#include "Randomize.hh"
 #include "G4VProcess.hh"
 
 #include <cmath>
@@ -44,6 +45,10 @@ inline thread_local G4int gEventTrackerTracks = 0;
 inline thread_local std::vector<G4double>* gEventHitZ = nullptr;
 inline thread_local std::vector<G4double>* gEventHitKE = nullptr;
 
+//chance that a tracker plane measures a charged particle that enters it (/detector/trackerEfficiency). 1 = every entry is recorded (off); below 1 each tracker entry is dropped
+//with chance 1 - this, whatever the particle, before it reaches the tracker hit counts, ParticleInfo and TrackerHitsAll. Written to settings.csv.
+inline G4double gTrackerEfficiency = 1.0;
+
 //boundaryType: 0 tracker entry, 1 tracker exit, 2 ZDC, 3 track start
 //the row is only buffered here, FlushParticleInfo (MyTrackingAction::PostUserTrackingAction) decides if the track is saved
 //only charged particles are recorded: a neutral track gets no row and no tracker hit count, whatever the call site
@@ -51,6 +56,7 @@ inline void FillParticleInfo(const G4Track *track, G4int boundaryType, const G4T
                              const G4ThreeVector &detectorCenter, G4double measuredKE)
 {
     if (track->GetParticleDefinition()->GetPDGCharge() == 0.){return;}
+    if (boundaryType == 0 && gTrackerEfficiency < 1.0 && G4UniformRand() >= gTrackerEfficiency){return;} //this tracker plane missed the particle
     gTrackRows.push_back({boundaryType, pos, KE, detectorCenter, measuredKE});
     if (boundaryType == 0){
         gEventTrackerHits++;
@@ -83,11 +89,9 @@ inline void FlushParticleInfo(const G4Track *track)
             man->FillNtupleDColumn(3, 5, row.pos.x());
             man->FillNtupleDColumn(3, 6, row.pos.y());
             man->FillNtupleDColumn(3, 7, row.pos.z());
-            man->FillNtupleDColumn(3, 8, row.KE);
-            man->FillNtupleDColumn(3, 9, row.detectorCenter.x());
-            man->FillNtupleDColumn(3, 10, row.detectorCenter.y());
-            man->FillNtupleDColumn(3, 11, row.detectorCenter.z());
-            man->FillNtupleDColumn(3, 12, row.measuredKE);
+            man->FillNtupleDColumn(3, 8, row.detectorCenter.x());
+            man->FillNtupleDColumn(3, 9, row.detectorCenter.y());
+            man->FillNtupleDColumn(3, 10, row.detectorCenter.z());
             man->AddNtupleRow(3);
         }
     }

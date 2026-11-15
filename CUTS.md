@@ -1,32 +1,23 @@
 # The cuts in the analysis
 
-## Event and track cuts (CutEvents.cpp, one `cuts/cut_<name>.root` each)
+## Event and track cuts (CutPlots.cpp (events), one `cuts/cut_<name>.root` each)
 
-- **cut_CE**: events with a carbon charge exchange. `CarbonCeCut()` selects `ChargeExchange_values` rows with `didChargeExchange > 0`, `fZ < 7700`, and fZ inside one of the four carbon blocks (2775-2975, 3525-3725, 4275-4475, 5025-5225).
+- **cut_CE**: events with a carbon charge exchange. `CarbonCeCut()` selects `ChargeExchange_values` rows with `didChargeExchange > 0`, `fZ` in front of the ZDC face (`zdcFrontZ`), and fZ inside one of the carbon blocks. The block windows come from `StackZ` and the run's `settings.csv` (nBlocks, CarbonThickness, firstBlockZ, zdcFrontZ, blockRegion), so they follow the geometry of the run.
 - **cut_ParentID**: tracks whose parent is a CE track of the same event.
 - **cut_AllEvProtons**: every proton that reaches the ZDC (`boundaryType == 2 && pdg == 2212`), for all events.
 - **cut_ParentZdc, cut_ParentTracker, cut_CEtracker, cut_CEall**: the ZDC and first-tracker protons of the CE children, and the CE outside the carbon blocks.
-- **cut_ZdcCE, cut_ZdcAllEv** (ZdcColumns.cpp): the ZDC protons above, with the Plot3D columns added.
+- **cut_Plot3DCE, cut_Plot3DAllEv, cut_Plot3DAllPart** (CutPlots.cpp (zdc), ZdcColumns): AnglesRaw rows with evClass 0, 0 or 1, and any, with the Plot3D columns (Plot3DCols.h) added.
 
-## Quality cut (ReconAngleAll.cpp, the `passQuality` branch)
+## Quality cut
 
-A proton passes if its z order is right (`zOrderOK`) and `PassesQuality` holds (QualityCut.h):
-- impact (closest approach of the fitted line to the beam axis, true position) at most 16.2162 mm.
-- impactD (same, block position) at most 16.5846 mm.
-- The true-position residual cut is switched off (limit 1e9).
+None. `ReconAngleAll.cpp` keeps every track `SeedExtend` finds (`SeedExtend.h`) and fits. `impact` and `impactD` (closest approach of the fitted line to the beam axis, true and block position, mm) stay branches, and no cut uses them.
 
-`inCE` marks the protons of an event in cut_CE. The view `Angles` is `passQuality == 1`, and `AnglesCE` is `passQuality == 1 && inCE == 1`.
+`inCE` marks the protons of an event in cut_CE. The view `Angles` is every row of `AnglesRaw`, and `AnglesCE` is `inCE == 1` (`AngleSelection`, CutFiles.h).
 
 ## Residual cut
 
-None. No plot, entry list or column applies a residual cut. `resDRms` (RMS distance of the block hits to the fitted line, mm) stays a branch. The only use of a threshold is the `3_ResCuts` sample (`resDRms < 4 mm`, `kRes4Mm`, a cut study) and the QualityStudy efficiency table.
+None. No plot, entry list or column applies a residual cut. `resDRms` (RMS distance of the block hits to the fitted line, mm) stays a branch.
 
-## KE cut (CutFiles.h, the list file `cuts/ke_gt80.root`)
+## KE cut (F9_PlotReconNew.cpp, the `2_KECUT80` and `6_megaCut` folders)
 
-- `ke_gt80`: `finalKE` above 80% of the beam KE (`finalKED` for the detector-energy plots). It is the only KE cut, and every plot uses it.
-
-## One cut file per cut of 6_cuts (CutSamples.cpp)
-
-- AnglesRaw cuts: `cut_ResCuts` (`passQuality` and `resDRms < 2`), `cut_nProtons1`, `cut_nProtons2`, `cut_zOrder`, `cut_resHalf`, `cut_nHits` (3 to 16), `cut_firstHit` (within 5 mm), `cut_thetacut` (below the ZDC corner limit).
-- Average tracker hits per plane: `cut_avgHitsPlane` (`nTrackerHitsEv == nPlanesHitEv`, at least 1 plane hit: exactly 1 charged hit on every hit plane; `6_cuts/5_avgTrackerHitsPerPlane`). `nPlanesHitEv` is the distinct tracker planes the saved tracks entered (ReconAngleAll.cpp).
-- ZDC cuts: `cut_hitZDC_CE`, `cut_hitZDC_AllEv` (reconstructed track), `cut_KECUT80_CE`, `cut_KECUT80_AllEv` (also above 80% of the beam KE).
+- The smeared total ZDC KE of the event (`zdcKEAllD`, ReconAngleAll.cpp: `zdcKEAll`, the KE of every particle at the ZDC entry, charged and neutral, smeared once with `/zdc/resStochastic` and `/zdc/resConstant`) above 80% of the beam KE. It is a whole-event cut: an event below it is dropped with all its particles. The folder titles name it.

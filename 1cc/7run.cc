@@ -28,7 +28,8 @@ MyRunAction::MyRunAction()
     //CREATING EMPTY TABLES
     G4AnalysisManager *man = G4AnalysisManager::Instance();
     //man->SetNtupleMerging(true);
-    
+    man->SetCompressionLevel(6); // ROOT default is 1; the ntuples are mostly repeated ints and doubles on a grid, which zlib shrinks well at a higher level
+
     //6detector.cc
     man->CreateNtuple("ParticleInfo", "Position when Entering/Leaving Volume");
     man->CreateNtupleIColumn("fEvent");
@@ -60,20 +61,10 @@ MyRunAction::MyRunAction()
     man->CreateNtupleDColumn("LastT");
     man->CreateNtupleDColumn("LastAP");
     man->CreateNtupleDColumn("LastPhiLab");
-    man->CreateNtupleDColumn("LastThetaModel");
-    man->CreateNtupleDColumn("nProtonSec");
-    man->CreateNtupleDColumn("PinTheta");
-    man->CreateNtupleDColumn("ModelTheta");
-    man->CreateNtupleDColumn("CMTheta");
-    man->CreateNtupleSColumn("CEVolume"); // physical volume of the post-step point of the CE step (physMat carbon, physTrackSlab silicon, physWorld vacuum)
-    man->CreateNtupleSColumn("CEPreVolume");
     man->CreateNtupleSColumn("CECreator"); // process that created the CE track ("primary" for the beam neutron)
-    man->CreateNtupleDColumn("CEPolX"); // polarization of the CE track in the world frame
+    man->CreateNtupleDColumn("CEPolX"); // polarization of the CE track in the world frame, x and y
     man->CreateNtupleDColumn("CEPolY");
-    man->CreateNtupleDColumn("CEPolZ");
-    man->CreateNtupleDColumn("CEVertexX"); // where the CE neutron was made (track->GetVertexPosition(), the gun position for the beam neutron)
-    man->CreateNtupleDColumn("CEVertexY");
-    man->CreateNtupleDColumn("CEVertexZ");
+    man->CreateNtupleDColumn("CEVertexZ"); // z where the CE neutron was made (track->GetVertexPosition(), the gun position for the beam neutron)
     man->CreateNtupleDColumn("CENDirX"); // direction of the CE neutron going into the CE (pre-step momentum direction, world frame)
     man->CreateNtupleDColumn("CENDirY");
     man->CreateNtupleDColumn("CENDirZ");
@@ -82,18 +73,16 @@ MyRunAction::MyRunAction()
     //8event.cc: one row per event with the particles that reached the ZDC (every particle, no reconstruction needed)
     man->CreateNtuple("EventSummary", "Per-event ZDC and tracker counts");
     man->CreateNtupleIColumn("fEvent");
-    man->CreateNtupleIColumn("nZdcAll"); // every particle at the ZDC entry, neutral ones too
     man->CreateNtupleIColumn("nZdcCharged");
-    man->CreateNtupleDColumn("zdcKEAll"); // summed kinetic energy at the ZDC entry (MeV)
-    man->CreateNtupleDColumn("zdcKECharged");
     man->CreateNtupleIColumn("nTrackerHitsEv"); // every charged tracker entry of every particle in the event (6detector.hh)
     man->CreateNtupleIColumn("nTrackerTracksEv"); // charged tracks that hit at least kMinTrackerPlanesSaved tracker planes
     man->CreateNtupleDColumn("hitTrackerZ", hitZ); // z (mm) of the tracker of every charged tracker hit of the event, one entry per hit, no position
     man->CreateNtupleDColumn("hitTrackerKE", hitKE); // KE (MeV) of that hit, same order
+    man->CreateNtupleDColumn("zdcKEAll"); // true KE sum at the ZDC entry (MeV) of every particle, charged and neutral (neutral = zdcKEAll - finalKE)
     man->FinishNtuple(2);
 
     //6detector.hh FlushParticleInfo: TrackerHitsAll, every charged track that entered at least one tracker plane (ParticleInfo keeps only tracks with 2+ planes or CE protons), its tracker entries only.
-    //Same columns as ParticleInfo (boundaryType is always 0), so the macros read it the same way.
+    //Same columns as ParticleInfo except fKEnergy and fDEnergy (tracker hits carry no KE, the macros take it from the ZDC rows); boundaryType is always 0.
     man->CreateNtuple("TrackerHitsAll", "Tracker entries of every charged track that hit a tracker");
     man->CreateNtupleIColumn("fEvent");
     man->CreateNtupleIColumn("TrackID");
@@ -103,11 +92,9 @@ MyRunAction::MyRunAction()
     man->CreateNtupleDColumn("fX");
     man->CreateNtupleDColumn("fY");
     man->CreateNtupleDColumn("fZ");
-    man->CreateNtupleDColumn("fKEnergy");
     man->CreateNtupleDColumn("fDx");
     man->CreateNtupleDColumn("fDy");
     man->CreateNtupleDColumn("fDz");
-    man->CreateNtupleDColumn("fDEnergy");
     man->FinishNtuple(3);
 
 };
@@ -168,7 +155,7 @@ void MyRunAction::EndOfRunAction(const G4Run* run)
         const std::map<std::string, double> defaults = {
             {"APScale", 1}, {"NPCrossSectionFactor", 1}, {"PPValue", 0}, {"PPSigma", 0}, {"resStochastic", 0.30}, {"resConstant", 0},
             {"nBlocks", 4}, {"nBlocksTracking", 2}, {"nCols_blocks", 11}, {"nRows_blocks", 11}, {"nCols_detector", 11}, {"nRows_detector", 11},
-            {"dz", 0.025}, {"CarbonThickness", 0.2}, {"randPosDetector", -1}, {"randPosScaling", 1}, {"frontTrackers", 0}, {"NoPhysics", 0}};
+            {"dz", 0.025}, {"CarbonThickness", 0.2}, {"randPosDetector", -1}, {"randPosScaling", 1}, {"trackerEfficiency", 1}, {"frontTrackers", 0}, {"NoPhysics", 0}};
 
         std::string names, row;
         for (const auto& [name, value] : values){

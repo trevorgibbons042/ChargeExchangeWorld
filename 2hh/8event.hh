@@ -22,14 +22,14 @@ public:
 
     //called once per particle at the ZDC entry (9stepping.cc), every particle counts, charged or not, reconstructed or not
     void AddZdcParticle(G4bool charged, G4double KE){
-        fNZdcAll++; fZdcKEAll += KE;
-        if (charged){fNZdcCharged++; fZdcKECharged += KE;}
+        fZdcKEAll += KE;
+        if (charged){fNZdcCharged++;}
     };
 
 private:
     MyRunAction* fRunAction = nullptr; //owner of the EventSummary hit vectors
-    G4int fNZdcAll = 0, fNZdcCharged = 0;       //particles that reached the ZDC in this event
-    G4double fZdcKEAll = 0., fZdcKECharged = 0.; //their summed kinetic energy at the ZDC entry (MeV)
+    G4int fNZdcCharged = 0;       //charged particles that reached the ZDC in this event
+    G4double fZdcKEAll = 0.;      //summed kinetic energy of every particle (charged and neutral) at the ZDC entry (MeV)
 };
 
 #endif

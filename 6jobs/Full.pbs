@@ -1,0 +1,53 @@
+#!/bin/bash -l
+#PBS -q backfill
+#PBS -A eic
+#PBS -N Full
+
+#PBS -l select=1:ncpus=128
+#PBS -l walltime=12:00:00
+#PBS -j oe
+
+#PBS -m bea
+#PBS -M tgibbons@anl.gov
+
+# One run, start to finish: the sim (./sim <macro>), then the whole analysis chain of 6jobs/run_all.sh in the run folder.
+# Submit with -v MAC=<macro in build/>,RUN=<run folder in build/root> (ScanBlocks.sh with FULL=1 does it for every block count).
+# BASE can be overridden to try it on another machine.
+BASE=${BASE:-/lcrc/project/eic/tgibbons/G4ChargeExchange}
+
+module load root
+export LD_LIBRARY_PATH=/lcrc/project/eic/tgibbons/xxhash-install/lib:$LD_LIBRARY_PATH
+export LD_LIBRARY_PATH=/lcrc/project/eic/tgibbons/gif-lib:$LD_LIBRARY_PATH
+
+echo Jobid: $PBS_JOBID
+echo Running on host `hostname`
+echo Macro: $MAC
+echo Run folder: $RUN
+
+[ -n "$RUN" ] && { [ -n "$MAC" ] || [ -n "$SKIPSIM" ]; } || { echo "submit with -v MAC=<macro>,RUN=<run folder> (SKIPSIM=1 needs no macro)"; exit 1; }
+
+# the sim; SKIPSIM=1 (-v SKIPSIM=1) reuses the output0_t*.root already in the run folder and starts at the analysis
+if [ -z "$SKIPSIM" ]; then
+    cd $BASE/build || exit 1
+    export G4FORCENUMBEROFTHREADS=128 # all 128 cpus of the node, whatever the macro's /run/numberOfThreads says
+    ./sim $MAC
+fi
+ls $BASE/build/root/$RUN/output0_t*.root > /dev/null 2>&1 || { echo "no sim output in $RUN, stopping"; exit 1; }
+
+# the analysis chain, as Analysis.pbs
+cd $BASE/build/root/$RUN || exit 1
+rsync -a --exclude __pycache__ --exclude '*_cpp.*' --exclude .DS_Store --exclude CLAUDE.md --exclude debug $BASE/5rootMacros/ $BASE/build/root/$RUN/
+rsync -a $BASE/6jobs/run_all.sh $BASE/6jobs/run_norecon.sh $BASE/6jobs/plot.sh $BASE/6jobs/run_lib.sh $BASE/6jobs/preflight.sh $BASE/6jobs/to_png.sh $BASE/build/root/$RUN/ # the scripts of the chain live in 6jobs/
+[ -n "$SKIPSIM" ] && rm -rf cuts plots # a rerun starts from clean cuts/ and plots/ (run_all.sh remakes them from the sim output)
+
+export NCPUS=128 # the script and plot.sh split these between their steps and lanes (NThreads(), FitCore.h)
+export ACLIC=${ACLIC-+O} # compiled with ACLiC (see Plot.pbs)
+
+zsh run_all.sh
+status=$?
+
+# the big cut files are only inputs of the plots, drop them when the chain is done (the sim output stays, run_all.sh makes them again)
+if [ $status -eq 0 ]; then
+    rm -f cuts/cut_angles_all.root cuts/cut_angles_all_1.root cuts/cut_Plot3DAllPart.root
+fi
+exit $status

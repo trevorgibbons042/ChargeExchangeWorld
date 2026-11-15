@@ -1,6 +1,7 @@
 #!/bin/bash
 # Block scan: one sim run per block count (1, 3, 5, 7, 9) and beam energy (25, 50, 137.5 GeV), the total CE thickness split evenly over the blocks.
 # Writes one macro per count into build/ from a template macro and submits each with Run.sh.
+# COUNTS and ENERGIES (environment) replace the block counts and the energy:sigma list. FULL=1 submits each run as one Full.pbs job instead (the sim, then the whole analysis chain of 6jobs/run_all.sh).
 # Usage: bash ScanBlocks.sh <template macro in build/> <total thickness in m> [dz in m, default 0.025], e.g. bash ScanBlocks.sh run_0.mac 0.4
 # EACH=1 (what ScanBlocksEach.sh sets): the second argument is the thickness of every block, so the total grows with the count (n x thickness), and the folder is _<thickness>mEach.
 # Each macro is the template with /detector/nBlocks, /detector/CarbonThickness (total/n, or the block thickness with EACH=1) and /detector/dz set before /run/reinitializeGeometry,
@@ -15,8 +16,8 @@ cd "$(dirname "$0")" || exit 1
 grep -q '^/run/reinitializeGeometry' "../build/$TEMPLATE" || { echo "$TEMPLATE has no /run/reinitializeGeometry line"; exit 1; }
 grep -q '^/output/folder ' "../build/$TEMPLATE" || { echo "$TEMPLATE has no /output/folder line"; exit 1; }
 
-COUNTS="1 3 5 7 9"
-ENERGIES="25:0.92 50:1.8 137.5:5" # beam kinetic energy:Gaussian sigma, both in GeV
+COUNTS=${COUNTS:-1 3 5 7 9} # block counts; override from the environment, e.g. COUNTS="1 2 3 4 5 6 7 8 9 10 11"
+ENERGIES=${ENERGIES:-25:0.92 50:1.8 137.5:5} # beam kinetic energy:Gaussian sigma, both in GeV; override from the environment, e.g. ENERGIES="25:0.92"
 TRACKER_HALF=0.00025 # tracker planes are 500 um thick (2construction.cc)
 ZDC_FRONT=7.7 # m, front face of the ZDC: the blocks sit in evenly spaced slots from z = 0 to here
 
@@ -41,13 +42,19 @@ for es in $ENERGIES; do
         tag="${e}GeV_${n}block_${UNIT}"
         mac="${BASE}_${tag}.mac"
         awk -v n="$n" -v t="$t" -v dz="$DZ" -v e="$e" -v esd="$esd" -v suffix="_${UNIT}/${e}GeV/${n}block" '
-            /^#?\/detector\/(nBlocks|CarbonThickness|dz) / { next }
+            /^#?\/detector\/(nBlocks|CarbonThickness|TotalCarbonThickness|dz) / { next }
             /^#?\/randGun\/(Energy|EnergySD) / { next }
-            /^\/run\/reinitializeGeometry/ { print "/detector/nBlocks " n; print "/detector/CarbonThickness " t; print "/detector/dz " dz; print "/randGun/Energy " e; print "/randGun/EnergySD " esd }
+            /^\/run\/reinitializeGeometry/ { print "/detector/nBlocks " n; print "/detector/TotalCarbonThickness 0"; print "/detector/CarbonThickness " t; print "/detector/dz " dz; print "/randGun/Energy " e; print "/randGun/EnergySD " esd }
             /^\/output\/folder / { print $0 suffix; next }
             { print }
         ' "../build/$TEMPLATE" > "../build/$mac"
         echo "$mac: $e GeV (sigma $esd), $n blocks x $t m${EACH:+ (total $(awk -v t="$t" -v n="$n" 'BEGIN{printf "%.6g", t*n}') m)}"
-        bash Run.sh "$mac"
+        if [ -n "$FULL" ]; then
+            # FULL=1: one job per run does the sim and then the whole analysis chain (Full.pbs)
+            folder=$(awk '/^\/output\/folder /{print $2}' "../build/$TEMPLATE")
+            qsub -N "Full_${e}GeV_${n}block" -v MAC="$mac",RUN="${folder}_${UNIT}/${e}GeV/${n}block" Full.pbs
+        else
+            bash Run.sh "$mac"
+        fi
     done
 done

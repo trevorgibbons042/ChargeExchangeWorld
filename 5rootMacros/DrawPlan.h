@@ -1,86 +1,67 @@
 #pragma once
-// TTree::Draw compatible lazy requests, run in one multithreaded RDataFrame pass per tree (spec section B).
-//   book:   h = plan.H(tree, "e1:e2>>name(nx,lo,hi,ny,lo,hi)", selection, listCut), n = plan.N(tree, selection), c = plan.C(tree, {"e1", "e2"}, selection)
+// TTree::Draw compatible lazy requests, run in one multithreaded RDataFrame pass per tree.
+//   book:   h = plan.H(tree, "expr>>name", selection, &model) (1D, fills the given model histogram), c = plan.C(tree, {"e1", "e2"}, selection)
 //   run:    plan.Run()   one event loop per tree (ROOT::EnableImplicitMT(NThreads())), values collected with their entry numbers
-//   render: h.Get(), n.Get(), c.V(0) ... the histograms are filled on the main thread in entry order, the order TTree::Draw fills in, so the stats sums match it.
-// All TH1/TH2 filling, fits and graphics stay on the main thread; only the event loop is multithreaded. The entry numbers come from WithEntryNumber (FitCore.h), not rdfentry_, which is wrong under
+//   render: h.Get(), c.V(0) ... the histograms are filled on the main thread in entry order, the order TTree::Draw fills in, so the stats sums match it.
+// All TH1 filling, fits and graphics stay on the main thread; only the event loop is multithreaded. The entry numbers come from WithEntryNumber (FitCore.h), not rdfentry_, which is wrong under
 // implicit MT on a tree with several clusters. A request that cannot be translated
-// runs as the plain TTree::Draw on the main thread during Run(), with a one-time warning. The fallback draws with the effective selection (selection and listCut), so the caller does not
-// need to set the TEntryList on the tree; listCut is the string the list stands for.
+// runs as the plain TTree::Draw on the main thread during Run(), with a one-time warning.
 #include <TError.h>
 #include <TH1.h>
-#include <TH1D.h>
 #include <TH1F.h>
 #include <TH2.h>
-#include <TH2D.h>
 #include <TH2F.h>
-#include <TROOT.h>
 #include <TTree.h>
-#include <TChain.h>
-#include <TEntryList.h>
-#include <TLeaf.h>
-#include <TSystem.h>
 #include <ROOT/RDataFrame.hxx>
-#include <ROOT/RVec.hxx>
-#include <ROOT/RDFHelpers.hxx>
 
 #include <algorithm>
-#include <cmath>
+#include <cctype>
 #include <cstdlib>
-#include <map>
 #include <memory>
 #include <numeric>
-#include <set>
-#include <sstream>
 #include <string>
 #include <vector>
 
 #include "FitCore.h" // NThreads
 
-struct HistReq; struct CountReq; struct ColsReq;
+struct HistReq; struct ColsReq;
 
 class DrawPlan {
 public:
     struct Hist  {std::shared_ptr<HistReq> r; TH1* Get() const;};
-    struct Count {std::shared_ptr<CountReq> r; Long64_t Get() const;};
     struct Cols  {std::shared_ptr<ColsReq> r; Long64_t N() const; const double* V(int i) const;};
 
-    Hist  H(TTree* t, const std::string& varexp, const std::string& selection = "", const std::string& listCut = "", TH1* model = nullptr, bool weighted = false);
-    Count N(TTree* t, const std::string& selection, const std::string& listCut = "");
-    Cols  C(TTree* t, const std::vector<std::string>& exprs, const std::string& selection = "", const std::string& listCut = "");
+    Hist  H(TTree* t, const std::string& varexp, const std::string& selection, TH1* model);
+    Cols  C(TTree* t, const std::vector<std::string>& exprs, const std::string& selection = "");
     void Run();
     static bool ForceFallback(){const char* e = std::getenv("DRAWPLAN_FALLBACK"); return e && std::string(e) == "1";} // test switch: every request runs as plain TTree::Draw
 
-    struct Group {                       // requests on one tree with the same effective selection: one Filter node
-        TTree* tree = nullptr; std::string sel; bool weighted = false;
+    struct Group {                       // requests on one tree with the same selection: one Filter node
+        TTree* tree = nullptr; std::string sel;
         std::vector<std::string> exprs;  // column expressions, deduplicated
-        bool needRows = false;
-        std::vector<std::vector<double>> col; // after Run: entry-sorted, one vector per expression, the weight last if weighted
+        std::vector<std::vector<double>> col; // after Run: entry-sorted, one vector per expression
         Long64_t n = 0;
         bool done = false, failed = false;
         int Index(const std::string& e){
             for (size_t i = 0; i < exprs.size(); i++) if (exprs[i] == e) return (int)i;
             exprs.push_back(e); return (int)exprs.size() - 1;
         }
-        size_t stride() const {return 1 + exprs.size() + (weighted ? 1 : 0);}
+        size_t stride() const {return 1 + exprs.size();}
     };
     std::vector<std::shared_ptr<Group>> groups;
-    std::vector<std::shared_ptr<HistReq>> hists; std::vector<std::shared_ptr<CountReq>> counts; std::vector<std::shared_ptr<ColsReq>> cols;
+    std::vector<std::shared_ptr<HistReq>> hists; std::vector<std::shared_ptr<ColsReq>> cols;
     bool unordered = false; // set before Run(): the rows of a many-cluster tree may come back in any order (no rdfentry_), so it is read on all threads; the columns of a row stay together
 };
 
 struct HistReq {
-    TTree* t = nullptr; std::string varexp, sel, listCut, name; TH1* model = nullptr; bool weighted = false;
-    std::shared_ptr<DrawPlan::Group> g; int ix = -1, iy = -1; // column index of x and y
-    int dim = 1; std::vector<double> bins; // explicit bins, empty with a model
+    TTree* t = nullptr; std::string varexp, sel, name; TH1* model = nullptr;
+    std::shared_ptr<DrawPlan::Group> g; int ix = -1; // column index of x
     TH1* result = nullptr; bool done = false;
 };
-struct CountReq {TTree* t = nullptr; std::string sel, listCut; std::shared_ptr<DrawPlan::Group> g; Long64_t n = 0; bool done = false;};
-struct ColsReq  {TTree* t = nullptr; std::vector<std::string> exprs; std::string sel, listCut; std::shared_ptr<DrawPlan::Group> g; std::vector<int> ix;
+struct ColsReq  {TTree* t = nullptr; std::vector<std::string> exprs; std::string sel; std::shared_ptr<DrawPlan::Group> g; std::vector<int> ix;
                  std::vector<std::vector<double>> v; Long64_t n = 0; bool done = false;};
 
 inline TH1* DrawPlan::Hist::Get() const {return r->result;}
-inline Long64_t DrawPlan::Count::Get() const {return r->n;}
 inline Long64_t DrawPlan::Cols::N() const {return r->n;}
 inline const double* DrawPlan::Cols::V(int i) const {return r->v.empty() ? r->g->col.at(r->ix.at(i)).data() : r->v.at(i).data();} // v only holds the fallback copy
 
@@ -93,100 +74,44 @@ inline std::string Trim(const std::string& s){
     return s.substr(a, b - a);
 }
 
-// "a:b" at depth 0, not "::", not inside quotes
-inline std::vector<std::string> SplitColon(const std::string& e){
-    std::vector<std::string> out; std::string cur; int depth = 0; char q = 0;
-    for (size_t i = 0; i < e.size(); i++){
-        const char c = e[i];
-        if (q){cur += c; if (c == q) q = 0; continue;}
-        if (c == '"' || c == '\''){q = c; cur += c; continue;}
-        if (c == '(' || c == '[') depth++; else if (c == ')' || c == ']') depth--;
-        if (c == ':' && depth == 0){
-            if (i + 1 < e.size() && e[i + 1] == ':'){cur += "::"; i++; continue;}
-            out.push_back(Trim(cur)); cur.clear(); continue;
-        }
-        cur += c;
-    }
-    out.push_back(Trim(cur));
-    return out;
+// the selection in parentheses, "" when it is empty
+inline std::string Effective(const std::string& sel){
+    const std::string a = Trim(sel);
+    return a.empty() ? "" : "(" + a + ")";
 }
 
-inline std::string Effective(const std::string& sel, const std::string& listCut){
-    std::string a = Trim(sel), b = Trim(listCut);
-    if (a.empty()) return b.empty() ? "" : "(" + b + ")";
-    if (b.empty()) return "(" + a + ")";
-    return "(" + a + ") && (" + b + ")";
-}
-
-inline bool ParseBins(const std::string& spec, std::vector<double>& bins){ // "(nx,lo,hi[,ny,lo,hi])"
-    bins.clear();
-    if (spec.size() < 2 || spec.front() != '(' || spec.back() != ')') return false;
-    std::stringstream ss(spec.substr(1, spec.size() - 2)); std::string item;
-    while (std::getline(ss, item, ',')){
-        char* end = nullptr; const double v = std::strtod(item.c_str(), &end);
-        if (end == item.c_str()) return false;
-        bins.push_back(v);
-    }
-    return bins.size() == 3 || bins.size() == 6;
+// the group of a tree and selection, made when missing
+inline std::shared_ptr<DrawPlan::Group> PlainGroup(std::vector<std::shared_ptr<DrawPlan::Group>>& groups, TTree* t, const std::string& eff){
+    for (auto& o : groups) if (o->tree == t && o->sel == eff) return o;
+    auto g = std::make_shared<DrawPlan::Group>(); g->tree = t; g->sel = eff; groups.push_back(g);
+    return g;
 }
 
 } // namespace DrawPlanImpl
 
-inline DrawPlan::Hist DrawPlan::H(TTree* t, const std::string& varexp, const std::string& selection, const std::string& listCut, TH1* model, bool weighted){
+inline DrawPlan::Hist DrawPlan::H(TTree* t, const std::string& varexp, const std::string& selection, TH1* model){
     using namespace DrawPlanImpl;
     auto r = std::make_shared<HistReq>();
-    r->t = t; r->varexp = varexp; r->sel = selection; r->listCut = listCut; r->model = model; r->weighted = weighted;
+    r->t = t; r->varexp = varexp; r->sel = selection; r->model = model;
     const size_t arrow = varexp.find(">>");
-    std::string left = arrow == std::string::npos ? varexp : varexp.substr(0, arrow), right = arrow == std::string::npos ? "" : Trim(varexp.substr(arrow + 2));
-    const size_t par = right.find('(');
-    r->name = Trim(par == std::string::npos ? right : right.substr(0, par));
-    const auto parts = SplitColon(left);
-    const bool binsOk = par == std::string::npos ? model != nullptr : ParseBins(right.substr(par), r->bins);
-    if (arrow == std::string::npos || r->name.empty() || parts.size() < 1 || parts.size() > 2 || !binsOk || (par != std::string::npos && model)){
-        Error("DrawPlan::H", "unsupported varexp '%s' (needs >>name(bins) or a model with >>name)", varexp.c_str());
+    const std::string left = Trim(arrow == std::string::npos ? varexp : varexp.substr(0, arrow));
+    r->name = arrow == std::string::npos ? "" : Trim(varexp.substr(arrow + 2));
+    if (!model || r->name.empty() || r->name.find('(') != std::string::npos || left.empty()){
+        Error("DrawPlan::H", "unsupported varexp '%s' (needs expr>>name and a model)", varexp.c_str());
         throw std::runtime_error("DrawPlan: unsupported varexp");
     }
-    r->dim = (int)parts.size();
-    if (!r->bins.empty() && (int)r->bins.size() != 3 * r->dim){Error("DrawPlan::H", "bins do not match the dimension: %s", varexp.c_str()); throw std::runtime_error("DrawPlan: bins");}
-    auto g = std::make_shared<Group>();
-    g->tree = t; g->weighted = weighted;
-    // a weight is multiplied by the list cut, not and-ed with it
-    g->sel = weighted && !Trim(selection).empty() && !Trim(listCut).empty() ? "(" + Trim(selection) + ")*(" + Trim(listCut) + ")" : Effective(selection, listCut);
-    bool shared = false;
-    for (auto& o : groups) if (!shared && o->tree == t && o->sel == g->sel && o->weighted == weighted){g = o; shared = true;}
-    if (!shared) groups.push_back(g);
-    g->needRows = true;
+    auto g = PlainGroup(groups, t, Effective(selection));
     r->g = g;
-    // x is the last expression, y the first of two ("y:x"), like TTree::Draw
-    r->ix = g->Index(parts.back());
-    if (r->dim == 2) r->iy = g->Index(parts.front());
+    r->ix = g->Index(left);
     hists.push_back(r);
     return {r};
 }
 
-namespace DrawPlanImpl {
-// the unweighted group of a tree and effective selection, made when missing
-inline std::shared_ptr<DrawPlan::Group> PlainGroup(std::vector<std::shared_ptr<DrawPlan::Group>>& groups, TTree* t, const std::string& eff){
-    for (auto& o : groups) if (o->tree == t && o->sel == eff && !o->weighted) return o;
-    auto g = std::make_shared<DrawPlan::Group>(); g->tree = t; g->sel = eff; groups.push_back(g);
-    return g;
-}
-} // namespace DrawPlanImpl
-
-inline DrawPlan::Count DrawPlan::N(TTree* t, const std::string& selection, const std::string& listCut){
-    using namespace DrawPlanImpl;
-    auto r = std::make_shared<CountReq>();
-    r->t = t; r->sel = selection; r->listCut = listCut;
-    r->g = PlainGroup(groups, t, Effective(selection, listCut)); counts.push_back(r);
-    return {r};
-}
-
-inline DrawPlan::Cols DrawPlan::C(TTree* t, const std::vector<std::string>& exprs, const std::string& selection, const std::string& listCut){
+inline DrawPlan::Cols DrawPlan::C(TTree* t, const std::vector<std::string>& exprs, const std::string& selection){
     using namespace DrawPlanImpl;
     auto r = std::make_shared<ColsReq>();
-    r->t = t; r->exprs = exprs; r->sel = selection; r->listCut = listCut;
-    auto g = PlainGroup(groups, t, Effective(selection, listCut));
-    g->needRows = true;
+    r->t = t; r->exprs = exprs; r->sel = selection;
+    auto g = PlainGroup(groups, t, Effective(selection));
     r->g = g;
     for (const auto& e : exprs) r->ix.push_back(g->Index(e));
     cols.push_back(r);
@@ -195,36 +120,13 @@ inline DrawPlan::Cols DrawPlan::C(TTree* t, const std::vector<std::string>& expr
 
 namespace DrawPlanImpl {
 
-// Fill like TTree::Draw: line, fill and marker attributes of the tree, in gDirectory, an old object of that name replaced.
-inline TH1* MakeHist(HistReq& r){
-    if (r.model) return r.model;
-    if (TObject* old = gDirectory ? gDirectory->Get(r.name.c_str()) : nullptr) delete old;
-    std::string title = r.varexp.substr(0, r.varexp.find(">>"));
-    if (!r.sel.empty()) title += " {" + r.sel + "}";
-    TH1* h;
-    if (r.dim == 1) h = new TH1F(r.name.c_str(), title.c_str(), (int)r.bins[0], r.bins[1], r.bins[2]);
-    else h = new TH2F(r.name.c_str(), title.c_str(), (int)r.bins[0], r.bins[1], r.bins[2], (int)r.bins[3], r.bins[4], r.bins[5]);
-    h->SetDirectory(gDirectory);
-    r.t->TAttLine::Copy(*h); r.t->TAttFill::Copy(*h); r.t->TAttMarker::Copy(*h);
-    return h;
-}
-
-// The fallback ignores the tree's entry list like the event loop does (the list is in the selection as listCut).
-struct NoEntryList {
-    TTree* t; TEntryList* l;
-    explicit NoEntryList(TTree* tree) : t(tree), l(tree->GetEntryList()) {t->SetEntryList(nullptr);}
-    ~NoEntryList(){t->SetEntryList(l);}
-};
-
 inline void FallbackHist(HistReq& r){
-    NoEntryList noList(r.t);
-    // Draw fills the object of the >>name in the directory: put a model there for the call, or it would make a new histogram and leave the model empty
-    TDirectory* modelDir = r.model ? r.model->GetDirectory() : nullptr;
-    if (r.model) r.model->SetDirectory(gDirectory);
-    r.t->Draw(r.varexp.c_str(), r.g->sel.c_str(), "goff"); // the effective selection: listCut is not on the tree
-    if (r.model) r.model->SetDirectory(modelDir);
-    r.result = r.model ? r.model : (TH1*)(gDirectory->Get(r.name.c_str()) ? gDirectory->Get(r.name.c_str()) : r.t->GetHistogram());
-    r.done = true;
+    // Draw fills the object of the >>name in the directory: put the model there for the call, or it would make a new histogram and leave the model empty
+    TDirectory* modelDir = r.model->GetDirectory();
+    r.model->SetDirectory(gDirectory);
+    r.t->Draw(r.varexp.c_str(), r.g->sel.c_str(), "goff");
+    r.model->SetDirectory(modelDir);
+    r.result = r.model; r.done = true;
 }
 
 } // namespace DrawPlanImpl
@@ -235,51 +137,40 @@ inline void DrawPlan::Run(){
     const bool wasMT = ROOT::IsImplicitMTEnabled();
     if (!wasMT) ROOT::EnableImplicitMT(NThreads());
 
-    // 1. book one filter node + one row collector (or Count) per group, all run together
-    struct Booked {std::shared_ptr<Group> g; std::vector<std::vector<double>>* buf = nullptr; std::shared_ptr<ROOT::RDF::RResultPtr<ULong64_t>> cnt; std::shared_ptr<ROOT::RDF::RResultPtr<std::vector<std::vector<double>>>> rows; bool ordFree = false;};
+    // 1. book one filter node + one row collector per group, all run together
+    struct Booked {std::shared_ptr<Group> g; std::shared_ptr<ROOT::RDF::RResultPtr<std::vector<std::vector<double>>>> rows; bool ordFree = false;};
     std::vector<Booked> booked;
     std::vector<ROOT::RDF::RResultHandle> handles;
     std::vector<std::unique_ptr<ROOT::RDataFrame>> dfs;
-    std::map<TTree*, TEntryList*> savedLists;
     auto pending = groups;
     for (auto& g : pending){
         if (g->done) continue;
         bool want = false;
         for (auto& r : hists) if (r->g == g && !r->done) want = true;
-        for (auto& r : counts) if (r->g == g && !r->done) want = true;
         for (auto& r : cols) if (r->g == g && !r->done) want = true;
         if (!want) {g->done = true; continue;}
         const bool ordFree = unordered && MultiCluster(g->tree); // no entry number is read: the rows of the tree are not put back in entry order
         if (ForceFallback()){g->failed = true; continue;}
         try {
-            if (!savedLists.count(g->tree)){savedLists[g->tree] = g->tree->GetEntryList(); g->tree->SetEntryList(nullptr);} // the list is in the selection (listCut)
             dfs.emplace_back(new ROOT::RDataFrame(*g->tree)); // the number of slots is fixed when the RDataFrame is built
             auto& hv = handles;
             ROOT::RDF::RNode node = *dfs.back();
             if (!ordFree) node = WithEntryNumber(node, dfs.back()->GetNSlots()); // exact entry numbers, before any Filter
-            std::string wexpr;
-            if (g->weighted){ // the selection is the weight: entries with weight 0 are dropped
-                node = node.Define("__w", "(double)(" + g->sel + ")").Filter("__w != 0");
-            } else if (!g->sel.empty()) node = node.Filter(g->sel + " != 0");
+            if (!g->sel.empty()) node = node.Filter(g->sel + " != 0");
             Booked b; b.g = g; b.ordFree = ordFree;
-            if (!g->needRows){ // N only
-                b.cnt = std::make_shared<ROOT::RDF::RResultPtr<ULong64_t>>(node.Count()); hv.push_back(*b.cnt);
-            } else {
-                std::string list = ordFree ? "ROOT::RVecD{0.0" : "ROOT::RVecD{(double)entryNo"; // column 0 is not read when the order is free
-                for (size_t i = 0; i < g->exprs.size(); i++) list += ", (double)(" + g->exprs[i] + ")";
-                if (g->weighted) list += ", __w";
-                list += "}";
-                node = node.Define("__v", list);
-                // Columnar per slot: column 0 is the entry, then the values, the weight last. The merger appends column by column and frees each slot column at once,
-                // and the sort below moves one column at a time, so the peak is about 1x the group, not the 2x of a flat buffer plus its sorted copy.
-                if (const char* gb = std::getenv("DRAWPLAN_MEM_GB")){
-                    const double upper = (double)g->tree->GetEntries() * g->stride() * sizeof(double) / 1e9;
-                    if (upper > std::atof(gb)) Warning("DrawPlan", "group %s: up to %.1f GB if every entry passes (DRAWPLAN_MEM_GB=%s)", g->sel.c_str(), upper, gb);
-                }
-                using Cols2D = RowCols; // FitCore.h
-                auto r = node.Aggregate([](Cols2D& acc, const ROOT::RVecD& v){RowsAppend(acc, v);}, [](std::vector<Cols2D>& slots){RowsMerge(slots);}, "__v", Cols2D());
-                b.rows = std::make_shared<ROOT::RDF::RResultPtr<Cols2D>>(r); hv.push_back(r);
+            std::string list = ordFree ? "ROOT::RVecD{0.0" : "ROOT::RVecD{(double)entryNo"; // column 0 is not read when the order is free
+            for (size_t i = 0; i < g->exprs.size(); i++) list += ", (double)(" + g->exprs[i] + ")";
+            list += "}";
+            node = node.Define("__v", list);
+            // Columnar per slot: column 0 is the entry, then the values. The merger appends column by column and frees each slot column at once,
+            // and the sort below moves one column at a time, so the peak is about 1x the group, not the 2x of a flat buffer plus its sorted copy.
+            if (const char* gb = std::getenv("DRAWPLAN_MEM_GB")){
+                const double upper = (double)g->tree->GetEntries() * g->stride() * sizeof(double) / 1e9;
+                if (upper > std::atof(gb)) Warning("DrawPlan", "group %s: up to %.1f GB if every entry passes (DRAWPLAN_MEM_GB=%s)", g->sel.c_str(), upper, gb);
             }
+            using Cols2D = RowCols; // FitCore.h
+            auto r = node.Aggregate([](Cols2D& acc, const ROOT::RVecD& v){RowsAppend(acc, v);}, [](std::vector<Cols2D>& slots){RowsMerge(slots);}, "__v", Cols2D());
+            b.rows = std::make_shared<ROOT::RDF::RResultPtr<Cols2D>>(r); hv.push_back(r);
             booked.push_back(b);
         } catch (const std::exception& e){
             if (!warned){warned = true; Warning("DrawPlan", "cannot book %s (%s): plain TTree::Draw", g->sel.c_str(), e.what());}
@@ -293,13 +184,11 @@ inline void DrawPlan::Run(){
         }
         catch (const std::exception& e){ranOk = false; Warning("DrawPlan", "event loop failed (%s): plain TTree::Draw for every request", e.what());}
     }
-    for (auto& kv : savedLists) kv.first->SetEntryList(kv.second);
     if (!wasMT) ROOT::DisableImplicitMT();
     if (!ranOk) for (auto& b : booked) b.g->failed = true;
 
     // 2. sort every collected group by entry
     if (ranOk) for (auto& b : booked){
-        if (!b.g->needRows){b.g->n = (Long64_t)b.cnt->GetValue(); b.g->done = true; continue;}
         const size_t stride = b.g->stride();
         std::vector<std::vector<double>> src; src.swap(**b.rows); // take the buffers, so each column can be freed as it is sorted
         src.resize(stride);
@@ -325,27 +214,16 @@ inline void DrawPlan::Run(){
     for (auto& r : hists){
         if (r->done) continue;
         if (!r->g->done || r->g->failed){FallbackHist(*r); continue;}
-        TH1* h = MakeHist(*r);
-        if (r->model) h->Reset();
+        TH1* h = r->model;
+        h->Reset();
         const Group& g = *r->g;
-        const bool two = r->dim == 2;
-        const double* xc = g.col[r->ix].data(); const double* yc = two ? g.col[r->iy].data() : nullptr;
-        const double* wc = g.weighted ? g.col.back().data() : nullptr;
-        for (Long64_t k = 0; k < g.n; k++){
-            const double w = wc ? wc[k] : 1.0;
-            if (two) ((TH2*)h)->Fill(xc[k], yc[k], w); else h->Fill(xc[k], w);
-        }
+        const double* xc = g.col[r->ix].data();
+        for (Long64_t k = 0; k < g.n; k++) h->Fill(xc[k]);
         r->result = h; r->done = true;
-    }
-    for (auto& r : counts){
-        if (r->done) continue;
-        if (!r->g->done || r->g->failed){NoEntryList noList(r->t); r->n = r->t->GetEntries(r->g->sel.c_str()); r->done = true; continue;}
-        r->n = r->g->n; r->done = true;
     }
     for (auto& r : cols){
         if (r->done) continue;
         if (!r->g->done || r->g->failed){
-            NoEntryList noList(r->t);
             r->v.assign(r->exprs.size(), {});
             for (size_t i = 0; i < r->exprs.size(); i++){
                 r->t->SetEstimate(r->t->GetEntries() + 1);
@@ -361,6 +239,5 @@ inline void DrawPlan::Run(){
         for (auto& r : cols) if (r->g == g) used = true;
         if (!used) std::vector<std::vector<double>>().swap(g->col);
     }
-    groups.clear(); hists.clear(); counts.clear(); cols.clear(); // handles stay valid (shared_ptr)
+    groups.clear(); hists.clear(); cols.clear(); // handles stay valid (shared_ptr)
 }
-

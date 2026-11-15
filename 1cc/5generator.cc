@@ -65,8 +65,9 @@ void MyPrimaryGenerator::GeneratePrimaries(G4Event *anEvent)
     G4double randZ = 0;
 
     if (randPAngle == 1){
-    theta = .005*G4UniformRand();
-    phi = twopi*G4UniformRand();
+    const G4double ax = G4RandGauss::shoot(0, 0.001), ay = G4RandGauss::shoot(0, 0.001); //beam divergence: gaussian, sigma 1 mrad in x and in y (rad)
+    theta = std::atan(std::hypot(std::tan(ax), std::tan(ay)));
+    phi = std::atan2(std::tan(ay), std::tan(ax));
     }
 
     G4ThreeVector mom(std::sin(theta)*std::cos(phi),
