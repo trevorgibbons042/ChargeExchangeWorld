@@ -6,6 +6,11 @@
 /detector/nCols_detector 51
 /detector/nRows_detector 51
 #/detector/nBlocks
+#/detector/TotalCarbonThickness
+#/detector/firstBlockZ
+#/detector/zdcFrontZ
+#/detector/blockRegion
+#/detector/trackerEfficiency
 #/detector/randPosDetector
 #/detector/randPosScaling
 /run/reinitializeGeometry

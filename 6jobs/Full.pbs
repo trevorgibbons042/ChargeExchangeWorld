@@ -31,6 +31,7 @@ if [ -z "$SKIPSIM" ]; then
     cd $BASE/build || exit 1
     export G4FORCENUMBEROFTHREADS=128 # all 128 cpus of the node, whatever the macro's /run/numberOfThreads says
     ./sim $MAC
+    bash $BASE/6jobs/stash_mac.sh "$MAC" $? # a finished run's macro moves into its run folder, so build/ keeps only the templates
 fi
 ls $BASE/build/root/$RUN/output0_t*.root > /dev/null 2>&1 || { echo "no sim output in $RUN, stopping"; exit 1; }
 

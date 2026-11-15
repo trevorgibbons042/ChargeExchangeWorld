@@ -27,6 +27,11 @@ for i in range(totalfiles):
 /detector/nCols_detector {variable}
 /detector/nRows_detector {variable}
 #/detector/nBlocks
+#/detector/TotalCarbonThickness
+#/detector/firstBlockZ
+#/detector/zdcFrontZ
+#/detector/blockRegion
+#/detector/trackerEfficiency
 #/detector/randPosDetector
 #/detector/randPosScaling
 /run/reinitializeGeometry
