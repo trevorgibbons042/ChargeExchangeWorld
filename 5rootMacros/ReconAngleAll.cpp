@@ -144,7 +144,7 @@ static double ImpactToAxis(double x0, double y0, double bx, double by){
 // The fit uses the hits of one track found by seed and extend: seeds are pairs of hits in the 2 lowest tracker planes hit, each extended through the other planes with the nearest hit in a 3 sigma road, at least 2 planes, any particle
 // (positions come from TrackerHitsAll, every charged track that entered a tracker, so every hit has its position). evClass: 0 every used hit is a CE child proton (CE only), 1 CE child and other particles (CE mix), 2 no CE child (non-CE).
 // isFromCE = 1 when the fit used a CE child hit (evClass 0 or 1), inCE = 1 when the event had a carbon CE at all (truth).
-// finalKE / finalKED are the true and smeared KE summed over the charged particles that reached the ZDC in the event (ParticleInfo boundaryType 2), NAN without one.
+// zdcKEAll / zdcKEAllD are the true and smeared KE summed over all particles (charged and neutral) that reached the ZDC in the event, -1 / NAN without the sim column.
 // No cut is applied here.
 static void ReconAngleAllFit(){
     using Clock = std::chrono::steady_clock;
@@ -167,7 +167,7 @@ static void ReconAngleAllFit(){
 
     // Per-event counts of the sim (EventSummary: every event, no reconstruction needed): event -> charged particles at the ZDC, tracker entries of all charged particles, charged tracks that hit 2+ tracker planes.
     // -1 for an event without a row, a sim without the tree or without that column.
-    // zdcKEAll: the true KE summed over every particle (charged and neutral) at the ZDC entry, MeV (finalKE is the charged ones only)
+    // zdcKEAll: the true KE summed over every particle (charged and neutral) at the ZDC entry, MeV
     struct EvCounts {int zdcCharged = -1, trackerHits = -1, trackerTracks = -1; double zdcKEAll = -1;};
     std::vector<EvCounts> evCountsOf;
     {
@@ -187,26 +187,6 @@ static void ReconAngleAllFit(){
             for (const auto& rows : slotRows) for (const auto& r : rows) maxEvent = std::max(maxEvent, r.first);
             evCountsOf.assign(maxEvent + 1, EvCounts());
             for (const auto& rows : slotRows) for (const auto& r : rows) evCountsOf[r.first] = r.second;
-        }
-    }
-
-    // Per event the true and smeared KE summed over the charged particles that reached the ZDC (ParticleInfo boundaryType 2), NAN without one. A typed Filter lambda, not a Filter string (JIT on the Mac).
-    struct ZdcSum {double ke = NAN, ked = NAN;};
-    std::vector<ZdcSum> zdcOf;
-    {
-        TChain pi("ParticleInfo");
-        pi.Add("output0_t*.root");
-        ROOT::RDataFrame dfPi(pi);
-        std::vector<std::vector<std::tuple<int, double, double>>> slotRows(dfPi.GetNSlots());
-        dfPi.Filter([](int boundaryType){return boundaryType == 2;}, {"boundaryType"})
-            .ForeachSlot([&](unsigned slot, int eventID, double ke, double ked){slotRows[slot].emplace_back(eventID, ke, ked);}, {"fEvent", "fKEnergy", "fDEnergy"});
-        int maxEvent = -1;
-        for (const auto& rows : slotRows) for (const auto& r : rows) maxEvent = std::max(maxEvent, std::get<0>(r));
-        zdcOf.assign(maxEvent + 1, ZdcSum());
-        for (const auto& rows : slotRows) for (const auto& r : rows) {
-            ZdcSum& z = zdcOf[std::get<0>(r)];
-            z.ke = (std::isfinite(z.ke) ? z.ke : 0.0) + std::get<1>(r);
-            z.ked = (std::isfinite(z.ked) ? z.ked : 0.0) + std::get<2>(r);
         }
     }
 
@@ -240,7 +220,7 @@ static void ReconAngleAllFit(){
     }
 
     // One tree of every recon track, before any cut. The views Angles and AnglesCE (and their _DE copies) are views of it
-    // (AngleSelection, CutFiles.h): inCE picks the rows, finalKE / finalKED the true / smeared ZDC KE.
+    // (AngleSelection, CutFiles.h): inCE picks the rows, zdcKEAll / zdcKEAllD the true / smeared ZDC KE.
     // The file is written through a TBufferMerger: the shards fill their own trees on all the threads (see the write below).
     ROOT::TBufferMerger merger("cuts/cut_angles_all.root", "RECREATE");
 
@@ -288,7 +268,7 @@ static void ReconAngleAllFit(){
         // The fits run on every thread: each shard builds its events, fits them and keeps the results as rows. Only the TTree fills below are serial.
         struct Row {
             int eventID, isFromCE, inCE, nProtonsEv, nZdcCharged, nTrackerHitsEv, nTrackerTracksEv, nHits, nMaxChargedPerPlaneEv, nPlanesHitEv;
-            double theta, phi, dTheta, dPhi, x0D, y0D, bxD, byD, finalKE, finalKED, zdcKEAll, zdcKEAllD;
+            double theta, phi, dTheta, dPhi, x0D, y0D, bxD, byD, zdcKEAll, zdcKEAllD;
             double xVertex, yVertex, zVertex, zBxRecon;
             double resRms, resDRms, impact, impactD, r2, r2D, firstXD, firstYD, lastX, lastY, lastXD, lastYD, resHalfRatioD;
             int tubeBlock;
@@ -415,10 +395,6 @@ static void ReconAngleAllFit(){
                     r.zVertex = t.z[startPoint];
 
                     r.x0D = fit.x0D; r.y0D = fit.y0D; r.bxD = fit.bxD; r.byD = fit.byD;
-
-                    // KE from the ZDC sums of the event (true and smeared), NAN when no charged particle of the event reached the ZDC
-                    const ZdcSum zs = (ev < (int)zdcOf.size()) ? zdcOf[ev] : ZdcSum();
-                    r.finalKE = zs.ke; r.finalKED = zs.ked;
 
                     r.zBxRecon = (fit.bxD != 0) ? -fit.x0D/fit.bxD : 0;
 
@@ -568,7 +544,7 @@ static void ReconAngleAllFit(){
         writePool.Foreach([&](unsigned shard){
             auto outFile = merger.GetFile();
             TTree *tree = new TTree("AnglesRaw", "Reconstructed Angles, every recon track before any cut");
-            // one branch per Row field; a row is a track (fEvent and trackNo). finalKE / finalKED are the true and smeared KE summed over the charged particles at the ZDC (NAN without one),
+            // one branch per Row field; a row is a track (fEvent and trackNo). zdcKEAll / zdcKEAllD are the true and smeared KE summed over all particles at the ZDC, charged and neutral (-1 / NAN without the sim column),
             // r2 / r2D are not cut on,
             // firstXD / firstYD the block position (mm) of the first tracker hit (lowest z), lastXD / lastYD (block) and lastX / lastY (true) the position (mm) of the last tracker hit (highest z, the plane before the ZDC), resHalfRatioD the block residual of the hits after the first 2 over the first 2 (NAN with 2 or fewer),
             // nProtonsEv the tracks of the event that entered a tracker (any pdg), nTrackerHitsEv / nTrackerTracksEv from the sim EventSummary (all charged particles), nMaxChargedPerPlaneEv the most charged tracks
@@ -585,8 +561,6 @@ static void ReconAngleAllFit(){
             tree->Branch("y0DOut", &cur.y0D);
             tree->Branch("bxDOut", &cur.bxD);
             tree->Branch("byDOut", &cur.byD);
-            tree->Branch("finalKE", &cur.finalKE);
-            tree->Branch("finalKED", &cur.finalKED);
             tree->Branch("inCE", &cur.inCE);
             tree->Branch("xVertexOut", &cur.xVertex);
             tree->Branch("yVertexOut", &cur.yVertex);

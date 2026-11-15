@@ -15,8 +15,8 @@ static constexpr const char* kAngleTree = "AnglesRaw";
 
 // The rows of AnglesRaw a view stands for: every fitted proton for Angles, only those of a CE event (inCE) for AnglesCE.
 static std::string AngleSelection(const std::string& view){return view == "AnglesCE" ? "inCE == 1" : "1";}
-// KE branch of an energy suffix: finalKE (true) or finalKED (detector).
-static std::string KeVar(const std::string& sfx){return sfx.empty() ? "finalKE" : "finalKED";}
+// KE branch of an energy suffix: zdcKEAll (true) or zdcKEAllD (detector), the ZDC KE sum of all particles of the event.
+static std::string KeVar(const std::string& sfx){return sfx.empty() ? "zdcKEAll" : "zdcKEAllD";}
 
 // The fixed cut files CutPlots.cpp (events), ReconAngleAll.cpp and CutPlots.cpp write into cuts/: each holds only the rows that pass the cut in its name, so the plot macros
 // read them as they are, with no cut string. CutPlots.cpp (events) chains them: cut_CE and cut_CEall come from the sim output, cut_ParentTracker from cut_CE.

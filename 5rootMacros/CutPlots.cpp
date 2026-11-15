@@ -38,7 +38,7 @@ static void ZdcColumns(){
     const time_t t0 = time(nullptr);
     const ColumnAdder addColumns = Plot3DColumns(); // loads the maps on its first call
     // the three sets of F1_2_Plot3D.cpp are rows of AnglesRaw (one recon fit per track the finder finds) split by evClass: 0 the fit used CE child hits only (CE recon protons), 0 or 1 CE child and other hits
-    // (CE + CE mix), any (all recon). The position of a row is the last tracker hit (lastX, lastY, lastXD, lastYD), the KE the ZDC sum of its event (finalKE, finalKED).
+    // (CE + CE mix), any (all recon). The position of a row is the last tracker hit (lastX, lastY, lastXD, lastYD), the KE the ZDC sum of its event (zdcKEAll, zdcKEAllD).
     const char* angFile = "cuts/cut_angles_all.root";
     ROOT::RDataFrame dfCE(kAngleTree, angFile), dfAllEv(kAngleTree, angFile), dfAllPart(kAngleTree, angFile);
     std::vector<ROOT::RDF::RResultHandle> handles;

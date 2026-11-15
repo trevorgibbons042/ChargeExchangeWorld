@@ -41,10 +41,10 @@ void F1_2_Plot3D(){
 
     // The three sets are rows of AnglesRaw (one recon fit per track the finder finds) split by evClass, with the Plot3D columns (Plot3DCols.h, CutPlots.cpp (zdc)):
     // events2 CE recon protons (evClass 0, cut_Plot3DCE.root), eventsAllEv CE + CE mix recon (evClass 0 or 1, cut_Plot3DAllEv.root), eventsAllPart all recon (cut_Plot3DAllPart.root).
-    // The position of a row is the last tracker hit (lastX, lastY, lastXD, lastYD), its KE the ZDC sum of the event (finalKE, finalKED); every Draw cut goes through P3() so isReco(fEvent) etc. read the columns
+    // The position of a row is the last tracker hit (lastX, lastY, lastXD, lastYD), its KE the ZDC sum of the event (zdcKEAll, zdcKEAllD); every Draw cut goes through P3() so isReco(fEvent) etc. read the columns
     TTree *events2 = OpenCut("cuts/cut_Plot3DCE.root", kAngleTree);
 
-    // the position plots (1_position) have no ZDC requirement: the rows of cut_Plot3DAllEv / cut_Plot3DAllPart; the energy plots (2_energy) read the same files and need a ZDC KE through finalKE >= 0 in their cut strings
+    // the position plots (1_position) have no ZDC requirement: the rows of cut_Plot3DAllEv / cut_Plot3DAllPart; the energy plots (2_energy) read the same files and need a ZDC KE through zdcKEAll > 0 in their cut strings
     TTree* posAllEv = OpenCut("cuts/cut_Plot3DAllEv.root", kAngleTree);
     TTree* posAllPart = OpenCut("cuts/cut_Plot3DAllPart.root", kAngleTree);
     TTree* eventsAllEv = posAllEv; // CE + CE mix recon and all recon: the same rows as the position plots, the ZDC KE comes from the cut strings
@@ -158,11 +158,11 @@ void F1_2_Plot3D(){
             leg->Draw();
         };
 
-        std::string zdcProtons = "finalKE >= 0"; // the event has a ZDC KE (NaN fails)
+        std::string zdcProtons = "zdcKEAll > 0"; // the event has a ZDC KE (-1 without the sim column and 0 without a particle at the ZDC fail)
         // position plots: only protons with a reconstructed track
         std::string zdcReco = zdcProtons + " && isReco(fEvent)";
         // the same for every recorded particle (any pdg, eventsAllPart): ZDC hit and a recon track
-        std::string zdcRecoPartAll = "finalKE >= 0 && isReco(fEvent)";
+        std::string zdcRecoPartAll = "zdcKEAll > 0 && isReco(fEvent)";
         countZdcAll = [&]{
             if (nCERecoAll >= 0) return;
             {const auto c = CountsMT(events2, {P3(zdcReco), P3(zdcProtons)}); nCERecoAll = c[0]; nCEZdcAll = c[1];} // one event loop for both
@@ -269,16 +269,16 @@ void F1_2_Plot3D(){
         // 2_energy/ holds the energy plots
         if (RunSub(2)) {
             // same rows as the position plots, the ZDC KE comes from the cut strings below
-            zdcProtons = "finalKE >= 0"; zdcReco = zdcProtons + " && isReco(fEvent)"; zdcRecoPartAll = "finalKE >= 0 && isReco(fEvent)"; zdcNote = " with ZDC KE";
+            zdcProtons = "zdcKEAll > 0"; zdcReco = zdcProtons + " && isReco(fEvent)"; zdcRecoPartAll = "zdcKEAll > 0 && isReco(fEvent)"; zdcNote = " with ZDC KE";
             nCERecoAll = nCEZdcAll = -1;
             const std::string folder_smear = folder + "/2_energy/";
             gSystem->mkdir(folder_smear.c_str(), true);
             titleSuffix = ", no KE cut";
-            // Energy plots: 2_energy/<n>_<quantity><range>_<CE or recon>.pdf, numbered 1 (true KE), 2 (smeared KE), 3 (total KE, charged + neutral), 5, 7, 9 and 10 (smearing)
-            // True KE (finalKE) and smeared KE (finalKED) at the ZDC.
+            // Energy plots: 2_energy/<n>_<quantity><range>_<CE or recon>.pdf, numbered 1 (true KE), 2 (smeared KE), 5, 7, 9 and 10 (smearing)
+            // True KE (zdcKEAll) and smeared KE (zdcKEAllD) at the ZDC, summed over every particle of the event, charged and neutral (ReconAngleAll.cpp).
             struct KEQty {std::string branch, file, axis, title;};
-            std::vector<KEQty> keQtys = {{"finalKE", "true_ke", "ZDC KE sum of the event (MeV)", "True ZDC KE (sum of the charged particles of the event)"},
-                                       {"finalKED", "smeared_ke", "Smeared ZDC KE sum of the event (MeV)", "Smeared ZDC KE (sum of the charged particles of the event)"}};
+            std::vector<KEQty> keQtys = {{"zdcKEAll", "true_ke", "ZDC KE sum of the event (MeV)", "True ZDC KE (sum of all particles of the event, charged and neutral)"},
+                                       {"zdcKEAllD", "smeared_ke", "Smeared ZDC KE sum of the event (MeV)", "Smeared ZDC KE (sum of all particles of the event, charged and neutral)"}};
             // one log y plot per quantity: CE protons (red), all recon protons (blue) and all recon charged particles (green): 1_true_ke, 2_smeared_ke
             for (const auto& q : keQtys){
                 for (const auto& r : energyRanges){
@@ -290,39 +290,23 @@ void F1_2_Plot3D(){
                 }
             }
 
-            // 3_total_ke: the true KE of every particle at the ZDC, charged and neutral (zdcKEAll, EventSummary of the sim). The cut is zdcKEAll >= 0 (an event with only neutrons at the ZDC counts), so the percent boxes are counted again against it
-            {
-                const std::string keepProtons = zdcProtons, keepReco = zdcReco, keepPartAll = zdcRecoPartAll, keepNote = zdcNote;
-                zdcProtons = "zdcKEAll >= 0"; zdcReco = zdcProtons + " && isReco(fEvent)"; zdcRecoPartAll = zdcReco; zdcNote = " with total ZDC KE";
-                nCERecoAll = nCEZdcAll = -1;
-                for (const auto& r : energyRanges){
-                    drawPlot(eventsAllEv, "zdcKEAll>>hKETot" + r.tag.substr(1) + binSpec(r), zdcReco, "Total ZDC KE (sum of all particles of the event, charged and neutral), all recon, CE + CE mix recon and CE recon protons with total ZDC KE;Total ZDC KE sum of the event (MeV);Count",
-                             folder_smear + "3_total_ke" + r.tag + ".pdf", "", [&](TH1* h){
-                        overlayCEPart(h, "zdcKEAll>>hKETotCE" + r.tag.substr(1) + binSpec(r), zdcProtons, "zdcKEAll>>hKETotPart" + r.tag.substr(1) + binSpec(r), zdcRecoPartAll, "CE recon protons with total ZDC KE", true);
-                    });
-                    canvas->SetLogy(0);
-                }
-                zdcProtons = keepProtons; zdcReco = keepReco; zdcRecoPartAll = keepPartAll; zdcNote = keepNote;
-                nCERecoAll = nCEZdcAll = -1;
-            }
-
-            // ZDC energy smearing (finalKED = Gaussian smear of finalKE, /zdc/resStochastic and /zdc/resConstant in the sim)
+            // ZDC energy smearing (zdcKEAllD = Gaussian smear of zdcKEAll, /zdc/resStochastic and /zdc/resConstant in the sim)
             {
 
-                // finalKE = true KE, finalKED = smeared KE, dE = finalKED - finalKE
+                // zdcKEAll = true KE, zdcKEAllD = smeared KE, dE = zdcKEAllD - zdcKEAll
                 // the smear sigma is resStochastic * sqrt(KE in GeV) GeV, so the dE axis is +-10000 MeV at the 25 GeV/c beam (24078 MeV KE) and scales with sqrt(KE)
                 const double smearLim = 10000.0 * std::sqrt(kBeamKE / 24078.0);
 
-                drawPlot(events2, Form("finalKED-finalKE>>hSmearDiffCE(100,-%g,%g)", smearLim, smearLim), zdcProtons, "Energy Difference at ZDC, CE recon protons with ZDC KE;finalKED - finalKE (MeV);Count", folder_smear + "5_diff_CE.pdf", "", nullptr, kFitCore);
+                drawPlot(events2, Form("zdcKEAllD-zdcKEAll>>hSmearDiffCE(100,-%g,%g)", smearLim, smearLim), zdcProtons, "Energy Difference at ZDC, CE recon protons with ZDC KE;zdcKEAllD - zdcKEAll (MeV);Count", folder_smear + "5_diff_CE.pdf", "", nullptr, kFitCore);
 
-                // percent error = 100 * (finalKED - finalKE) / finalKE
-                const std::string pct = "100*((finalKED-finalKE)/finalKE)"; // bracketed: the C++ of HistMT would divide 100*(a-b) by c, TTree::Draw 100*(a-b/c)
+                // percent error = 100 * (zdcKEAllD - zdcKEAll) / zdcKEAll
+                const std::string pct = "100*((zdcKEAllD-zdcKEAll)/zdcKEAll)"; // bracketed: the C++ of HistMT would divide 100*(a-b) by c, TTree::Draw 100*(a-b/c)
                 drawPlot(events2, pct + ">>hSmearPctCE(100,-100,100)", zdcProtons, "Percent Error at ZDC, CE recon protons with ZDC KE;Percent Error (%);Count", folder_smear + "7_pct_CE.pdf", "", nullptr, kFitCore);
                 
 
                 // the smearing quantities as one log y overlay each: CE protons (red), all recon protons (blue), all recon charged particles (green)
                 struct SmearOv {std::string expr, bins, file, axis, title, tag;};
-                const std::vector<SmearOv> smearOvs = {{"finalKED-finalKE", Form("(100,-%g,%g)", smearLim, smearLim), "9_diff_overlay.pdf", "finalKED - finalKE (MeV)", "Energy Difference at ZDC", "Diff"},
+                const std::vector<SmearOv> smearOvs = {{"zdcKEAllD-zdcKEAll", Form("(100,-%g,%g)", smearLim, smearLim), "9_diff_overlay.pdf", "zdcKEAllD - zdcKEAll (MeV)", "Energy Difference at ZDC", "Diff"},
                                                        {pct, "(100,-100,100)", "10_pct_overlay.pdf", "Percent Error (%)", "Percent Error at ZDC", "Pct"}};
                 for (const auto& o : smearOvs){
                     drawPlot(eventsAllEv, o.expr + ">>hOv" + o.tag + o.bins, zdcReco, o.title + ", all recon, CE + CE mix recon and CE recon protons with ZDC KE;" + o.axis + ";Count",
