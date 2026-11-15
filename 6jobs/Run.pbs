@@ -24,3 +24,6 @@ MAC=${MAC:-run_0.mac}
 echo Macro: $MAC
 export G4FORCENUMBEROFTHREADS=128 # every macro runs on all 128 cpus of the node, whatever its /run/numberOfThreads says
 ./sim $MAC
+status=$?
+bash /lcrc/project/eic/tgibbons/G4ChargeExchange/6jobs/stash_mac.sh "$MAC" $status # a finished run's macro moves into its run folder, so build/ keeps only the templates
+exit $status
