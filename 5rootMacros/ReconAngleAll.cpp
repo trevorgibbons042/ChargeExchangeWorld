@@ -190,8 +190,11 @@ static void ReconAngleAllFit(){
         }
     }
 
-    // Per event the tracker planes (z in um) that were hit, sorted.
-    struct EvHits {std::vector<long> planes;};
+    // Per event the tracker planes (z in um) that were hit, sorted, and perPlane the number of charged hits on each tracker plane of the run (z mm of planeZ, ascending, the plane in front of the ZDC last).
+    const std::vector<double> planeZ = StackZ(settings).planeZ;
+    constexpr int kMaxPlanes = 32; // Row::nChargedPlane, 2 planes per block
+    if ((int)planeZ.size() > kMaxPlanes){Error("ReconAngleAll", "%d tracker planes, at most %d have a nChargedPlane column", (int)planeZ.size(), kMaxPlanes); return;}
+    struct EvHits {std::vector<long> planes; std::vector<int> perPlane;};
     // ZDC energy smearing of the sim (9stepping.cc), applied to the all-particle ZDC total zdcKEAll (zdcKEAllD): Gaussian of sigma KE * sqrt(a^2 / KE[GeV] + b^2), floored at 0, a = resStochastic, b = resConstant
     const double zdcResA = settings.count("resStochastic") ? settings.at("resStochastic") : 0.0, zdcResB = settings.count("resConstant") ? settings.at("resConstant") : 0.0;
     std::vector<EvHits> evHitsOf;
@@ -210,6 +213,14 @@ static void ReconAngleAllFit(){
             for (std::size_t a = 0, b; a < sorted.size(); a = b) {
                 for (b = a + 1; b < sorted.size() && sorted[b] == sorted[a]; b++) {}
                 h.planes.push_back(sorted[a]); // every plane hit, whatever its hit count: the weight rank counts them all
+            }
+            // the charged hits on each tracker plane of the run: a hit counts for the plane of planeZ nearest to its z when that is within 1 mm, else it is left out
+            h.perPlane.assign(planeZ.size(), 0);
+            for (std::size_t i = 0; i < hz.size(); i++) {
+                const auto it = std::lower_bound(planeZ.begin(), planeZ.end(), hz[i]);
+                std::size_t k = it - planeZ.begin();
+                if (k > 0 && (k == planeZ.size() || hz[i] - planeZ[k - 1] < planeZ[k] - hz[i])) k--;
+                if (k < planeZ.size() && std::fabs(planeZ[k] - hz[i]) < 1.0) h.perPlane[k]++;
             }
             slotRows[slot].push_back({eventID, std::move(h)});
         }, {"fEvent", "hitTrackerZ"});
@@ -268,6 +279,7 @@ static void ReconAngleAllFit(){
         // The fits run on every thread: each shard builds its events, fits them and keeps the results as rows. Only the TTree fills below are serial.
         struct Row {
             int eventID, isFromCE, inCE, nProtonsEv, nZdcCharged, nTrackerHitsEv, nTrackerTracksEv, nHits, nMaxChargedPerPlaneEv, nPlanesHitEv;
+            int nChargedPlane[kMaxPlanes] = {}; // charged hits of the event on tracker plane i (EvHits::perPlane)
             double theta, phi, dTheta, dPhi, x0D, y0D, bxD, byD, zdcKEAll, zdcKEAllD;
             double xVertex, yVertex, zVertex, zBxRecon;
             double resRms, resDRms, impact, impactD, r2, r2D, firstXD, firstYD, lastX, lastY, lastXD, lastYD, resHalfRatioD;
@@ -410,6 +422,7 @@ static void ReconAngleAllFit(){
                     r.nProtonsEv = nProtonsInEvent[run];
                     r.nMaxChargedPerPlaneEv = nMaxPerPlaneInEvent[run];
                     r.nPlanesHitEv = nPlanesHitInEvent[run];
+                    if (ev >= 0 && (std::size_t)ev < evHitsOf.size()) for (std::size_t i = 0; i < evHitsOf[ev].perPlane.size(); i++) r.nChargedPlane[i] = evHitsOf[ev].perPlane[i];
                     const EvCounts ec = (r.eventID >= 0 && (size_t)r.eventID < evCountsOf.size()) ? evCountsOf[r.eventID] : EvCounts();
                     r.nZdcCharged = ec.zdcCharged; r.nTrackerHitsEv = ec.trackerHits; r.nTrackerTracksEv = ec.trackerTracks; r.zdcKEAll = ec.zdcKEAll;
                     // zdcKEAllD: the all-particle ZDC total (charged and neutral) smeared once like the ZDC, seeded by the event so a rerun gives the same numbers; NAN without a ZDC total (zdcKEAll < 0). The KE cut of F9_PlotReconNew.cpp uses it.
@@ -582,6 +595,7 @@ static void ReconAngleAllFit(){
             tree->Branch("nHits", &cur.nHits);
             tree->Branch("nMaxChargedPerPlaneEv", &cur.nMaxChargedPerPlaneEv);
             tree->Branch("nPlanesHitEv", &cur.nPlanesHitEv);
+            for (std::size_t i = 0; i < planeZ.size(); i++) tree->Branch(Form("nChargedPlane%d", (int)i), &cur.nChargedPlane[i]); // charged hits of the event on tracker plane i (z order, the last is the plane in front of the ZDC), one entry per hit
             tree->Branch("firstXD", &cur.firstXD);
             tree->Branch("firstYD", &cur.firstYD);
             tree->Branch("lastX", &cur.lastX);
