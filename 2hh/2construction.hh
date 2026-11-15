@@ -52,6 +52,8 @@ public:
 
     virtual G4VPhysicalVolume *Construct();
     const G4LogicalVolume *GetTrackVolume() const {return logicTrack;} //read per call, geometry rebuilds change the pointer
+    //true for the ZDC cells (logicDetector) and the ZDC slab around them (logicDetectorSlab), compared by pointer
+    bool IsZdcVolume(const G4LogicalVolume *lv) const {return lv && (lv == logicDetector || lv == logicDetectorSlab);}
 
     //geometry values for settings.csv, names match the /detector/ commands
     std::vector<std::pair<std::string, double>> GetSettings() const
@@ -59,10 +61,11 @@ public:
         return {{"nBlocks", nBlocks}, {"nBlocksTracking", nBlocksTracking},
                 {"nCols_blocks", nCols}, {"nRows_blocks", nRows},
                 {"nCols_detector", nCols_detector}, {"nRows_detector", nRows_detector},
-                {"dz", dz}, {"CarbonThickness", CarbonThickness},
-                {"randPosDetector", randPosDetector}, {"randPosScaling", randPosScaling},
+                {"dz", dz}, {"CarbonThickness", CarbonThickness}, {"TotalCarbonThickness", TotalCarbonThickness}, {"firstBlockZ", firstBlockZ},
+                {"zdcFrontZ", zdcFrontZ}, {"blockRegion", blockRegion},
+                {"randPosDetector", randPosDetector}, {"randPosScaling", randPosScaling}, {"trackerEfficiency", gTrackerEfficiency},
                 {"frontTrackers", 0},  //0: no trackers before the first block (the macros assume 1 when settings.csv has none)
-                {"stackSpread", 1}};   //1: blocks evenly spread from z = 0 to the ZDC face, trackers either side and one in front of the ZDC, dz being the edge to edge gap (a settings.csv without it is the old layout, centred at z = 4 m)
+                {"stackSpread", 3}};   //3: the blocks fill the last blockRegion before the ZDC face at zdcFrontZ: first front face firstBlockZ into the region, the other front faces spread evenly to the ZDC face, trackers either side and one in front of the ZDC, dz being the edge to edge gap (2: the same with the region starting at the gun, z = 0, and the ZDC face at 7.7 m; 1: blocks in evenly spaced slots from z = 0 to the ZDC face at 7.7 m; a settings.csv without it is the old layout, centred at z = 4 m)
     }
 
 private:
@@ -80,12 +83,14 @@ private:
     G4Material *worldMat, *CMat, *DMat;
     
     G4Box *solidWorld, *solidMat, *solidDetector, *solidTrack;
-    G4LogicalVolume *logicWorld, *logicMat, *logicDetector, *logicTrack;
+    G4LogicalVolume *logicWorld, *logicMat, *logicDetector, *logicDetectorSlab = nullptr, *logicTrack;
     G4VPhysicalVolume *physWorld, *physMat, *physDetector, *physTrack;
 
     G4int randPosDetector = -1;
     G4double randPosScaling = 1;
-    G4double CarbonThickness, dz;
+    G4double firstBlockZ; //Meters from the start of the block region to the front face of the first block, /detector/firstBlockZ
+    G4double zdcFrontZ, blockRegion; //Meters: gun (z = 0) to the ZDC front face, and the length in front of it that holds the blocks, /detector/zdcFrontZ and /detector/blockRegion
+    G4double CarbonThickness, TotalCarbonThickness, dz; //TotalCarbonThickness > 0: each block is TotalCarbonThickness / nBlocks thick and CarbonThickness is set from it
 
     void DefineMaterial();
 };

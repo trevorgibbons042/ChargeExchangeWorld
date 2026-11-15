@@ -17,12 +17,17 @@ MyDetectorConstruction::MyDetectorConstruction()
 
     fMessenger->DeclareProperty("dz", dz, "Distance between trackers and blocks (in meters)");
     fMessenger->DeclareProperty("CarbonThickness", CarbonThickness, "Thickness of carbons (Meters)");
-    
+    fMessenger->DeclareProperty("TotalCarbonThickness", TotalCarbonThickness, "Total carbon of all blocks, split evenly (Meters, 0 = use CarbonThickness per block)");
+    fMessenger->DeclareProperty("firstBlockZ", firstBlockZ, "Distance from the start of the block region to the front face of the first block (Meters); the other blocks are spread evenly from there to the ZDC face");
+    fMessenger->DeclareProperty("zdcFrontZ", zdcFrontZ, "Distance from the gun (z = 0) to the front face of the ZDC (Meters)");
+    fMessenger->DeclareProperty("blockRegion", blockRegion, "Length in front of the ZDC face that holds the blocks and trackers (Meters), the rest is empty drift");
+
+    fMessenger->DeclareProperty("trackerEfficiency", gTrackerEfficiency, "Chance a tracker plane measures a charged particle entering it (1 = always, the default)");
     fMessenger->DeclareProperty("randPosDetector", randPosDetector, "Is detector in random position?");
     fMessenger->DeclareProperty("randPosScaling", randPosScaling, "randPos Scaling Factor");
 
     //default values
-    nBlocks = 3; //default 3 blocks with their trackers, /detector/nBlocks 0 leaves only the ZDC
+    nBlocks = 6; //default 6 blocks sharing TotalCarbonThickness, /detector/nBlocks 0 leaves only the ZDC
     nBlocksTracking = 2;
     nCols = 11;
     nRows = 11;
@@ -30,6 +35,10 @@ MyDetectorConstruction::MyDetectorConstruction()
     nRows_detector = 5;
     dz = 0.025;
     CarbonThickness = 0.2;
+    TotalCarbonThickness = 0.4;
+    firstBlockZ = 0.1;
+    zdcFrontZ = 37.0;
+    blockRegion = 7.7;
 
 
     DefineMaterial();
@@ -61,18 +70,19 @@ G4VPhysicalVolume *MyDetectorConstruction::Construct() //defines volume and mate
     //world volume calculations, all values are half of width
     G4double xWorld = 0.5*m;
     G4double yWorld = 0.5*m;
-    G4double zWorld = 9*m;
+    G4double detectorZ = 0.6*m;
+    G4double zWorld = zdcFrontZ*m + detectorZ + 0.5*m; //centred on the gun at z = 0, holds the drift, the blocks and the ZDC
     solidWorld = new G4Box("solidWorld", xWorld, yWorld, zWorld);
     logicWorld = new G4LogicalVolume(solidWorld, worldMat, "logicWorld");
     physWorld = new G4PVPlacement(0, G4ThreeVector(0. ,0. ,0. ), logicWorld, "physWorld", 0, false, 0, false); 
 
     //material
-    //ZDC: 0.6 m deep, centred at z = 8 m, its front face at z = 7.7 m is the last of the evenly spaced slots (stackSpread = 1 in settings.csv)
-    G4ThreeVector detectorPos = G4ThreeVector(0,0, 8*m);
+    //ZDC: 0.6 m deep, its front face at z = zdcFrontZ (37 m by default), the end of the block region (stackSpread = 3 in settings.csv)
+    G4ThreeVector detectorPos = G4ThreeVector(0,0, zdcFrontZ*m + detectorZ/2.0);
     G4double detectorX = 0.4*m;
     G4double detectorY = 0.4*m;
-    G4double detectorZ = 0.6*m;
 
+    if (TotalCarbonThickness > 0 && nBlocks > 0) CarbonThickness = TotalCarbonThickness / nBlocks; //per block, written to settings.csv as CarbonThickness
     solidMat = new G4Box("solidMat", 0.5 * m,0.5 * m, (CarbonThickness * m)/2);
     logicMat = new G4LogicalVolume(solidMat, CMat, "logicMat");
 
@@ -91,11 +101,14 @@ G4VPhysicalVolume *MyDetectorConstruction::Construct() //defines volume and mate
     physTrack = new G4PVParameterised("physTrack", logicTrack, logicTrackSlab, kUndefined, nRows * nCols,
                     new GridParameterisation(nCols, cellX, cellY, totalX, totalY));
 
-    //the blocks sit in evenly spaced slots between z = 0 and the ZDC front face, the ZDC face being the last slot. Every block has a tracker dz behind it
+    //the block region is the last blockRegion in front of the ZDC face (the gun is at z = 0, the drift before the region is empty). The front face of the first block sits
+    //firstBlockZ into the region, whatever nBlocks is; the front faces of the other blocks are spread evenly from there
+    //to the ZDC front face (spacing = (ZDC face - first face) / nBlocks). Every block has a tracker dz behind it
     //and, except the first, one dz in front of it; one more tracker sits dz in front of the ZDC. dz is the gap between the edge of the block and the edge of the
     //tracker (the ZDC face and the tracker for the last one). nBlocksTracking is not used by this layout.
     G4double zdcFront = detectorPos.z() - detectorZ / 2.0;
-    G4double pitch = zdcFront / (nBlocks + 1);
+    G4double firstFace = zdcFront - blockRegion * m + firstBlockZ * m;
+    G4double spacing = nBlocks > 0 ? (zdcFront - firstFace) / nBlocks : 0.0;
     G4double trackerOffset = (CarbonThickness * m) / 2.0 + dz * m + detectorThickness / 2.0; //block centre to tracker centre
     G4int trackerIndex = 0;
     auto placeTracker = [&](G4double zTracker) {
@@ -105,7 +118,7 @@ G4VPhysicalVolume *MyDetectorConstruction::Construct() //defines volume and mate
     };
 
     for (G4int i = 0; i < nBlocks; i++) {
-        G4double zCarbon = (i + 1) * pitch;
+        G4double zCarbon = firstFace + i * spacing + (CarbonThickness * m) / 2.0; //front face + half the block
         physMat = new G4PVPlacement(nullptr,
             G4ThreeVector(0, 0, zCarbon), logicMat, "physMat",
             logicWorld,false,i,false);
@@ -131,7 +144,7 @@ G4VPhysicalVolume *MyDetectorConstruction::Construct() //defines volume and mate
     if (patch) slabPos += G4ThreeVector(-detectorX / 2.0 + slabX / 2.0, -detectorY / 2.0 + slabY / 2.0, 0);
 
     G4Box *solidDetectorSlab = new G4Box("solidDetectorSlab", slabX / 2.0, slabY / 2.0, detectorZ / 2.0);
-    G4LogicalVolume *logicDetectorSlab = new G4LogicalVolume(solidDetectorSlab, DMat, "logicDetectorSlab");
+    logicDetectorSlab = new G4LogicalVolume(solidDetectorSlab, DMat, "logicDetectorSlab");
     physDetector = new G4PVParameterised("physDetector", logicDetector, logicDetectorSlab, kUndefined,
                     detRows * detCols,
                     new GridParameterisation(detCols, cellXd, cellYd, slabX, slabY));

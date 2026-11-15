@@ -1,114 +1,35 @@
 #include <ROOT/RDFHelpers.hxx> // RunGraphs, RResultHandle
 #include <ROOT/RDataFrame.hxx>
 #include <ROOT/RSnapshotOptions.hxx>
-#include <TEntryList.h>
 #include <TFile.h>
-#include <TMath.h>
 #include <TSystem.h>
 #include <TTree.h>
 #include <algorithm>
-#include <cstdlib>
-#include <memory>
-#include <sstream>
 #include <string>
 #include <vector>
-
-#include "CutFiles.h"
 #include "FitCore.h"
 #include "Plot3DCols.h"
-#include "QualityCut.h"
+#include <TChain.h>
+#include <TString.h>
+#include <cstdio>
+#include <unordered_map>
+#include <unordered_set>
+#include <TROOT.h>
+#include <array>
+#include <cmath>
+#include <map>
+#include <set>
+#include <tuple>
+#include "CutFiles.h"
 
-// Every cut file the plot macros read besides the ones CutEvents.cpp and ReconAngleAll.cpp write, in one macro (the order matters: the samples read what the zdc part writes):
-//   trees    cuts/ke_gt80.root, the KE cut entry lists of cut_APandT.root and cut_angles_all.root (CutTrees, CutFiles.h)
-//   zdc      cuts/cut_ZdcCE.root and cut_ZdcAllEv.root, the ZDC protons with the Plot3D columns (ZdcColumns, Plot3DCols.h)
-//   samples  one cut file per cut of 6_cuts, cut_base.root (the theta baseline sample every cut starts from, read by QualityStudy) and cut_hitZDC_AllEv.root (CutSamples)
-// CutPlots() runs all three; CutPlots("samples") only the last one (plot_cut.sh). Only the samples that have a ZDC KE cut (megacut3, the KE scan, hitZDC) read the zdc files, so Plot.pbs runs trees, zdc and the other samples
-// side by side, then the ZDC KE samples as several processes (CUT_ONLY).
+// Every cut file the plot macros read, in one macro, as a part (CutPlots("<part>")):
+//   events   cuts/cut_*.root from the sim output (CutEvents), run_all.sh runs it after ReconAngleAll
+//   count    the CE counts per block and tracker plane (CountCE), after events
+//   zdc      cuts/cut_Plot3DCE.root, cut_Plot3DAllEv.root and cut_Plot3DAllPart.root, the rows of AnglesRaw by evClass with the Plot3D columns (ZdcColumns, Plot3DCols.h)
 
-// Applies every shared cut (KeCuts, CutFiles.h) once to the already cut trees of cut_APandT.root (CalcAPandT.cpp) and to the proton tree AnglesRaw of cut_angles_all.root
-// (ReconAngleAll.cpp), true and detector energy, and writes the entries that pass as TEntryLists to cuts/<ke dir>.root (no residual cut): one list per tree,
-// named like the tree. Run after CalcAPandT.cpp.
-// AnglesRaw gets one list per view (Angles, AnglesCE: the rows AngleSelection picks) and energy, named view + suffix, with the KE cut on that energy's KE branch.
-static void CutTrees(){
-    TFile* fAP = TFile::Open("cuts/cut_APandT.root", "READ");
-    TFile* fAng = TFile::Open("cuts/cut_angles_all.root", "READ");
-    if (!fAP || !fAng){Error("CutTrees", "cuts/cut_APandT.root or cut_angles_all.root missing"); return;}
-    // One list to build: the tree it indexes, its name, the rows it covers (sel) and the energy suffix of its KE cut.
-    struct Job {TTree* t; std::string name, base, sel, sfx;};
-    std::vector<Job> jobs;
-    TTree* raw = (TTree*)fAng->Get(kAngleTree);
-    for (const std::string sfx : {"", "_DE"}){
-        for (const auto& n : ApTrees()) jobs.push_back({(TTree*)fAP->Get((n + sfx).c_str()), n + sfx, n, "", sfx});
-        for (const auto& n : AngleTrees()) jobs.push_back({raw, n + sfx, n, AngleSelection(n), sfx});
-    }
-    for (const auto& j : jobs) if (!j.t){Error("CutTrees", "a tree is missing (rerun CalcAPandT.cpp / ReconAngleAll.cpp)"); return;}
-
-    gSystem->mkdir("cuts", true);
-    ROOT::EnableImplicitMT(NThreads());
-    for (const auto& ke : KeCuts()){
-        // One event loop per tree on all the threads books every list of that tree at once: the entries that pass are collected per thread (with their entry number, rdfentry_),
-        // sorted, and entered into the TEntryLists afterwards.
-        struct Want {std::string name, title; int view; bool detector;}; // view: 0 none, 1 Angles (every row), 2 AnglesCE (inCE)
-        struct Hit {TEntryList* list; std::vector<std::vector<ULong64_t>> perSlot;};
-        TFile out(("cuts/" + ke.dir + ".root").c_str(), "RECREATE");
-        const unsigned nSlots = std::max(1u, NThreads()) + 1;
-        auto finish = [&](TTree* t, std::vector<Hit>& hits){
-            out.cd();
-            for (auto& h : hits){
-                std::vector<ULong64_t> all;
-                for (auto& v : h.perSlot) all.insert(all.end(), v.begin(), v.end());
-                std::sort(all.begin(), all.end());
-                for (ULong64_t e : all) h.list->Enter(e);
-                h.list->SetDirectory(&out);
-            }
-        };
-        // cut_APandT.root: one tree per name and energy, every list on finalKE (the _DE trees hold the detector KE there)
-        for (const std::string sfx : {"", "_DE"}) for (const auto& n : ApTrees()){
-            TTree* t = (TTree*)fAP->Get((n + sfx).c_str());
-            std::vector<Hit> hits(1);
-            out.cd();
-            hits[0] = {new TEntryList((n + sfx).c_str(), ke.cut.c_str(), t), std::vector<std::vector<ULong64_t>>(nSlots)};
-            ROOT::RDataFrame df0(n + sfx, "cuts/cut_APandT.root");
-            auto df = WithEntryNumber(df0, df0.GetNSlots()); // the true entry numbers (rdfentry_ is wrong under MT on a tree with several clusters)
-            const double minKE = ke.minKE;
-            df.ForeachSlot([&](unsigned slot, ULong64_t e, double keVal){
-                if (!(keVal > minKE)) return;
-                hits[0].perSlot[slot].push_back(e);
-            }, {"entryNo", "finalKE"});
-            finish(t, hits);
-        }
-        // AnglesRaw: the views Angles and AnglesCE of both energies in one loop
-        {
-            std::vector<Want> wants;
-            for (const std::string sfx : {"", "_DE"}) for (const auto& v : AngleTrees())
-                wants.push_back({v + sfx, "", v == "AnglesCE" ? 2 : 1, !sfx.empty()});
-            std::vector<Hit> hits(wants.size());
-            out.cd();
-            for (size_t i = 0; i < wants.size(); i++){
-                const std::string cut = AngleSelection(wants[i].view == 2 ? "AnglesCE" : "Angles") + " && " + KeCutFor(ke.cut, wants[i].detector ? "_DE" : "");
-                hits[i] = {new TEntryList(wants[i].name.c_str(), cut.c_str(), raw), std::vector<std::vector<ULong64_t>>(nSlots)};
-            }
-            ROOT::RDataFrame df0(kAngleTree, "cuts/cut_angles_all.root");
-            auto df = WithEntryNumber(df0, df0.GetNSlots());
-            const double minKE = ke.minKE;
-            df.ForeachSlot([&](unsigned slot, ULong64_t e, int inCE, double keTrue, double keDet){
-                for (size_t i = 0; i < wants.size(); i++){
-                    const Want& w = wants[i];
-                    if (w.view == 2 && !inCE) continue;
-                    if (!((w.detector ? keDet : keTrue) > minKE)) continue;
-                    hits[i].perSlot[slot].push_back(e);
-                }
-            }, {"entryNo", "inCE", "finalKE", "finalKED"});
-            finish(raw, hits);
-        }
-        out.Write();
-        printf("[CutTrees] cuts/%s.root\n", ke.dir.c_str());
-    }
-}
-
-// Writes the two ZDC proton cut files Plot3D.cpp draws from: cut_ZdcCE.root (the ZDC protons of the CE children, cut_ParentZdc.root) and cut_ZdcAllEv.root (the ZDC protons
-// of every event, cut_AllEvProtons.root), each row with the Plot3D columns of its reconstructed track (isReco, raw_0..16, ok_0..16, Plot3DCols.h).
-// Run after CutEvents.cpp and ReconAngleAll.cpp, with all the threads: the maps of AnglesRaw are read once (serial), then both files are written in one parallel pass.
+// Writes the cut files F1_2_Plot3D.cpp draws from: cut_Plot3DCE.root (AnglesRaw rows with evClass 0), cut_Plot3DAllEv.root (evClass 0 or 1) and cut_Plot3DAllPart.root (all rows),
+// each row with the Plot3D columns of its recon fit (isReco, raw_0..26, ok_0..26, Plot3DCols.h).
+// Run after ReconAngleAll.cpp, with all the threads: the maps of AnglesRaw are read once (serial), then the files are written in one parallel pass.
 static void ZdcColumns(){
     ROOT::EnableImplicitMT(NThreads());
     ROOT::RDF::RSnapshotOptions lazy;
@@ -116,123 +37,210 @@ static void ZdcColumns(){
 
     const time_t t0 = time(nullptr);
     const ColumnAdder addColumns = Plot3DColumns(); // loads the maps on its first call
-    ROOT::RDataFrame dfCE("ParticleInfo", "cuts/cut_ParentZdc.root"), dfAllEv("ParticleInfo", "cuts/cut_AllEvProtons.root"), dfAllPart("ParticleInfo", "cuts/cut_AllEvParticles.root");
+    // the three sets of F1_2_Plot3D.cpp are rows of AnglesRaw (one recon fit per track the finder finds) split by evClass: 0 the fit used CE child hits only (CE recon protons), 0 or 1 CE child and other hits
+    // (CE + CE mix), any (all recon). The position of a row is the last tracker hit (lastX, lastY, lastXD, lastYD), the KE the ZDC sum of its event (finalKE, finalKED).
+    const char* angFile = "cuts/cut_angles_all.root";
+    ROOT::RDataFrame dfCE(kAngleTree, angFile), dfAllEv(kAngleTree, angFile), dfAllPart(kAngleTree, angFile);
     std::vector<ROOT::RDF::RResultHandle> handles;
-    handles.emplace_back(addColumns(dfCE).Snapshot("ParticleInfo", "cuts/cut_ZdcCE.root", "", lazy));
+    handles.emplace_back(addColumns(dfCE.Filter([](int c){return c == 0;}, {"evClass"})).Snapshot(kAngleTree, "cuts/cut_Plot3DCE.root", "", lazy));
     const time_t t1 = time(nullptr); // the first addColumns call has loaded the maps
     printf(">>> CutPlots zdc maps took %.0f s\n", difftime(t1, t0)); fflush(stdout);
-    handles.emplace_back(addColumns(dfAllEv).Snapshot("ParticleInfo", "cuts/cut_ZdcAllEv.root", "", lazy));
-    handles.emplace_back(addColumns(dfAllPart).Snapshot("ParticleInfo", "cuts/cut_ZdcAllPart.root", "", lazy)); // the same for every recorded particle, any pdg (the "all recon charged particles" plots)
+    handles.emplace_back(addColumns(dfAllEv.Filter([](int c){return c == 0 || c == 1;}, {"evClass"})).Snapshot(kAngleTree, "cuts/cut_Plot3DAllEv.root", "", lazy));
+    handles.emplace_back(addColumns(dfAllPart).Snapshot(kAngleTree, "cuts/cut_Plot3DAllPart.root", "", lazy));
     ROOT::RDF::RunGraphs(handles);
     printf(">>> CutPlots zdc write took %.0f s\n", difftime(time(nullptr), t1)); fflush(stdout);
+
 }
 
-// Writes one cut file per cut of 6_cuts (Plot3D.cpp), each holding only the rows that pass, so Plot3D reads the file instead of cutting all of AnglesRaw with a Draw string.
-// AnglesRaw cuts (every fitted proton, no ZDC requirement, cut_angles_all.root) keep the branches Plot3D reads:
-//   cut_ResCuts       resDRms < 4 mm (3_ResCuts)
-//   cut_nZdc1         exactly 1 charged particle at the ZDC in the event (4_nZdcParticles, EventSummary of the sim)
-//   cut_avgHitsPlane  the average charged tracker plane hits per hit plane in the event is 1: nTrackerHitsEv == nPlanesHitEv, at least 1 plane hit (5_avgTrackerHitsPerPlane), in the 0 to 2 degree window
-//   cut_megacut3_1    6_megaCut3/1_1particlecut: a reconstructed ZDC proton with ZDC KE > 80% of the beam KE, exactly 1 charged particle at the ZDC (nZdcCharged), nTrackerHitsEv / nPlanesHitEv == 1, RECONTHETA_ESTNEU and RECONTHETABL_ESTNEU 0 to 2 degrees
-// ZDC cut (cut_ZdcAllEv.root, the ZDC protons with the Plot3D columns of ZdcColumns.cpp):
-//   cut_hitZDC_AllEv           the proton has a reconstructed track (isReco)
-// Run after ZdcColumns.cpp, with all the threads: every input is read once and all the cut files of it are written in the same pass.
-// CUT_ONLY (environment, comma separated, e.g. megacut3 or megacut3,ResCuts): CutSamples writes only the cut files whose name holds one of these (cut_megacut3_1.root, cut_megacut3_1_ke85.root, ...),
-// and CutPlots("all") then runs only the samples part (the trees and zdc files stay as they are). Empty: every file.
-static bool CutWanted(const std::string& file){
-    const char* e = std::getenv("CUT_ONLY");
-    if (!e || !*e) return true;
-    std::stringstream ss(e);
-    for (std::string w; std::getline(ss, w, ',');) if (!w.empty() && file.find(w) != std::string::npos) return true;
-    return false;
-}
-static void CutSamples(){
+// ===== CutEvents (part "events", run after ReconAngleAll) =====
+void CutEvents(){
     ROOT::EnableImplicitMT(NThreads());
+    
+    TChain *events = new TChain("ParticleInfo");
+    TChain *ChargeExchange = new TChain("ChargeExchange_values");
+    
+    TString filename = "output0_t*.root";
+    events->Add(filename);
+    ChargeExchange->Add(filename);
+    
+    // (fEvent, TrackID) of every carbon-block CE, read on all threads as one key so the pairs stay together.
+    // TChain::Draw + GetV1 kept only part of them (SetEstimate(-1) on a wildcard TChain): a cut file came out with 1 row.
+    ROOT::RDataFrame dfCESel(*ChargeExchange);
+    auto keys = dfCESel.Filter(CarbonCeCut())
+        .Define("ceKey", [](int ev, int id){return ((long long)ev << 32) | (unsigned int)id;}, {"fEvent", "TrackID"})
+        .Take<long long>("ceKey");
+
+    // Lookup tables instead of one huge "a || b || ..." string per cut: those strings were JIT-compiled by cling
+    // (serial, slow) and tested term by term for every entry.
+    std::unordered_map<int, std::vector<int>> ceTracksInEvent;
+    std::unordered_set<long long> ceEventParent;
+    for (long long k : *keys){
+        ceEventParent.insert(k);
+        ceTracksInEvent[int(k >> 32)].push_back(int(k & 0xffffffff));
+    }
+    printf(">>> CutEvents: %zu carbon CE in %zu events\n", keys->size(), ceTracksInEvent.size());
+
+    // event has a charge exchange
+    auto inEvent = [&](int ev){return ceTracksInEvent.count(ev) > 0;};
+    // track is a child of a charge exchange track in this event
+    auto isParent = [&](int ev, int parent){return ceEventParent.count(((long long)ev << 32) | (unsigned int)parent) > 0;};
+
+    ROOT::RDataFrame df(*events);
+    ROOT::RDataFrame dfCEAll(*ChargeExchange);
+
+    // The cuts chain off each other (see CutFiles.h): the big sim output is read once, in stage 1, for the two base files; the other cut is a filter of the small cut_CE.
+    //   stage 1 (sim output):  cut_CE (events with a carbon CE), cut_CEall (every CE)
+    //   stage 2 (cut_CE):      cut_ParentTracker (the protons that are children of a carbon CE track, at the first tracker)
+    //   stage 3 (cut_CEall):   the carbon CE rows, added as the second tree (UPDATE) of cut_CE
+    // Each stage is lazy: all the cuts of a stage are written in one pass over their input. The result handles own the open output files, so they are cleared (files closed)
+    // before the next stage reads those files; left open, cut_CE.root came out without ChargeExchange_values.
     ROOT::RDF::RSnapshotOptions lazy;
     lazy.fLazy = true;
-    std::vector<ROOT::RDF::RResultHandle> handles;
+    const std::string pInfo = events->GetName(), ceTree = ChargeExchange->GetName();
 
-    const std::vector<std::string> rawCols = {"fEvent", "TrackID", "PDG", "isFromCE", "inCE", "finalKE", "resRms", "resDRms", "impact", "impactD", "r2", "r2D", "nProtonsEv", "nZdcCharged", "nTrackerHitsEv", "nTrackerTracksEv",
-                                              "resHalfRatioD", "thetaRelN", "thetaRelND", "phiRelN", "phiRelND", "nHits", "firstXD", "firstYD", "z_bx_reconVertexOut", "ParentID", "nMaxChargedPerPlaneEv",
-                                              "thetaRelNDMin", "thetaRelNDMax", "phiRelNDHalf", "thetaRelNDBMin", "thetaRelNDBMax", "phiRelNDBHalf", "nPlanesHitEv",
-                                              "tubeX0", "tubeY0", "tubeZ0", "tubeX1", "tubeY1", "tubeZ1"}; // the tube end points (TubeCenter.cpp reads the tube centre of each cut sample from its cut file, not from all of AnglesRaw) // thetaRelNDMin to phiRelNDBHalf: the est neutron range of the block recon proton (error by source of the phi fits); nPlanesHitEv: the tracker planes hit in the event (5_avgTrackerHitsPerPlane)
-    ROOT::RDataFrame raw("AnglesRaw", "cuts/cut_angles_all.root");
-    // baseline of every cut of 6_cuts: RECONTHETA_ESTNEU and RECONTHETABL_ESTNEU from 0 to 2 degrees (NaN fails)
-    const auto thetaWithin = [&raw](double maxDeg){return raw.Filter([maxDeg](double theta, double thetaBlock){const double deg = theta * TMath::RadToDeg(), degBlock = thetaBlock * TMath::RadToDeg(); return deg >= 0 && deg <= maxDeg && degBlock >= 0 && degBlock <= maxDeg;}, {"thetaRelN", "thetaRelND"});};
-    auto base = thetaWithin(2.0); // the same 2 as kThetaMax in Plot3D.cpp
-    auto snap = [&](ROOT::RDF::RNode node, const char* file){if (CutWanted(file)) handles.emplace_back(node.Snapshot("AnglesRaw", file, rawCols, lazy));};
-    snap(base, "cuts/cut_base.root"); // the baseline sample itself (about 7% of AnglesRaw in a test run): QualityStudy reads it instead of every fitted proton
-    snap(base.Filter([](double resD){return resD < kRes4Mm;}, {"resDRms"}), "cuts/cut_ResCuts.root");
-    snap(base.Filter([](int n){return n == 1;}, {"nZdcCharged"}), "cuts/cut_nZdc1.root"); // -1: no EventSummary, fails
-    snap(base.Filter([](int tr, int pl){return pl > 0 && tr == pl;}, {"nTrackerHitsEv", "nPlanesHitEv"}), "cuts/cut_avgHitsPlane.root"); // exactly 1 charged hit on every hit plane (average 1), events with no hit plane left out
-
-    // 6_megaCut3: the proton must be a reconstructed ZDC proton with ZDC KE > 80% of the beam KE
-    using KeyKeys = std::set<std::pair<int, int>>;
-    // ZDC KE of every reconstructed ZDC proton, read once (the highest KE if a (fEvent, TrackID) repeats)
-    std::map<std::pair<int, int>, double> zdcKeOf;
-    bool zdcKeRead = false;
-    // (fEvent, TrackID) of the reconstructed ZDC protons with ZDC KE > frac of the beam KE: out of all of them, or out of from (the keys of the next lower KE cut) so each cut is a subset of the one below
-    const auto keKeys = [&](double frac, const KeyKeys* from){
-        if (!zdcKeRead){
-            ROOT::RDataFrame zdcKe("ParticleInfo", "cuts/cut_ZdcAllEv.root");
-            auto pass = zdcKe.Filter([](int r){return r == 1;}, {"isReco"});
-            auto ev = pass.Take<int>("fEvent"), tid = pass.Take<int>("TrackID");
-            auto ke = pass.Take<double>("fDEnergy");
-            for (size_t i = 0; i < ev->size(); i++){
-                double& v = zdcKeOf.emplace(std::make_pair((*ev)[i], (*tid)[i]), (*ke)[i]).first->second;
-                if ((*ke)[i] > v) v = (*ke)[i];
-            }
-            zdcKeRead = true;
-        }
-        const double cutVal = kBeamKE * frac;
-        KeyKeys keys;
-        if (from){for (const auto& k : *from) if (zdcKeOf.at(k) > cutVal) keys.insert(keys.end(), k);}
-        else for (const auto& kv : zdcKeOf) if (kv.second > cutVal) keys.insert(keys.end(), kv.first);
-        return keys;
-    };
-    // only the keys a wanted file needs are read (CUT_ONLY): the jobs of Plot.pbs run the sample files in several processes, and the files without a ZDC KE cut do not wait for the zdc part
-    bool needScan = false;
-    for (const int pct : {85, 90, 95}) needScan = needScan || CutWanted(Form("cuts/cut_megacut3_1_ke%d.root", pct));
-    const bool need80 = needScan || CutWanted("cuts/cut_megacut3_1.root");
-    const KeyKeys ke80Keys = need80 ? keKeys(0.80, nullptr) : KeyKeys();
-    // KE scan of 6_megaCut3: the same cuts as cut_megacut3_1 (ZDC KE > 80%) with ZDC KE > 85, 90 and 95% of the beam KE, each cut taken from the one below
-    // (ke85 from 80, ke90 from ke85, ke95 from ke90; cut_megacut3_1_ke85.root to cut_megacut3_1_ke95.root; the phi fits are Plot3D.cpp part 4, the overlay with the 80% folder is PlotKEOverlay.cpp).
-    std::vector<KeyKeys> chainKeys; // 85, 90, 95; the filters keep a reference into it
-    chainKeys.reserve(3);
-    if (needScan) for (const int pct : {85, 90, 95}) chainKeys.push_back(keKeys(pct / 100.0, chainKeys.empty() ? &ke80Keys : &chainKeys.back()));
-    for (int i = 0; i < (int)chainKeys.size(); i++){ // 6_megaCut3 KE scan files
-        const int pct = 85 + 5 * i;
-        const std::string scanFile = Form("cuts/cut_megacut3_1_ke%d.root", pct);
-        const KeyKeys& keys = chainKeys[i];
-        snap(base.Filter([&keys](int e, int t, int nZ, int tr, int pl){return keys.count({e, t}) > 0 && nZ == 1 && pl > 0 && tr == pl;}, {"fEvent", "TrackID", "nZdcCharged", "nTrackerHitsEv", "nPlanesHitEv"}), scanFile.c_str());
+    {
+        std::vector<ROOT::RDF::RResultHandle> handles;
+        handles.emplace_back(df.Filter(inEvent, {"fEvent"}).Snapshot(pInfo, "cuts/cut_CE.root", "", lazy));
+        handles.emplace_back(dfCEAll.Snapshot(ceTree, "cuts/cut_CEall.root", "", lazy)); // every CE of the sim (the whole ChargeExchange_values tree, one row per CE)
+        ROOT::RDF::RunGraphs(handles);
     }
-    // 1_1particlecut of 6_megaCut3: ZDC KE > 80%, exactly 1 charged particle at the ZDC, average charged tracker plane hits per hit plane (nTrackerHitsEv / nPlanesHitEv) 1, RECONTHETA_ESTNEU and RECONTHETABL_ESTNEU 0 to 2 degrees
-    snap(base.Filter([&ke80Keys](int e, int t, int nZ, int tr, int pl){return ke80Keys.count({e, t}) > 0 && nZ == 1 && pl > 0 && tr == pl;}, {"fEvent", "TrackID", "nZdcCharged", "nTrackerHitsEv", "nPlanesHitEv"}), "cuts/cut_megacut3_1.root");
-
-    // opened only when their file is wanted: cut_ZdcAllEv.root and cut_ZdcAllPart.root are written by the zdc part, which Plot.pbs runs beside the samples without a ZDC KE cut; both stay alive until RunGraphs
-    std::unique_ptr<ROOT::RDataFrame> zdcAllEv, zdcAllPart;
-    if (CutWanted("cuts/cut_hitZDC_AllEv.root")){
-        zdcAllEv.reset(new ROOT::RDataFrame("ParticleInfo", "cuts/cut_ZdcAllEv.root"));
-        handles.emplace_back(zdcAllEv->Filter([](int r){return r == 1;}, {"isReco"}).Snapshot("ParticleInfo", "cuts/cut_hitZDC_AllEv.root", "", lazy));
+    {
+        std::vector<ROOT::RDF::RResultHandle> handles;
+        ROOT::RDataFrame dfCEfile(pInfo, "cuts/cut_CE.root"); // stays alive until RunGraphs
+        auto children = dfCEfile.Filter(isParent, {"fEvent", "ParentID"});
+        handles.emplace_back(children.Filter("boundaryType == 0 && pdg == 2212").Snapshot(pInfo, "cuts/cut_ParentTracker.root", "", lazy));
+        ROOT::RDF::RunGraphs(handles);
     }
-    if (CutWanted("cuts/cut_hitZDC_AllPart.root")){ // every recorded particle at the ZDC that has a reconstructed track, any pdg
-        zdcAllPart.reset(new ROOT::RDataFrame("ParticleInfo", "cuts/cut_ZdcAllPart.root"));
-        handles.emplace_back(zdcAllPart->Filter([](int r){return r == 1;}, {"isReco"}).Snapshot("ParticleInfo", "cuts/cut_hitZDC_AllPart.root", "", lazy));
-    }
-    ROOT::RDF::RunGraphs(handles);
+    ROOT::RDF::RSnapshotOptions update;
+    update.fMode = "UPDATE";
+    ROOT::RDataFrame dfCEallRows(ceTree, "cuts/cut_CEall.root");
+    dfCEallRows.Filter(CarbonCeCut()).Snapshot(ceTree, "cuts/cut_CE.root", "", update); // the carbon-block CE rows, beside ParticleInfo
 }
 
-void CutPlots(const char* partArg = "all"){ // a const char*: calling a macro with a std::string argument fails on the Mac cling (Failed to materialize symbols)
+// ===== CountCE (part "count", run after events) =====
+void CountCE(){
+    const TString outname = "cuts/cut_blocks.root";
+
+    ROOT::EnableImplicitMT(NThreads());
+
+    // every carbon-block CE: cuts/cut_CE.root (CarbonCeCut, CutFiles.h), so every row passes. Pass 1 needs no filter, the block copies below only the z window.
+    TTree* ceCarbon = OpenCut("cuts/cut_CE.root", "ChargeExchange_values");
+    if (!ceCarbon){Error("CountCE", "no cuts/cut_CE.root (run CutPlots.cpp (events))"); return;}
+    // the CE protons (children of a carbon CE track) are rows of the events that have a carbon CE: ParticleInfo of cut_CE.root, not the sim output
+    TTree* info = OpenCut("cuts/cut_CE.root", "ParticleInfo");
+    if (!info){Error("CountCE", "no ParticleInfo in cuts/cut_CE.root (run CutPlots.cpp (events))"); return;}
+    if (ceCarbon->GetEntries() == 0 || info->GetEntries() == 0) return;
+
+    // (event, track id) of every carbon-block CE
+    std::set<std::pair<long,long>> ceKeys;
+    {
+        // per-thread-slot containers merged afterwards, so no global lock
+        ROOT::RDataFrame dfCE(*ceCarbon);
+        std::vector<std::set<std::pair<long,long>>> slotKeys(dfCE.GetNSlots());
+        dfCE.ForeachSlot([&](unsigned slot, Int_t ev, Int_t trk){slotKeys[slot].insert({ev, trk});}, {"fEvent", "TrackID"});
+        for (auto &k : slotKeys) ceKeys.insert(k.begin(), k.end());
+    }
+    if (ceKeys.empty()) return;
+
+    // The block and tracker z come from the geometry in settings.csv (2construction.cc): carbon blocks evenly spread from z = 0 to the ZDC face, a tracker plane either side of each block (none in front of the first) and one in front of the ZDC, each a gap dz from the block or ZDC edge
+    // (an old run: nBlocksTracking planes per block, dz apart around z = 4 m). A carbon block is CarbonThickness thick, a tracker plane detectorThickness (500 um).
+    const auto st = ReadSettings();
+    const double carbonMm = st.at("CarbonThickness") * 1000.0, detectorMm = 0.5;
+    const StackLayout stack = StackZ(st);
+    std::vector<std::pair<double,double>> blocks; // [lowest z, highest z] (mm) of each carbon block
+    std::vector<std::pair<long,long>> planes;     // [lowest z, highest z] (mm) of each tracker plane
+    for (const double zc : stack.planeZ) planes.push_back({std::lround(zc - detectorMm / 2), std::lround(zc + detectorMm / 2)});
+    for (const double zc : stack.blockZ) blocks.push_back({zc - carbonMm / 2, zc + carbonMm / 2});
+
+    // One pass over ParticleInfo, nothing big held in memory:
+    //  - tracker hits (entry rows, boundaryType 0) and detector entries (boundaryType 2) of CE protons only
+    //    (event, parent track id) -> tracker z / detector (x, y)
+    std::map<std::tuple<long,long,long>, std::array<double,4>> protonHits; // (event, parent, tracker z) -> (x, y, block x, block y)
+    std::map<std::pair<long,long>, std::array<double,4>> protonDetectorHits;
+    {
+        // each thread fills its own containers (no lock per row), merged after the pass
+        struct Local {
+            std::map<std::tuple<long,long,long>, std::array<double,4>> protonHits; // (event, parent, tracker z) -> (x, y, block x, block y)
+            std::map<std::pair<long,long>, std::array<double,4>> protonDetectorHits;
+        };
+        std::vector<Local> locals(std::max(1u, ROOT::GetThreadPoolSize()));
+        ROOT::RDataFrame(*info).ForeachSlot([&](unsigned slot, Int_t ev, Int_t parent, Int_t pdg, Int_t bt,
+                                                Double_t fx, Double_t fy, Double_t fz, Double_t fdx, Double_t fdy){
+            Local &l = locals[slot];
+            if (pdg != 2212 || !ceKeys.count({ev, parent})) return;
+            if (bt == 0) l.protonHits[{ev, parent, std::lround(fz)}] = {fx, fy, fdx, fdy};
+            else if (bt == 2) l.protonDetectorHits[{ev, parent}] = {fx, fy, fdx, fdy};
+        }, {"fEvent", "ParentID", "pdg", "boundaryType", "fX", "fY", "fZ", "fDx", "fDy"});
+
+        for (auto &l : locals) {
+            protonHits.insert(l.protonHits.begin(), l.protonHits.end());
+            for (auto &kv : l.protonDetectorHits) protonDetectorHits[kv.first] = kv.second;
+        }
+    }
+
+    //out file: every block tree is one multithreaded RDataFrame pass over cut_CE.root (selection, the per-CE columns below, Snapshot); the row order of a block tree is not the entry order
+    gSystem->Unlink(outname);
+    std::vector<std::string> ceBranches;
+    for (auto *br : *ceCarbon->GetListOfBranches()) ceBranches.push_back(br->GetName());
+    for (size_t b = 0; b < blocks.size(); b++) {
+        const double lo = blocks[b].first, hi = blocks[b].second;
+        TString sel = Form("fZ>=%.6f && fZ<=%.6f", lo - 1.0, hi + 1.0); // the carbon atoms of CarbonCeCut are already applied (cut_CE.root)
+
+        // CE protons (daughters of the CE track) that reach the first tracker past this block
+        auto next = std::find_if(planes.begin(), planes.end(),
+                                 [&](const std::pair<long,long> &pl){ return pl.first > hi; });
+        bool hasNext = next != planes.end();
+        const long nextLo = hasNext ? next->first : 0, nextHi = hasNext ? next->second : 0;
+
+        // per CE: {reachedNextTracker, trackerX, trackerY, trackerDX, trackerDY, reachedDetector, detectorX, detectorY, detectorDX, detectorDY}
+        auto perCE = [&](Int_t evI, Int_t parentI){
+            const long ev = evI, parent = parentI;
+            std::array<double,10> r = {0,0,0,0,0,0,0,0,0,0};
+            if (hasNext) {
+                auto hit = protonHits.lower_bound({ev, parent, nextLo});
+                if (hit != protonHits.end() && std::get<0>(hit->first) == ev && std::get<1>(hit->first) == parent && std::get<2>(hit->first) <= nextHi) {
+                    r[0] = 1; r[1] = hit->second[0]; r[2] = hit->second[1]; r[3] = hit->second[2]; r[4] = hit->second[3];
+                }
+            }
+            auto det = protonDetectorHits.find({ev, parent});
+            if (r[0] && det != protonDetectorHits.end()) {
+                r[5] = 1; r[6] = det->second[0]; r[7] = det->second[1]; r[8] = det->second[2]; r[9] = det->second[3];
+            }
+            return r;
+        };
+        ROOT::RDF::RNode df = ROOT::RDataFrame(*ceCarbon).Filter(sel.Data(), "block z window");
+        df = df.Define("ceRow", perCE, {"fEvent", "TrackID"})
+               .Define("reachedNextTracker", [](const std::array<double,10> &r){return (Int_t)r[0];}, {"ceRow"})
+               .Define("reachedDetector", [](const std::array<double,10> &r){return (Int_t)r[5];}, {"ceRow"});
+        std::vector<std::string> cols = ceBranches;
+        cols.push_back("reachedNextTracker");
+        // the double columns of ceRow, one Define each
+        const auto addCol = [&](const char *name, int idx){
+            df = df.Define(name, [idx](const std::array<double,10> &r){return r[idx];}, {"ceRow"});
+            cols.push_back(name);
+        };
+        addCol("trackerX", 1); addCol("trackerY", 2); addCol("trackerDX", 3); addCol("trackerDY", 4);
+        addCol("detectorDX", 8); addCol("detectorDY", 9); addCol("detectorX", 6); addCol("detectorY", 7);
+        cols.push_back("reachedDetector");
+        ROOT::RDF::RSnapshotOptions opts;
+        opts.fMode = b == 0 ? "RECREATE" : "UPDATE";
+        df.Snapshot(Form("Block%zu", b + 1), outname.Data(), cols, opts);
+        {
+            TFile f(outname, "UPDATE");
+            if (auto *t = (TTree*)f.Get(Form("Block%zu", b + 1))) {
+                t->SetTitle(Form("CE in block %zu, z %.0f to %.0f mm", b + 1, lo, hi));
+                t->Write("", TObject::kOverwrite);
+            }
+        }
+    }
+}
+
+void CutPlots(const char* partArg = "zdc"){ // a const char*: calling a macro with a std::string argument fails on the Mac cling (Failed to materialize symbols)
     const std::string part = partArg;
-    if (part != "all" && part != "trees" && part != "zdc" && part != "samples"){Error("CutPlots", "part must be all, trees, zdc or samples"); return;}
-    // one timing line per part, flushed: the job log then shows where it stopped, and the buffered prints of a part are out before the next one starts
-    auto timed = [](const char* name, void (*f)()){
-        const time_t t0 = time(nullptr);
-        f();
-        printf(">>> CutPlots %s took %.0f s\n", name, difftime(time(nullptr), t0)); fflush(stdout);
-    };
-    const char* only = std::getenv("CUT_ONLY");
-    const bool samplesOnly = only && *only; // CUT_ONLY: one cut file is redone, the trees and zdc parts are not
-    if ((part == "all" || part == "trees") && !samplesOnly) timed("trees", CutTrees);
-    if ((part == "all" || part == "zdc") && !samplesOnly) timed("zdc", ZdcColumns);
-    if (part == "all" || part == "samples") timed("samples", CutSamples);
+    if (part == "events"){CutEvents(); return;} // the cut files of the sim output, after ReconAngleAll in run_all.sh
+    if (part == "count"){CountCE(); return;} // the CE counts per block, after CutEvents
+    if (part != "zdc"){Error("CutPlots", "part must be events, count or zdc"); return;}
+    const time_t t0 = time(nullptr);
+    ZdcColumns();
+    printf(">>> CutPlots zdc took %.0f s\n", difftime(time(nullptr), t0)); fflush(stdout);
 }

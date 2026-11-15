@@ -1,17 +1,14 @@
 #!/bin/bash
-# Submits the plotting chain for one run folder as PBS jobs (Plot.pbs), the lanes of 5rootMacros/plot.sh in parallel, instead of running plot.sh in one go.
-# Quick redo of one cut: CUT_ONLY=megacut3 bash SubmitPlots.sh <run> "" CutPlots 6_cuts/6_megaCut3 rewrites only the cut_megacut3* files (CutPlots.cpp) and then replots only that folder.
+# Submits the plotting chain for one run folder as PBS jobs (Plot.pbs), the lanes of 6jobs/plot.sh in parallel, instead of running plot.sh in one go.
 # Usage: bash SubmitPlots.sh <folder in build/root> [job ids CutPlots waits for, colon separated] [first job] [plots/ folder to redo], e.g. bash SubmitPlots.sh Physics_xs1e10
 # The Pdfs job is only submitted with PDFS=1 in the environment or with Pdfs as the first job (the examples below that mention it need one of them).
-# first job: CutPlots (default), Cuts, Fom, CEblock, SecCE, Smear or Pdfs. The jobs before it are not submitted (their files are already in cuts/), so e.g. "Cuts" runs Cuts, Fom, CEblock, SecCE, Smear and Pdfs: bash SubmitPlots.sh Physics_801 "" Cuts
-# plots/ folder to redo: one folder of plots/ (a leading plots/ is dropped), e.g. bash SubmitPlots.sh Physics_801 "" CutPlots 6_cuts/3_ResCuts. It is deleted, then only the jobs that write it run (none of CutPlots), then Pdfs.
-#   1_position, 2_energy          Plot3D part 1
-#   6_cuts, 6_cuts/<cut folder>   Plot3D parts 2, 3, 4 of that cut (all cuts for 6_cuts), part 5 (rank csv files), QualityStudy for 3_ResCuts
-#   3_ReconCalcVals, 5_fomCalc    the Fom lane      4_CEblock  the CEblock lane      7_secondaryCE  the SecCE lane      8_smear  the Smear lane
-# Needs cut_*.root and settings.csv already in the run folder (CutEvents.cpp, ReconAngleAll.cpp, CalcAPandT.cpp, CountCE.cpp done), or the job ids of the jobs that write them (SubmitEvents.sh).
+# first job: CutPlots (default), Plot3D, CEblock, SecCE or Pdfs. The jobs before it are not submitted (their files are already in cuts/), so e.g. "Plot3D" runs Plot3D, CEblock, SecCE and Pdfs: bash SubmitPlots.sh Physics_801 "" Plot3D
+# plots/ folder to redo: one folder of plots/ (a leading plots/ is dropped), e.g. bash SubmitPlots.sh Physics_801 "" CutPlots 4_CEblock. It is deleted, then only the job that writes it runs (none of CutPlots), then Pdfs.
+#   1_position, 2_energy  the Plot3D job      4_CEblock  the CEblock lane      7_secondaryCE  the SecCE lane
+# Needs cut_*.root and settings.csv already in the run folder (CutPlots.cpp (events), ReconAngleAll.cpp, CalcAPandT.cpp, CutPlots.cpp (count) done), or the job ids of the jobs that write them (SubmitEvents.sh).
 RUN=$1
-ORDER="CutPlots Cuts Fom CEblock SecCE Smear Pdfs"
-# the Pdfs job (tidy_plots.py, cut_side_box.py, crop_pdfs.py) is not submitted unless it is asked for: PDFS=1 in the environment, or Pdfs as the first job
+ORDER="CutPlots Plot3D CEblock SecCE Pdfs"
+# the Pdfs job (tidy_plots.py, crop_pdfs.py) is not submitted unless it is asked for: PDFS=1 in the environment, or Pdfs as the first job
 [ "${3:-}" = Pdfs ] && PDFS=1
 FROM=${3:-CutPlots}
 TARGET=$4
@@ -20,74 +17,44 @@ case " $ORDER " in *" $FROM "*) ;; *) echo "unknown first job $FROM (one of: $OR
 cd "$(dirname "$0")" || exit 1
 source ./submit_lib.sh
 
-# cut_indexes <folder under 6_cuts, empty for all>: the P3_CUT numbers of Plot3D.cpp (0: 0_cuts, 1_hitZDC and 2_KECUT, then sampleCuts in order). Keep in step with Plot3D.cpp and Plot.pbs.
-cut_indexes() {
-    case $1 in
-        "") echo 0 1 2 3 4 ;;
-        0_cuts|0_cuts/*|1_hitZDC|1_hitZDC/*|2_KECUT|2_KECUT/*) echo 0 ;;
-        3_ResCuts|3_ResCuts/*) echo 1 ;;
-        4_nZdcParticles|4_nZdcParticles/*) echo 2 ;;
-        5_avgTrackerHitsPerPlane|5_avgTrackerHitsPerPlane/*) echo 3 ;;
-        6_megaCut3|6_megaCut3/1_*) echo 4 ;;
-        *) return 1 ;;
-    esac
-}
-
-PARTS= LANE= QS=
+LANE=
 if [ -n "$TARGET" ]; then
     TARGET=${TARGET#plots/}; TARGET=${TARGET%/}
     case "$TARGET" in ""|.*|*..*|/*) echo "bad folder: $4"; exit 1;; esac
-    top=${TARGET%%/*}; rest=; [ "$top" != "$TARGET" ] && rest=${TARGET#*/}
+    top=${TARGET%%/*}
     case $top in
-        1_position|2_energy) PARTS=1::0+1::1+1::2+1::3 ;;
-        6_cuts)
-            idx=$(cut_indexes "$rest") || { echo "unknown cut folder: 6_cuts/$rest"; exit 1; }
-            for i in $idx; do
-                if [ "$i" = 0 ]; then PARTS+="2:0+3:0:0+3:0:1:0+3:0:1:1+3:0:1:2+3:0:1:3+3:0:1:4+3:0:1:5+3:0:2+3:0:3:0+3:0:3:1+3:0:3:2+3:0:3:3+" # cut 0 holds four folders (P3_SUB), a process each; the slow noCuts ones (3:0:1, 4:0:2) and the KE scan ones (3:0:3, one process per KE level 80 85 90 95) split further (P3_SEC, Plot3D.cpp)
-                else PARTS+="2:$i+3:$i+"; case $i in 3|4) PARTS+="4:$i+" ;; esac; fi
-            done
-            [ -z "$rest" ] && PARTS+="4:5+4:6+4:7+" # all of 6_cuts: also the KE scan sets of Plot3D.cpp part 4 (cuts 5 to 7)
-            case " $idx " in *" 0 "*) PARTS+="1::3+" ;; esac # 1_hitZDC, 0_cuts and 2_KECUT also hold plots of part 1
-            PARTS=${PARTS%+}
-            case $rest in ""|3_ResCuts*) QS=1 ;; esac ;;
-        3_ReconCalcVals|5_fomCalc) LANE=fom ;;
+        1_position|2_energy) LANE=plot3d ;;
         4_CEblock) LANE=ceblock ;;
         7_secondaryCE) LANE=secce ;;
-        8_smear) LANE=smear ;;
-        *) echo "unknown plots folder $top (one of: 1_position 2_energy 3_ReconCalcVals 4_CEblock 5_fomCalc 6_cuts 7_secondaryCE 8_smear)"; exit 1 ;;
+        *) echo "unknown plots folder $top (one of: 1_position 2_energy 4_CEblock 7_secondaryCE)"; exit 1 ;;
     esac
     [ -d "../build/root/$RUN/plots/$TARGET" ] || { echo "no folder ../build/root/$RUN/plots/$TARGET"; exit 1; }
     rm -rf "../build/root/$RUN/plots/$TARGET" || exit 1 # the old plots go, so nothing stale stays beside the new ones
 fi
 
-rsync -a --exclude __pycache__ ../5rootMacros/ "../build/root/$RUN/" || exit 1 # the jobs run the run folder's copy of the macros
+rsync -a --exclude __pycache__ --exclude '*_cpp.*' --exclude .DS_Store --exclude CLAUDE.md --exclude debug ../5rootMacros/ "../build/root/$RUN/" || exit 1 # the jobs run the run folder's copy of the macros
+rsync -a ../6jobs/run_all.sh ../6jobs/run_norecon.sh ../6jobs/plot.sh ../6jobs/run_lib.sh ../6jobs/preflight.sh ../6jobs/to_png.sh "../build/root/$RUN/" || exit 1 # the scripts of the chain live in 6jobs/
 # a run from the start (no folder, first job CutPlots) rebuilds every plot: the old plots/ and the Plot3D logs go first, so nothing of an older macro version stays beside the new files. cuts/ stays.
 if [ -z "$TARGET" ] && [ "$FROM" = CutPlots ]; then
-    rm -rf "../build/root/$RUN/plots"; rm -f ../build/root/$RUN/Plot3D_part*.log
+    rm -rf "../build/root/$RUN/plots"; rm -f ../build/root/$RUN/Plot3D_sub*.log
 fi
 
-if [ -n "$TARGET" ]; then # one folder: its jobs only (the cuts/ files are already there), then the python steps
-    ids=
-    [ -n "$PARTS" ] && { p3=$(PARTS=$PARTS submit Redo plot3d "$2" 128); ids=$p3; }
-    [ -n "$QS" ] && ids="$ids $(PARTS= submit RedoQS quality "$2" 128)" # PARTS only goes to the plot3d job. QualityStudy waits for the same jobs as Plot3D, not for Plot3D: they write different files (thresholds.csv, csv/cut_efficiency.csv, 1_<branch>.pdf vs cut_ratios.csv, cuts.txt, the Plot3D pdfs)
-    [ -n "$LANE" ] && ids=$(PARTS= submit Redo $LANE "$2")
-    if [ -n "$PDFS" ]; then PARTS= DEPKIND=afterany submit Pdfs pdfs "$(echo $ids | tr ' ' ':')"; fi
+if [ -n "$TARGET" ]; then # one folder: its job only (the cuts/ files are already there), then the python steps
+    ids=$(submit Redo $LANE "$2")
+    if [ -n "$PDFS" ]; then DEPKIND=afterany submit Pdfs pdfs "$ids"; fi
     exit
 fi
 
 # on <job>: true when the job is FROM or comes after it in ORDER
 on() { [ "$1" = "$FROM" ] || case " $ORDER " in *" $FROM "*"$1 "*) return 0;; *) return 1;; esac; }
 
-# CutPlots (KE cut lists, ZDC proton cut files, sample cut files) is on the critical path, ahead of every lane: all the cores
-on CutPlots && cut=$(submit CutPlots cuttrees "$2" 128)
+# CutPlots (the cut files) is on the critical path, ahead of every lane
+on CutPlots && cut=$(submit CutPlots cutzdc "$2" 128)
 # the lanes start after CutPlots has written the cuts/ files; without CutPlots they wait for the ids in $2, if any
 w=${cut:-$2}
-on Cuts && cuts=$(submit Cuts cuts "$w" 128) # Plot3D runs nine processes side by side (Plot.pbs): a whole node
-on Fom && fom=$(submit Fom fom "$w")
+on Plot3D && p3=$(submit Plot3D plot3d "$w" 128) # Plot3D runs three processes side by side (Plot.pbs)
 on CEblock && ce=$(submit CEblock ceblock "$w")
 on SecCE && sec=$(submit SecCE secce "$w")
-on Smear && smear=$(submit Smear smear "$w")
-on Smear && smearcuts=$(submit SmearCuts smearcuts "$(echo ${cuts:-$w} $smear | tr ' ' ':')" 128) # the per-cut matrices of 6_cuts/*/1_additionalinfo: after the Cuts job (its cuts.txt files name the cuts in the titles) and the Smear job (UnfoldPhi.cpp, at the end of the step, reads its full sample matrix)
-# tidy, side box and crop once every lane has ended, so the pdfs of the lanes that worked are still finished when one failed
-ids=$(echo $cuts $fom $ce $sec $smear $smearcuts | tr ' ' ':')
+# tidy and crop once every lane has ended, so the pdfs of the lanes that worked are still finished when one failed
+ids=$(echo $p3 $ce $sec | tr ' ' ':')
 if [ -n "$PDFS" ]; then DEPKIND=afterany submit Pdfs pdfs "${ids:-$w}"; fi

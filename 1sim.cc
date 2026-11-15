@@ -45,10 +45,18 @@ int main(int argc, char** argv)
         UImanager->ApplyCommand("/vis/open OGL"); //uses opengl
         //UImanager->ApplyCommand("/control/execute 1vis.mac");
         UImanager->ApplyCommand("/vis/drawVolume"); //draws world
+        //the world is centred on the gun (z = 0) and about 68 m long, so frame only about z = 0.5 to 38.5 m (the default 37 m beamline; the scale and target values below assume zdcFrontZ = 37 m), side view with z running left to right
+        UImanager->ApplyCommand("/vis/geometry/set/visibility logicWorld 0 true"); //draws the world box (off by default)
+        UImanager->ApplyCommand("/vis/viewer/set/viewpointVector -1 0 0");
+        UImanager->ApplyCommand("/vis/viewer/set/upVector 0 1 0");
+        UImanager->ApplyCommand("/vis/viewer/set/targetPoint 0 0 19.5 m"); //centre of about 0.5 to 38.5 m, so the vertical scale just past the box end stays in frame
+        UImanager->ApplyCommand("/vis/viewer/addCutawayPlane 0 0 -1 m 0 0 1"); //hides the world box and anything else behind z = -1 m; if the wrong side is cut, flip the normal to 0 0 -1
+        UImanager->ApplyCommand("/vis/viewer/zoomTo 2"); //scene radius is about 34 m, so about 17 m each side of the target
         UImanager->ApplyCommand("/vis/viewer/set/autorefresh true"); //changes for new run
         UImanager->ApplyCommand("/vis/scene/add/trajectories smooth"); //draws particle traj
         UImanager->ApplyCommand("/vis/scene/endOfEventAction accumulate"); //accumulates events to 1 run, not rlly needed
-        UImanager->ApplyCommand("/vis/scene/add/scale 10 cm"); //adds a scale
+        UImanager->ApplyCommand("/vis/scene/add/scale 8 m z 1 1 1 manual 0 -2 33 m"); //white 8 m scale (bar, ticks and label take this colour) along z over the last 8 m (29 to 37 m, default zdcFrontZ), 2 m below the beam axis so it clears the 1 m wide blocks (to -0.5 m)
+        UImanager->ApplyCommand("/vis/scene/add/scale 1 m y 1 1 1 manual 0 0 38.6 m"); //white 1 m vertical scale, the height of the world box (y -0.5 to 0.5 m), just outside the box end (box ends at z = 38.1 m with the default 37 m layout)
         //UImanager->ApplyCommand("/vis/scene/add/axes"); //axis for rotations @ center
         UImanager->ApplyCommand("/vis/scene/add/eventID"); //should which event happened
         UImanager->ApplyCommand("/run/printProgress 100"); //one progress line every 100 events

@@ -5,7 +5,7 @@
 # The second argument is passed on to every SubmitEvents.sh call.
 SCAN=$1
 MODE=$2
-[ -n "$SCAN" ] || { echo "usage: bash ScanBlockAnalysis.sh <scan folder in build/root> [CutPlots|Cuts|Fom|CEblock|SecCE|Pdfs]"; exit 1; }
+[ -n "$SCAN" ] || { echo "usage: bash ScanBlockAnalysis.sh <scan folder in build/root> [CutPlots|Plot3D|CEblock|SecCE|Pdfs]"; exit 1; }
 cd "$(dirname "$0")" || exit 1
 [ -d "../build/root/$SCAN" ] || { echo "no ../build/root/$SCAN"; exit 1; }
 found=0

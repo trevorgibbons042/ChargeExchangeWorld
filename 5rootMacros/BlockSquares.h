@@ -1,6 +1,6 @@
 #pragma once
-// Block position maps (one bin per detector or tracker cell, bins on the cell grid) drawn as one filled square per occupied cell, shared by Plot3D.cpp (1_position/2_block),
-// GraphBlocks.cpp (4_CEblock, the *_xy_detector plots) and PlotDiffPhiCuts.cpp (the block xy plots).
+// Block position maps (one bin per detector or tracker cell, bins on the cell grid) drawn as one filled square per occupied cell, shared by F1_2_Plot3D.cpp (1_position/2_block)
+// and F4_CEBlock.cpp (4_CEblock, the *_xy_detector plots).
 #include <TAxis.h>
 #include <TColor.h>
 #include <TH1.h>

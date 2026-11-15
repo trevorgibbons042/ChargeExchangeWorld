@@ -10,14 +10,15 @@
 #PBS -m bea
 #PBS -M tgibbons@anl.gov
 
-# The whole analysis chain of one run folder (5rootMacros/run.sh): CutEvents, ReconAngleAll, CalcAPandT, CountCE, then plot.sh.
-# Submit with -v RUN=<folder in build/root>. SCRIPT=run_norecon.sh (-v RUN=<run>,SCRIPT=run_norecon.sh) skips ReconAngleAll and reuses the cuts/cut_angles_all.root of an earlier run.sh.
+# The whole analysis chain of one run folder (6jobs/run_all.sh): CutPlots events, ReconAngleAll, CalcAPandT, CutPlots count, then plot.sh.
+# Submit with -v RUN=<folder in build/root>. SCRIPT=run_norecon.sh (-v RUN=<run>,SCRIPT=run_norecon.sh) skips ReconAngleAll and reuses the cuts/cut_angles_all.root of an earlier run_all.sh.
 # The job copies the current macros into the run folder itself (the macros run from that copy).
 # BASE can be overridden to try it on another machine.
 BASE=${BASE:-/lcrc/project/eic/tgibbons/G4ChargeExchange}
 
 cd $BASE/build/root/$RUN || exit 1
-rsync -a --exclude __pycache__ $BASE/5rootMacros/ $BASE/build/root/$RUN/
+rsync -a --exclude __pycache__ --exclude '*_cpp.*' --exclude .DS_Store --exclude CLAUDE.md --exclude debug $BASE/5rootMacros/ $BASE/build/root/$RUN/
+rsync -a $BASE/6jobs/run_all.sh $BASE/6jobs/run_norecon.sh $BASE/6jobs/plot.sh $BASE/6jobs/run_lib.sh $BASE/6jobs/preflight.sh $BASE/6jobs/to_png.sh $BASE/build/root/$RUN/ # the scripts of the chain live in 6jobs/
 
 module load root
 export LD_LIBRARY_PATH=/lcrc/project/eic/tgibbons/xxhash-install/lib:$LD_LIBRARY_PATH
@@ -30,4 +31,4 @@ echo Jobid: $PBS_JOBID
 echo Running on host `hostname`
 echo Run folder: $RUN
 
-zsh ${SCRIPT:-run.sh}
+zsh ${SCRIPT:-run_all.sh}

@@ -45,7 +45,10 @@ void MySteppingAction::UserSteppingAction(const G4Step *step){
         if (postVolume && postVolume->GetLogicalVolume() == trackLV &&
             preVolume && preVolume->GetLogicalVolume() != trackLV){
             G4ThreeVector detectorCenter = post->GetTouchable()->GetTranslation(); //global center, cells sit inside a slab
-            FillParticleInfo(track, 0, post->GetPosition(), post->GetKineticEnergy(), detectorCenter, post->GetKineticEnergy());
+            //only entries through the front face (z below the slab centre), a track coming in through the back face is not a track going in +z
+            if (post->GetPosition().z() <= detectorCenter.z()){
+                FillParticleInfo(track, 0, post->GetPosition(), post->GetKineticEnergy(), detectorCenter, post->GetKineticEnergy());
+            }
         }
     }
 
@@ -69,11 +72,10 @@ void MySteppingAction::UserSteppingAction(const G4Step *step){
             G4ThreeVector reactionPosition = step->GetPostStepPoint()->GetPosition();
 
             const auto* secondaries = step->GetSecondaryInCurrentStep();
-            G4double thetaCE = NAN, phiLabCE = NAN; G4int nProtons = 0;
+            G4double thetaCE = NAN, phiLabCE = NAN;
 
             for (const auto* secondary : *secondaries) {
                 if (secondary->GetDefinition()->GetPDGEncoding() != 2212) {continue;}
-                nProtons++;
                 thetaCE =(secondary->GetMomentum()).theta();
                 phiLabCE = (secondary->GetMomentum()).phi(); //lab phi of the same proton, LastPhi is the model's phi before the boost to lab
             }
@@ -90,37 +92,25 @@ void MySteppingAction::UserSteppingAction(const G4Step *step){
             man->FillNtupleDColumn(1, 9, modelNP->GetLastT());
             man->FillNtupleDColumn(1, 10, modelNP->GetLastAP());
             man->FillNtupleDColumn(1, 11, phiLabCE);
-            man->FillNtupleDColumn(1, 12, modelNP->GetLasttheta());
-            man->FillNtupleDColumn(1, 13, nProtons);
-            man->FillNtupleDColumn(1, 14, modelNP->GetLastPinTheta());
-            man->FillNtupleDColumn(1, 15, modelNP->GetLastModelTheta());
-            man->FillNtupleDColumn(1, 16, modelNP->GetLastCMTheta());
-            const auto* cePostVol = step->GetPostStepPoint()->GetPhysicalVolume();
-            const auto* cePreVol = step->GetPreStepPoint()->GetPhysicalVolume();
-            man->FillNtupleSColumn(1, 17, cePostVol ? cePostVol->GetName() : "none");
-            man->FillNtupleSColumn(1, 18, cePreVol ? cePreVol->GetName() : "none");
             const auto* ceCreator = track->GetCreatorProcess();
-            man->FillNtupleSColumn(1, 19, ceCreator ? ceCreator->GetProcessName() : "primary");
+            man->FillNtupleSColumn(1, 12, ceCreator ? ceCreator->GetProcessName() : "primary");
             const G4ThreeVector cePol = track->GetPolarization();
-            man->FillNtupleDColumn(1, 20, cePol.x());
-            man->FillNtupleDColumn(1, 21, cePol.y());
-            man->FillNtupleDColumn(1, 22, cePol.z());
-            const G4ThreeVector ceVertex = track->GetVertexPosition();
-            man->FillNtupleDColumn(1, 23, ceVertex.x());
-            man->FillNtupleDColumn(1, 24, ceVertex.y());
-            man->FillNtupleDColumn(1, 25, ceVertex.z());
+            man->FillNtupleDColumn(1, 13, cePol.x());
+            man->FillNtupleDColumn(1, 14, cePol.y());
+            man->FillNtupleDColumn(1, 15, track->GetVertexPosition().z());
             const G4ThreeVector ceNDir = step->GetPreStepPoint()->GetMomentumDirection();
-            man->FillNtupleDColumn(1, 26, ceNDir.x());
-            man->FillNtupleDColumn(1, 27, ceNDir.y());
-            man->FillNtupleDColumn(1, 28, ceNDir.z());
+            man->FillNtupleDColumn(1, 16, ceNDir.x());
+            man->FillNtupleDColumn(1, 17, ceNDir.y());
+            man->FillNtupleDColumn(1, 18, ceNDir.z());
             man->AddNtupleRow(1);
         }
     }
 
     //ZDC entry: every particle is killed here, neutral ones too. A neutron that kept going could charge exchange inside the ZDC silicon,
-    //and the CE proton born there crosses cell boundaries and would be recorded as a hit. Only charged particles are recorded.
+    //and the CE proton born there crosses cell boundaries and would be recorded as a hit. Neutral KE goes to EventSummary only; ParticleInfo rows are charged only.
     auto* postVol = post->GetPhysicalVolume();
-    if (post->GetStepStatus() == fGeomBoundary && postVol && (postVol->GetName() == "physDetector" || postVol->GetName() == "physDetectorSlab")){
+    if (post->GetStepStatus() == fGeomBoundary && postVol && static_cast<const MyDetectorConstruction*>(
+            G4RunManager::GetRunManager()->GetUserDetectorConstruction())->IsZdcVolume(postVol->GetLogicalVolume())){ // by pointer, not by name
         fEventAction->AddZdcParticle(track->GetParticleDefinition()->GetPDGCharge() != 0., post->GetKineticEnergy()); //EventSummary: every particle, charged or not
         if (track->GetParticleDefinition()->GetPDGCharge() != 0.){
             G4ThreeVector Pos = post->GetPosition();
