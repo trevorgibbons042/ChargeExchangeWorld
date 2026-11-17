@@ -294,7 +294,7 @@ void F9_PlotReconNew(){
         gROOT->cd();
         std::vector<std::vector<double>> ce;
         std::map<long long, size_t> byEvent;
-        double smearErr = 0; // the A_eff bias of the recon theta: the CE recon events of this folder, mean AP at the recon block theta minus mean AP at the true CE theta; it is an error term of the two recon fits (the CE fit uses the true angle)
+        double smearBias = 0; // the signed A_eff bias of the recon theta: the CE recon events of this folder, mean AP at the recon block theta minus mean AP at the true CE theta; it is corrected in A_eff and P of the two recon fits and quoted apart from the uncertainty (the CE fit uses the true angle)
         if (ceT){
             ce = Columns(ceT, {"fEvent", "CEPhiNeu(LastTheta, LastPhiLab, CENDirX, CENDirY, CENDirZ) * 180 / TMath::Pi()", "CEThetaNeu(LastTheta, LastPhiLab, CENDirX, CENDirY, CENDirZ) * 180 / TMath::Pi()", "LastAP", "CENDirX", "CENDirY", "CENDirZ"});
             for (size_t i = 0; i < ce[0].size(); i++) byEvent.emplace((long long)ce[0][i], i);
@@ -313,7 +313,7 @@ void F9_PlotReconNew(){
             });
             double nA = 0, sRec = 0, sTrue = 0;
             for (const auto& p : smearParts){nA += p.n; sRec += p.sRec; sTrue += p.sTrue;}
-            if (nA > 0) smearErr = std::fabs(sRec - sTrue) / nA;
+            if (nA > 0) smearBias = (sRec - sTrue) / nA;
             // 1_additionalinfo/2_matrix2 and 3_matrix3 of the megaCut (the CE recon events of this folder, every cut on):
             // matrix2 M_recB_est_to_lab: the recon block angle in the est neutron frame (x, the "truth" of the page) against the recon block angle in the lab frame (y); matrix3 N_true_to_est: the true neutron direction (CENDir) against the est one (the tube centre at the block middle).
             // theta, phi and the flattened (theta slice, phi bin); the probability pages are normalised per column of x, the counts pages are the counts. Bins (0.1 deg theta bins, 36 phi bins, 10 x 50 flat bins).
@@ -374,7 +374,7 @@ void F9_PlotReconNew(){
                 for (int a = 0; a < 3; a++){delete m2[a]; delete m3[a];}
             }
         }
-        double nFit[3] = {0, 0, 0}, pFitV[3] = {0, 0, 0}, eFitV[3] = {0, 0, 0};
+        double nFit[3] = {0, 0, 0}, pFitV[3] = {0, 0, 0}, eFitV[3] = {0, 0, 0}, pRawV[3] = {0, 0, 0}; // pFitV, eFitV: P with the biases corrected and its uncertainty; pRawV: P of the fit before the correction
         { // every folder
             // scan_stats.csv of the folder, the numbers of the block scan plots (PlotBlockScan.cpp), one row: signal = events with a CE hit (evClass 0 and 1, CE + CE mix), background = non-CE events (evClass 2).
             // sAll, bAll count every recon event with no cut, nS, nB the ones that pass the cuts of this folder (passes); meanA is the mean A_eff at the recon block theta of the signal events in the cuts;
@@ -432,15 +432,15 @@ void F9_PlotReconNew(){
                 for (auto& p : fitParts){phF.insert(phF.end(), p.ph.begin(), p.ph.end()); std::vector<double>().swap(p.ph); aF += p.a; q1 += p.q1; q2 += p.q2;}
                 nFit[s] = phF.size();
                 if (phF.size() < 10) continue;
-                aF.smearErr = s == 0 ? 0.0 : smearErr; // the CE fit uses the true angle: no recon bias term
+                aF.smearBias = s == 0 ? 0.0 : smearBias; // the CE fit uses the true angle: no recon bias term
                 const PFit uf = UnbinnedP(phF, aF, kBlockPhiLo, kBlockPhiHi, nullptr, true, &q1, &q2);
-                pFitV[s] = uf.p; eFitV[s] = uf.err;
+                pFitV[s] = uf.p; eFitV[s] = uf.err; pRawV[s] = uf.pRaw;
             }
             std::ofstream scan(statDir + "/scan_stats.csv");
             scan.precision(10); // counts of millions and 250M neutrons stay whole numbers
-            scan << "nBlocks,TotalNeutrons,PPValue,nCETrue,sAll,bAll,nS,nB,meanA,nFitCEMix,pCEMix,errCEMix,nFitAll,pAll,errAll,nFitCE,pCE,errCE,sCEOnly,nCEOnly,meanACEOnly\n"; // sCEOnly, nCEOnly, meanACEOnly (CE only tracks, evClass 0) are after the CE fit columns; the CE columns are last so older readers (PlotBlockScan.cpp reads the first 15, columns 16 to 18 only if present) still work
+            scan << "nBlocks,TotalNeutrons,PPValue,nCETrue,sAll,bAll,nS,nB,meanA,nFitCEMix,pCEMix,errCEMix,nFitAll,pAll,errAll,nFitCE,pCE,errCE,sCEOnly,nCEOnly,meanACEOnly,pRawAll,pRawCE\n"; // pRawAll, pRawCE are the P of the total recon and CE fits before the bias correction (pAll, pCE are corrected); // sCEOnly, nCEOnly, meanACEOnly (CE only tracks, evClass 0) are after the CE fit columns; the CE columns are last so older readers (PlotBlockScan.cpp reads the first 15, columns 16 to 18 only if present) still work
             scan << settings.at("nBlocks") << "," << settings.at("TotalNeutrons") << "," << settings.at("PPValue") << "," << byEvent.size() << "," << sAll << "," << bAll << "," << nS << "," << nB << "," << (nA > 0 ? sumA / nA : 0.0) << ","
-                 << nFit[1] << "," << pFitV[1] << "," << eFitV[1] << "," << nFit[2] << "," << pFitV[2] << "," << eFitV[2] << "," << nFit[0] << "," << pFitV[0] << "," << eFitV[0] << "," << s0All << "," << n0 << "," << (nA0 > 0 ? sumA0 / nA0 : 0.0) << "\n";
+                 << nFit[1] << "," << pFitV[1] << "," << eFitV[1] << "," << nFit[2] << "," << pFitV[2] << "," << eFitV[2] << "," << nFit[0] << "," << pFitV[0] << "," << eFitV[0] << "," << s0All << "," << n0 << "," << (nA0 > 0 ? sumA0 / nA0 : 0.0) << "," << pRawV[2] << "," << pRawV[0] << "\n";
         }
         if (bdtMode && mode == 41 && !scanOnly){ // every BDT cut is scanned: the cut with the total recon P (pAll) closest to the true P gets its fit pdfs
             int best = -1; double bestDiff = 1e300;
@@ -514,7 +514,7 @@ void F9_PlotReconNew(){
             if (tp){
                 PhiCosFit(&c, tp, "phiRelNDdeg", "thetaDeg", "", phiHist,
                           std::string(sampleName[k]) + ", RECONPHIBL_ESTNEU Distribution, A_{eff} at the recon block #theta" + cutText, phiPdf,
-                          {}, "", {"rThMin", "rThMax", "rPhHalf"}, {"r2ThMin", "r2ThMax", "r2PhHalf"}, ClassColor(k), smearErr, 33);
+                          {}, "", {"rThMin", "rThMax", "rPhHalf"}, {"r2ThMin", "r2ThMax", "r2PhHalf"}, ClassColor(k), smearBias, 33);
                 ff->Close();
             }
             gSystem->Unlink(fitFile.c_str());
@@ -548,7 +548,7 @@ void F9_PlotReconNew(){
                             if (std::isfinite(e.h1)) r1.Add(e.h1);
                             if (std::isfinite(e.h2)) r2.Add(e.h2);
                         }
-                        aM.smearErr = smearErr;
+                        aM.smearBias = smearBias;
                         const PFit uf = UnbinnedP(phS, aM, kBlockPhiLo, kBlockPhiHi, nullptr, true, &r1, &r2);
                         pSub.push_back(uf.p); eSub.push_back(uf.err);
                         if (s >= nShow) continue;
@@ -557,11 +557,11 @@ void F9_PlotReconNew(){
                         hS.SetStats(0); hS.SetLineColor(ClassColor(2)); hS.SetLineWidth(2); hS.SetMinimum(0); hS.SetMaximum(1.1 * hS.GetMaximum());
                         hS.SetTitle(Form("random 50%% subsample %d of %d (first %d shown), %s, RECONPHIBL_ESTNEU Distribution, %d phi bins of %.1f deg%s;RECONPHIBL_ESTNEU (degrees);Count", s + 1, nSub, nShow, sampleName[2], nb, 360.0 / nb, cutText.c_str()));
                         hS.Draw("hist");
-                        TF1 fd("fSubDrawNew", "[0] * (1 + [1] * [2] * cos(x * TMath::Pi() / 180))", 0, 360);
-                        fd.SetParameters(hS.GetEntries() / nb, uf.p, aM.Mean()); fd.SetLineColor(kBlack); fd.SetLineStyle(2); fd.SetLineWidth(3); fd.Draw("same");
+                        TF1 fd("fSubDrawNew", "[0] * (1 + [1] * [2] * [3] * cos(x * TMath::Pi() / 180))", 0, 360); // corrected P and A_eff, D the phi dilution: the curve stays on the data
+                        fd.SetParameters(hS.GetEntries() / nb, uf.p, aM.Corrected(), uf.dil); fd.SetLineColor(kBlack); fd.SetLineStyle(2); fd.SetLineWidth(3); fd.Draw("same");
                         TLatex tx; tx.SetNDC(); tx.SetTextSize(0.026);
                         tx.DrawLatex(0.18, 0.93, "Unbinned fit  N(#phi) #propto 1 + P #upoint A_{eff} cos#phi, dashed = fit, A_{eff} fixed at the recon block #theta");
-                        tx.DrawLatex(0.18, 0.895, Form("%.0f entries (%.0f%% of %zu), %s = %.4f #pm %.4f,  P = %.3g #pm %.2g", hS.GetEntries(), 100.0 * hS.GetEntries() / all.size(), all.size(), AEffEq(), aM.Mean(), aM.Err(), uf.p, uf.err));
+                        tx.DrawLatex(0.18, 0.895, Form("%.0f entries (%.0f%% of %zu), %s = %.4f #pm %.4f,  P = %.3g #pm %.2g", hS.GetEntries(), 100.0 * hS.GetEntries() / all.size(), all.size(), AEffEq(), aM.Corrected(), aM.Err(), uf.p, uf.err));
                         tx.DrawLatex(0.18, 0.86, BlockPhiNote());
                         DrawErrorBySource(aM, uf, true);
                         c.Modified(); c.Update();
