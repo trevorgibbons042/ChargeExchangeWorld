@@ -40,11 +40,10 @@ ULong64_t Thin(const char* inFile, const char* treeName, const char* outFile, UL
 }
 }
 
-void TmvaCrossVal(int folds = 5, ULong64_t maxBackground = 200000, ULong64_t maxSignal = 20000, const char* fromTmva = "", const char* dropVar = "", const char* bdtLabel = "", const char* bdtOpts = ""){
+void TmvaCrossVal(int folds = 5, ULong64_t maxBackground = 200000, ULong64_t maxSignal = 20000, const char* fromTmva = "", const char* dropVar = ""){
     const bool old = fromTmva && fromTmva[0] != 0;
     const std::string drop = dropVar ? dropVar : ""; // an input left out of the training (drop-one test); "none" leaves none out, the baseline of the test
-    const std::string label = bdtLabel ? bdtLabel : ""; // bdtLabel names a run with other BDT options (bdtOpts), written to crossval_opts/<label>.txt only
-    const std::string tag = (old ? "Old" : "") + (drop.empty() ? std::string("") : "_drop_" + drop) + (label.empty() ? std::string("") : "_opt_" + label); // the names of a run on an old file or of a drop-one run never collide with another run
+    const std::string tag = (old ? "Old" : "") + (drop.empty() ? std::string("") : "_drop_" + drop); // the names of a run on an old file or of a drop-one run never collide with another run
     const char* signalFile = "cuts/cut_tmva_signal.root";
     const char* backgroundFile = "cuts/cut_tmva_background.root";
     if (folds < 2) folds = 2;
@@ -123,16 +122,16 @@ void TmvaCrossVal(int folds = 5, ULong64_t maxBackground = 200000, ULong64_t max
     // the same options as TmvaTrain.cpp, one fold's training set is (folds - 1) / folds of the subsample
     TMVA::CrossValidation cv(("SigBkgCV" + tag).c_str(), &dataloader, out, Form("!V:!Silent:Transformations=I:AnalysisType=Classification:NumFolds=%d:NumWorkerProcs=%d:SplitType=Random:FoldFileOutput=False", folds, folds)); // NumWorkerProcs: one process per fold, the folds train at the same time (one BDT training is single-threaded)
     cv.BookMethod(TMVA::Types::kBDT, "BDT",
-                  (bdtOpts && bdtOpts[0]) ? bdtOpts : "!H:!V:NTrees=850:MinNodeSize=10%:MaxDepth=3:BoostType=AdaBoost:AdaBoostBeta=0.5:UseBaggedBoost:BaggedSampleFraction=0.5:SeparationType=GiniIndex:nCuts=20");
+                  "!H:!V:NTrees=850:MinNodeSize=10%:MaxDepth=3:BoostType=AdaBoost:AdaBoostBeta=0.5:UseBaggedBoost:BaggedSampleFraction=0.5:SeparationType=GiniIndex:nCuts=20");
     cv.Evaluate();
 
     // the pdf and the summary: crossval/ (plots/10_BDTcuts/TMVA/ too for the split files; F9_PlotReconNew.cpp's job removes plots/10_BDTcuts when it starts, so crossval/ keeps a copy); crossval_oldfile/ only for a TMVA file
-    const std::string outDir = !label.empty() ? "crossval_opts" : !drop.empty() ? "crossval_drop" : old ? "crossval_oldfile" : "crossval", tmvaDir = "plots/10_BDTcuts/TMVA";
+    const std::string outDir = !drop.empty() ? "crossval_drop" : old ? "crossval_oldfile" : "crossval", tmvaDir = "plots/10_BDTcuts/TMVA";
     gSystem->mkdir(outDir.c_str(), true);
-    if (!old && drop.empty() && label.empty()) gSystem->mkdir(tmvaDir.c_str(), true);
+    if (!old && drop.empty()) gSystem->mkdir(tmvaDir.c_str(), true);
     const auto& results = cv.GetResults();
     {
-        std::ofstream txt(outDir + (!label.empty() ? "/" + label + ".txt" : drop.empty() ? std::string("/crossvalidation_summary.txt") : "/" + drop + ".txt"));
+        std::ofstream txt(outDir + (drop.empty() ? std::string("/crossvalidation_summary.txt") : "/" + drop + ".txt"));
         txt << "TMVA::CrossValidation of the BDT, " << folds << " folds, " << nSigUsed << " signal and " << nBkgUsed << " background rows (" << (old ? std::string("training and test rows of ") + fromTmva : std::string("a subsample of cuts/cut_tmva_*.root")) << "), inputs:";
         for (const auto& x : used) txt << " " << x.name;
         txt << "\ndropped: " << (drop.empty() ? std::string("none") : drop) << "\n";
@@ -144,9 +143,9 @@ void TmvaCrossVal(int folds = 5, ULong64_t maxBackground = 200000, ULong64_t max
     }
     if (!results.empty()){
         TCanvas* c = results[0].Draw(); // the ROC curve of every fold
-        if (c && drop.empty() && label.empty()){c->SaveAs((outDir + "/6_crossvalidation_ROC.pdf").c_str()); if (!old) c->SaveAs((tmvaDir + "/6_crossvalidation_ROC.pdf").c_str());}
+        if (c && drop.empty()){c->SaveAs((outDir + "/6_crossvalidation_ROC.pdf").c_str()); if (!old) c->SaveAs((tmvaDir + "/6_crossvalidation_ROC.pdf").c_str());}
     }
-    if (!old && drop.empty() && label.empty()) gSystem->CopyFile((outDir + "/crossvalidation_summary.txt").c_str(), (tmvaDir + "/crossvalidation_summary.txt").c_str(), true);
+    if (!old && drop.empty()) gSystem->CopyFile((outDir + "/crossvalidation_summary.txt").c_str(), (tmvaDir + "/crossvalidation_summary.txt").c_str(), true);
     cv.Print();
     out->Close();
     inSignal->Close();
