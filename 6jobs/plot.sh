@@ -15,7 +15,7 @@ total=$SECONDS
 # Compile every macro once, at the same time, before the lanes (ACLiC): two lanes never build the same .so, and the lanes skip the dependency check. Not with ACLIC= (interpreted).
 if [ "${ACLIC-+O}" != "" ]; then
     nc=0
-    for m in CutPlots F1_2_Plot3D F3_ReconCalcVals F4_CEBlock F5_FomCalc F7_SecondaryCE F8_TrackerFits F9_PlotReconNew; do
+    for m in CutPlots F1_2_Plot3D F3_ReconCalcVals F4_CEBlock F5_FomCalc F7_SecondaryCE F8_TrackerFits F9_PlotReconNew F10_BDTCuts; do
         nice -n 10 root -l -b -q -e ".L $m.cpp${ACLIC-+O}" > /dev/null 2>&1 &
         (( ++nc % MAXJOBS == 0 )) && wait
     done
@@ -41,8 +41,9 @@ export ANA_NTHREADS=$(( NCPU / 4 > 0 ? NCPU / 4 : 1 )) # 5 lanes below, the core
 } &
 run 'F7_SecondaryCE.cpp' & # CE of the beam neutron vs the secondary neutrons by creator, plots/7_secondaryCE
 run 'F8_TrackerFits.cpp' & # seed and extend tracks vs the track IDs (pure, mixed, missing), from the sim output, plots/8_trackerfits
-run 'F9_PlotReconNew.cpp' & # the event recon (ReconAngleAll.cpp, cuts/cut_angles_all.root), plots/6_ReconNew_1; skips itself when that file is missing
+run 'F9_PlotReconNew.cpp' & # the event recon (ReconAngleAll.cpp, cuts/cut_angles_all.root), plots/6_ReconNew_1; skips itself when that file is missing. With cuts/tmva_scores.root (run_tmva.sh) it also writes the BDT cut folders of plots/10_BDTcuts
 wait
+[ -n "$USE_BDT" ] && run 'F10_BDTCuts.cpp' # plots/10_BDTcuts: P and efficiencies vs the BDT cut (the csv files F9 just wrote) and the TMVA plots of resultTMVAtraining_SigBkg.root; each part skips itself when its input is missing
 
 # Folder and csv layout of plots/, see tidy_plots.py. Done last: the macros read and append to their csv files while they run.
 python3 python/tidy_plots.py plots
