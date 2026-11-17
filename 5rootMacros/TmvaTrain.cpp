@@ -46,7 +46,7 @@ void TmvaTrain(const char* signalFile = "cuts/cut_tmva_signal.root", const char*
     dataloader.PrepareTrainingAndTestTree(noCut, noCut, "nTrain_Signal=0:nTrain_Background=0:SplitMode=Random:NormMode=NumEvents:!V");
 
     factory.BookMethod(&dataloader, TMVA::Types::kBDT, "BDT",
-                       "!H:!V:NTrees=850:MinNodeSize=10%:MaxDepth=3:BoostType=AdaBoost:AdaBoostBeta=0.5:UseBaggedBoost:BaggedSampleFraction=0.5:SeparationType=GiniIndex:nCuts=20");
+                       "!H:!V:NTrees=850:MinNodeSize=1%:MaxDepth=3:BoostType=AdaBoost:AdaBoostBeta=0.5:UseBaggedBoost:BaggedSampleFraction=0.5:SeparationType=GiniIndex:nCuts=20");
     // threads for the parts of TMVA that can use them (BDT training itself is mostly single-threaded, so the time below shows how much it gains)
     TMVA::gConfig().EnableMT(NThreads());
     const auto tTrain = std::chrono::steady_clock::now();

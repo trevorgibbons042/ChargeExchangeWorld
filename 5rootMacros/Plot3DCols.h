@@ -33,7 +33,7 @@ using ColumnAdder = std::function<ROOT::RDF::RNode(ROOT::RDF::RNode)>; // adds t
 // gP3Vals: the cut candidates for the 1_additionalinfo plots of the KE cut folders. Index: 14, 15: RECONPHI_ESTNEU and RECONPHIBL_ESTNEU in degrees, 0 to 360; 16: recon vertex z (mm), from the block position line fit.
 // Slots 17 and 18 are nTrackerHitsEv (tracker entries of every charged particle in the event) and nTrackerTracksEv (charged tracks hitting 2+ planes), NaN without them.
 // Slot 7 is nZdcCharged, the charged particles at the ZDC in the event (EventSummary of the sim, via ReconAngleAll.cpp), NaN without it.
-// Empty when AnglesRaw has no nProtonsEv column.
+// Empty when AnglesRaw has no nChargedParticle column.
 // Slot 19 is nMaxChargedPerPlaneEv, the most charged tracks that entered one tracker plane in the event (TrackerHitsAll, ReconAngleAll.cpp), NaN without it.
 // Slots 20, 21, 22: the est neutron range of the block recon proton (RECONTHETABL_ESTNEU): thetaRelNDMin, thetaRelNDMax (deg) and phiRelNDHalf (rad), NaN without them (the error by source of the phi fits).
 // Slots 23, 24, 25: the block grid range alone of that proton (thetaRelNDBMin, thetaRelNDBMax in deg, phiRelNDBHalf in rad): the slope error of the block position fit, NaN without them.
@@ -64,7 +64,7 @@ inline bool LoadPlot3DMaps(){
     if (!raw){Error("Plot3D", "missing AnglesRaw tree in cut_angles_all.root (run ReconAngleAll.cpp first)"); return false;}
     // one pass over AnglesRaw, each entry read once and on all the threads (RDataFrame): every row is a reconstructed event (the Angles tree), gP3Vals has every row.
     // Every slot collects its rows in a vector, the vectors are sorted and merged on all the threads, and the arrays are filled from the merged vector in key order.
-    const bool withRaw = raw->GetBranch("nProtonsEv") != nullptr;
+    const bool withRaw = raw->GetBranch("nChargedParticle") != nullptr;
     const unsigned char kReco = kP3Reco;
     ROOT::RDataFrame df0(*raw);
     ROOT::RDF::RNode df = df0;
@@ -90,7 +90,7 @@ inline bool LoadPlot3DMaps(){
             v[23] = thMinBRad * rad; v[24] = thMaxBRad * rad; v[25] = phHalfB;
             v[26] = (nPH > 0 && nTH >= 0) ? double(nTH) / nPH : NAN;
             parts[slot].push_back(it);
-        }, {"fEvent", "resRms", "resDRms", "impact", "impactD", "r2", "r2D", "nProtonsEv", "nZdcCharged", "nHits",
+        }, {"fEvent", "resRms", "resDRms", "impact", "impactD", "r2", "r2D", "nChargedParticle", "nZdcCharged", "nHits",
             "phiRelN", "phiRelND", "firstXD", "firstYD", "z_bx_reconVertexOut", "resHalfRatioD", "thetaRelN", "thetaRelND", "nTrackerHitsEv", "nTrackerTracksEv", "nMaxChargedPerPlaneEv", "thetaRelNDMin", "thetaRelNDMax", "phiRelNDHalf", "thetaRelNDBMin", "thetaRelNDBMax", "phiRelNDBHalf", "nPlanesHitEv", "trackNo"});
     } else {
         df.ForeachSlot([&](unsigned slot, int ev, double resDRms){
