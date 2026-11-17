@@ -416,19 +416,22 @@ inline void AddFitEquation(TH1* h, const std::vector<std::string>& lines){
 // each proton (aEach) has the beam spread only.
 // The error of P by source (the side box of the A_eff and P fits, PhiCosFit at the end of this file), all in quadrature in err: errFit the likelihood (statistics of the phi), errA the error of A carried over (errAStat
 // the spread of A over the theta distribution, errABeam the beam energy spread, errARange the est neutron theta range), errPhi the est neutron phi range (PhiRange). Each is |P| times a relative error.
-struct PFit {double p = 0, err = 0, errFit = 0, errA = 0, errPhi = 0, errAStat = 0, errABeam = 0, errARange = 0, errPhi2 = 0, errARange2 = 0, errASmear = 0, errAModel = 0; bool ok = false;}; // errAModel: the errors of the model coefficients A and k (kModelAFrac); errPhi2, errARange2: the block grid range (the second range of AMean and PhiRange)
+// p is the corrected P (the biases below applied), err its uncertainty. The biases are known one-sided shifts, corrected and not part of err: pRaw the P of the fit before the correction, biasSmear the shift of P from
+// the recon theta smear of A_eff (AMean::smearBias), biasPhi and biasPhi2 the shifts from the est neutron phi range and the block grid phi range (the dilution D of PhiRange), each signed, dil = D * D2 (1 with no range).
+struct PFit {double p = 0, err = 0, errFit = 0, errA = 0, errAStat = 0, errABeam = 0, errARange = 0, errARange2 = 0, errAModel = 0, pRaw = 0, biasSmear = 0, biasPhi = 0, biasPhi2 = 0, dil = 1; bool ok = false;}; // errAModel: the errors of the model coefficients A and k (kModelAFrac)
 
 // The mean A of a sample with its error: A = sum / n over the protons, StatErr = std(A) / sqrt(n) (the error of the mean over the theta distribution of the sample), BeamErr the beam spread
 // (kBeamAFrac), RangeErr the est neutron theta range: every proton has A at the central theta (the value that is quoted) and at thetaMin and thetaMax of its est neutron range (Add with aLo, aHi),
 // and the range is half the difference of the means of A at the two ends. Err is the three in quadrature, RelErr is relative to the mean and is what the P of that fit carries (AddAErrToP).
 // Add per proton, or add the sums of several parts (+=): n, sum, sum^2, sLo and sHi add over slices. Add(a) alone (or a sum made without the range) has no range error.
 struct AMean {
-    double n = 0, sum = 0, sum2 = 0, sLo = 0, sHi = 0, sLo2 = 0, sHi2 = 0, smearErr = 0; // smearErr: the bias of A_eff from a smeared recon theta (theta is a magnitude, small angles read high), set by the caller, one more term in quadrature; sLo2, sHi2: a second range of its own, the block grid (the slope error of the block position fit), added in quadrature with the first
+    double n = 0, sum = 0, sum2 = 0, sLo = 0, sHi = 0, sLo2 = 0, sHi2 = 0, smearBias = 0; // smearBias: the signed bias of A_eff from a smeared recon theta (A at the recon theta minus A at the true theta, theta is a magnitude, small angles read high), set by the caller; it is corrected (Corrected()), not an error term; sLo2, sHi2: a second range of its own, the block grid (the slope error of the block position fit), added in quadrature with the first
     void Add(double a){Add(a, a, a, a, a);}
     void Add(double a, double aLo, double aHi){Add(a, aLo, aHi, a, a);}
     void Add(double a, double aLo, double aHi, double aLo2, double aHi2){n++; sum += a; sum2 += a * a; sLo += aLo; sHi += aHi; sLo2 += aLo2; sHi2 += aHi2;}
-    AMean& operator+=(const AMean& o){n += o.n; sum += o.sum; sum2 += o.sum2; sLo += o.sLo; sHi += o.sHi; sLo2 += o.sLo2; sHi2 += o.sHi2; smearErr = std::max(smearErr, o.smearErr); return *this;}
+    AMean& operator+=(const AMean& o){n += o.n; sum += o.sum; sum2 += o.sum2; sLo += o.sLo; sHi += o.sHi; sLo2 += o.sLo2; sHi2 += o.sHi2; if (smearBias == 0) smearBias = o.smearBias; return *this;}
     double Mean() const {return n > 0 ? sum / n : 0.0;}
+    double Corrected() const {return Mean() - smearBias;} // A_eff with the recon theta smear bias taken out
     double StatErr() const {
         if (n < 2) return 0.0;
         const double m = Mean(), var = std::max(0.0, (sum2 / n - m * m) * n / (n - 1));
@@ -437,7 +440,7 @@ struct AMean {
     double BeamErr() const {return std::fabs(Mean()) * kBeamAFrac;}
     double ModelErr() const {return std::fabs(Mean()) * kModelAFrac;} // the errors of the fitted model coefficients A and k (kModelAFrac)
     double RangeErr() const {return n > 0 ? std::fabs(sHi - sLo) / (2 * n) : 0.0;}
-    double Err() const {const double s = StatErr(), b = BeamErr(), m = ModelErr(), r = RangeErr(); return std::sqrt(s * s + b * b + m * m + r * r + smearErr * smearErr);}
+    double Err() const {const double s = StatErr(), b = BeamErr(), m = ModelErr(), r = RangeErr(); return std::sqrt(s * s + b * b + m * m + r * r);}
     double RelErr() const {const double m = std::fabs(Mean()); return m > 0 ? Err() / m : std::sqrt(kBeamAFrac * kBeamAFrac + kModelAFrac * kModelAFrac);}
 };
 // The est neutron phi range: a proton whose est phi is only known within +-h (rad) has its cos(phi) modulation diluted by sin(h) / h, D is the mean of that over the protons of a fit, and P is
@@ -451,39 +454,51 @@ struct PhiRange {
 };
 // P carries the errors of A, and with ph the phi range. aEachBeamOnly: A of each proton, so the beam spread only (the range of A is of the mean).
 inline void AddAErrToP(PFit& r, const AMean& a, const PhiRange* ph = nullptr, bool aEachBeamOnly = false, const PhiRange* ph2 = nullptr){
+    r.pRaw = r.p;
     r.errFit = r.err;
     const double m = std::fabs(a.Mean()), ap = std::fabs(r.p);
     r.errAStat = aEachBeamOnly || m <= 0 ? 0.0 : ap * a.StatErr() / m;
     r.errABeam = ap * kBeamAFrac;
     r.errAModel = ap * kModelAFrac;
     r.errARange = aEachBeamOnly || m <= 0 ? 0.0 : ap * a.RangeErr() / m;
-    r.errASmear = aEachBeamOnly || m <= 0 ? 0.0 : ap * a.smearErr / m;
     // P goes as 1 / A_eff: at A_eff max (rel = the relative A_eff error, terms above in quadrature) it is |P| / (1 + rel), at A_eff min |P| / (1 - rel); the error is half their difference, |P| rel / (1 - rel^2)
-    const double rel = ap > 0 ? std::sqrt(r.errAStat * r.errAStat + r.errABeam * r.errABeam + r.errAModel * r.errAModel + r.errARange * r.errARange + r.errASmear * r.errASmear) / ap : 0.0;
+    const double rel = ap > 0 ? std::sqrt(r.errAStat * r.errAStat + r.errABeam * r.errABeam + r.errAModel * r.errAModel + r.errARange * r.errARange) / ap : 0.0;
     r.errA = rel < 0.99 ? ap * rel / (1 - rel * rel) : ap * rel;
-    r.errPhi = ph ? ap * ph->RelErr() : 0.0;
-    r.errPhi2 = ph2 ? ap * ph2->RelErr() : 0.0;
-    r.err = std::sqrt(r.errFit * r.errFit + r.errA * r.errA + r.errPhi * r.errPhi + r.errPhi2 * r.errPhi2);
+    // The biases are corrected, one step each: P = pRaw * A / A_corrected (the fit used the A of the recon theta), then / D of the est neutron phi range, then / D2 of the block grid range.
+    // The errors above scale with P, so they are scaled by the same factor and err holds the uncertainties only.
+    double p = r.p;
+    const double c = a.Corrected();
+    if (!aEachBeamOnly && m > 0 && c * a.Mean() > 0) p *= a.Mean() / c;
+    r.biasSmear = p - r.pRaw;
+    const double d1 = ph && ph->D() > 1e-6 ? ph->D() : 1.0, d2 = ph2 && ph2->D() > 1e-6 ? ph2->D() : 1.0;
+    r.biasPhi = p / d1 - p; p /= d1;
+    r.biasPhi2 = p / d2 - p; p /= d2;
+    r.dil = d1 * d2;
+    const double f = r.pRaw != 0 ? p / r.pRaw : 1.0;
+    r.p = p; r.errFit *= f; r.errA *= f; r.errAStat *= f; r.errABeam *= f; r.errAModel *= f; r.errARange *= f;
+    r.err = std::sqrt(r.errFit * r.errFit + r.errA * r.errA);
 }
 // The side box "Error by source" of every phi fit plot: the errors of A_eff and of P split by source, in quadrature in the totals the plot quotes (AMean, PFit). hasRange false: the fit has no
 // est neutron frame (true CE phi, lab phi), so the est neutron range terms are 0 and the box says so. NDC corners of the box (the right margin under the stats box).
-inline TPaveText* DrawErrorBySource(const AMean& a, const PFit& uf, bool hasRange, double x1 = 0.755, double y1 = 0.06, double x2 = 0.995, double y2 = 0.52, const char* title = "Error by source", double textSize = 0.024){
+inline TPaveText* DrawErrorBySource(const AMean& a, const PFit& uf, bool hasRange, double x1 = 0.755, double y1 = 0.06, double x2 = 0.995, double y2 = 0.545, const char* title = "Error by source", double textSize = 0.024){
     TPaveText* eb = new TPaveText(x1, y1, x2, y2, "NDC");
     eb->SetTextAlign(12); eb->SetTextSize(textSize); eb->SetFillColor(kWhite); eb->SetBorderSize(1);
     eb->AddText(Form("#bf{%s}", title));
-    eb->AddText(Form("#bf{A_{eff}} #pm %.4f", a.Err()));
-    const bool hasBlock = uf.errPhi2 > 0; // the block grid range: only the block fits have one
+    eb->AddText(Form("#bf{A_{eff}} %.4f #pm %.4f", a.Corrected(), a.Err()));
+    const bool hasBlock = uf.biasPhi2 != 0; // the block grid range: only the block fits have one
     const auto line = [&](const char* name, bool has, double v, const char* fmt){eb->AddText(has ? Form(fmt, name, v) : Form(" %s  n/a (exact angle)", name));};
     line(" est n #theta range", hasRange, a.RangeErr(), "%s  %.4f");
-    if (a.smearErr > 0) eb->AddText(Form(" recon #theta smear (bias)  %.4f", a.smearErr)); // only the recon theta fits that have it
     eb->AddText(Form(" statistics (#theta spread)  %.4f", a.StatErr()));
     eb->AddText(Form(" energy range (beam)  %.4f", a.BeamErr()));
     eb->AddText(Form(" model coeff. (A, k fit)  %.4f", a.ModelErr()));
     eb->AddText(Form("#bf{P} #pm %.3f", uf.err));
-    line(" est n #phi range", hasRange, uf.errPhi, "%s  %.3f");
-    line(" block grid #phi range", hasBlock, uf.errPhi2, "%s  %.3f");
     eb->AddText(Form(" A_{eff} error (all of it)  %.3f", uf.errA)); // the A terms above (theta ranges, spread, energy) carried into P, in quadrature
     eb->AddText(Form(" statistics (likelihood)  %.3f", uf.errFit));
+    eb->AddText("#bf{Bias (applied, not in #pm)}"); // known one-sided shifts, already taken out of A_eff and P
+    if (a.smearBias != 0) eb->AddText(Form(" recon #theta smear, A_{eff}  %+.4f", a.smearBias)); // only the recon theta fits that have it
+    line(" est n #phi dilution, P", hasRange, uf.biasPhi, "%s  %+.3f");
+    line(" block grid #phi dilution, P", hasBlock, uf.biasPhi2, "%s  %+.3f");
+    eb->AddText(Form(" P before correction  %.3f", uf.pRaw));
     eb->Draw();
     return eb;
 }
@@ -540,11 +555,12 @@ inline PFit UnbinnedP(const std::vector<double>& phiDeg, const AMean& aMean, dou
 // Without chi2: chi2 and ndf stay 0. draw: the curve is drawn with the histogram; otherwise it only sits in the function list, like a fit with option "0".
 // A is the fixed A with its error (the stats box shows A +- aErr instead of +- 0).
 inline TF1* AddUnbinnedFit(TH1* h, const char* name, const PFit& r, double aFix, double aErr, bool draw){
-    TF1* f = new TF1(name, "[0] * (1 + [1] * [2] * cos(x * TMath::Pi() / 180))", 0, 360);
-    f->SetParNames("N0 (mean per bin)", "P", "A");
-    f->SetParameters(h->GetEntries() / h->GetNbinsX(), r.p, aFix);
+    TF1* f = new TF1(name, "[0] * (1 + [1] * [2] * [3] * cos(x * TMath::Pi() / 180))", 0, 360); // P and A are the corrected ones, D (the phi dilution of the biases) puts the curve back on the data: P A D = pRaw A raw
+    f->SetParNames("N0 (mean per bin)", "P", "A", "D (phi dilution)");
+    f->SetParameters(h->GetEntries() / h->GetNbinsX(), r.p, aFix, r.dil);
     f->SetParError(1, r.err);
     f->SetParError(2, aErr);
+    f->SetParError(3, 0);
     f->SetNDF(0); f->SetChisquare(0);
     if (!draw) f->SetBit(TF1::kNotDraw);
     h->GetListOfFunctions()->Add(f);
@@ -927,7 +943,7 @@ inline std::string PhiAxisName(const std::string& phiBranch){
 // range: {thetaMin, thetaMax, phiHalf} branches (degrees, degrees, rad) of the est neutron range of each proton (CalcAPandT.cpp), none for a fit with no est neutron frame. With them A_eff gets the
 // theta range error (A at the two ends, AMean) and P the phi range error (PhiRange), and the side box splits the errors of A_eff and P by source.
 // range2: the same three branches for the block grid range alone (the slope error of the block position fit, a range of its own in quadrature), only on the block fits.
-inline void PhiCosFit(TCanvas* canvas, TTree* t, const std::string& phiBranch, const std::string& thetaBranch, const std::string& cut, const std::string& name, const std::string& title, const std::string& path, const std::vector<std::string>& notes = {}, const std::string& aBranch = "", const std::vector<std::string>& range = {}, const std::vector<std::string>& range2 = {}, int color = -1, double aSmearErr = 0, int nBins = 50){ // aSmearErr: the A_eff bias of the smeared recon theta, one more error term (0 none) // color: the histogram line, -1 the CE color // nBins: phi bins of the plot
+inline void PhiCosFit(TCanvas* canvas, TTree* t, const std::string& phiBranch, const std::string& thetaBranch, const std::string& cut, const std::string& name, const std::string& title, const std::string& path, const std::vector<std::string>& notes = {}, const std::string& aBranch = "", const std::vector<std::string>& range = {}, const std::vector<std::string>& range2 = {}, int color = -1, double aSmearBias = 0, int nBins = 50){ // aSmearBias: the signed A_eff bias of the smeared recon theta, corrected in A_eff and P (0 none) // color: the histogram line, -1 the CE color // nBins: phi bins of the plot
     canvas->Clear(); canvas->SetRightMargin(0.25); canvas->SetTopMargin(0.17);
     TH1* h = MakeHist(name + "(" + std::to_string(nBins) + ",0,360)");
     std::vector<double> phiAll;
@@ -952,7 +968,7 @@ inline void PhiCosFit(TCanvas* canvas, TTree* t, const std::string& phiBranch, c
             if (r1 && std::isfinite(cols[iRange + 2][k])) phiRange.Add(cols[iRange + 2][k]);
             if (r2 && std::isfinite(cols[iRange2 + 2][k])) phiRange2.Add(cols[iRange2 + 2][k]);
         }
-        aMean.smearErr = aSmearErr;
+        aMean.smearBias = aSmearBias;
         h->Draw();
     }
     if (!h || h->GetEntries() < 10){canvas->SetRightMargin(0.30); canvas->SetTopMargin(0.1); return;}
@@ -960,7 +976,7 @@ inline void PhiCosFit(TCanvas* canvas, TTree* t, const std::string& phiBranch, c
     h->SetTitle((title + Form(", %d phi bins of %.1f deg", nBins, 360.0 / nBins) + ";" + PhiAxisName(phiBranch) + " (degrees);Count").c_str());
     h->SetLineColor(color >= 0 ? color : CbCE()); // CE protons are vermillion
     const PFit uf = UnbinnedP(phiAll, aMean, kBlockPhiLo, kBlockPhiHi, nullptr, true, range.size() == 3 ? &phiRange : nullptr, range2.size() == 3 ? &phiRange2 : nullptr); // unbinned fit of every proton's phi (FitCore.h), A fixed to A_eff
-    TF1& fit = *AddUnbinnedFit(h, "fPhiCos", uf, aMean.Mean(), aMean.Err(), true);
+    TF1& fit = *AddUnbinnedFit(h, "fPhiCos", uf, aMean.Corrected(), aMean.Err(), true);
     fit.SetParameter(0, nFit / nBins);
     fit.SetLineColor(kBlack);
     h->SetMinimum(0); h->SetMaximum(1.1 * h->GetMaximum());
@@ -969,7 +985,7 @@ inline void PhiCosFit(TCanvas* canvas, TTree* t, const std::string& phiBranch, c
     if (auto* st = (TPaveStats*)h->FindObject("stats")){st->SetX1NDC(0.76); st->SetX2NDC(0.995); st->SetY1NDC(0.55); st->SetY2NDC(0.83);}
     TLatex tx; tx.SetNDC(); tx.SetTextSize(0.028);
     tx.DrawLatex(0.13, 0.90, "Unbinned fit  N(#phi) #propto N_{0} (1 + P #upoint A_{eff} cos#phi) (every proton, no bins), N_{0} = protons / bins, fixed");
-    tx.DrawLatex(0.13, 0.865, Form(aBranch.empty() ? "%s = %.4f #pm %.4f (fixed, per-proton #theta),   P = %.2f #pm %.2f" : "%s = %.4f #pm %.4f (fixed, AP = LastAP of each CE),   P = %.2f #pm %.2f", AEffEq(), aMean.Mean(), aMean.Err(), uf.p, uf.err));
+    tx.DrawLatex(0.13, 0.865, Form(aBranch.empty() ? "%s = %.4f #pm %.4f (fixed, per-proton #theta),   P = %.2f #pm %.2f" : "%s = %.4f #pm %.4f (fixed, AP = LastAP of each CE),   P = %.2f #pm %.2f", AEffEq(), aMean.Corrected(), aMean.Err(), uf.p, uf.err));
     tx.SetTextSize(0.026);
     DrawErrorBySource(aMean, uf, range.size() == 3); // side box (under the stats box): the errors of A_eff and P by source
     for (size_t i = 0; i < notes.size(); i++) tx.DrawLatex(0.13, 0.83 - 0.034 * i, notes[i].c_str());
