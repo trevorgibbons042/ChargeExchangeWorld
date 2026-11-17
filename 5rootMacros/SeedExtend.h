@@ -43,7 +43,8 @@ inline std::vector<std::size_t> SeedExtend(const std::vector<double>& x, const s
             cur.assign({a, b});
             // the running least squares line x = ax + bx z, y = ay + by z through the hits taken so far, refitted after every hit that is added; the sums are about the first hit
             double n = 2.0, sz = z[b] - z[a], sx = x[b] - x[a], sy = y[b] - y[a], szz = sz * sz, szx = sz * sx, szy = sz * sy; // the first hit is the origin (0, 0, 0)
-            double chi2 = 0.0;
+            // the seed pair counts too: two candidates with as many planes are also told apart by how far apart their seed hits sit, in sigma
+            double chi2 = ((x[b] - x[a]) * (x[b] - x[a]) + (y[b] - y[a]) * (y[b] - y[a])) / (sigma * sigma);
             bool skipped = false; // the last plane was passed with no hit
             for (std::size_t pl = p1 + 1; pl < planes.size(); pl++) {
                 const double zc = (on[pl].empty() ? planes[pl] / 1000.0 : z[on[pl].front()]) - z[a];
