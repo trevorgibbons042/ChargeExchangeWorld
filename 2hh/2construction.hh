@@ -58,7 +58,7 @@ public:
     //geometry values for settings.csv, names match the /detector/ commands
     std::vector<std::pair<std::string, double>> GetSettings() const
     {
-        return {{"nBlocks", nBlocks}, {"nBlocksTracking", nBlocksTracking},
+        return {{"nBlocks", nBlocks}, {"nBlocksTracking", nBlocksTracking}, {"nAdditionalTrackers", nAdditionalTrackers},
                 {"nCols_blocks", nCols}, {"nRows_blocks", nRows},
                 {"nCols_detector", nCols_detector}, {"nRows_detector", nRows_detector},
                 {"dz", dz}, {"CarbonThickness", CarbonThickness}, {"TotalCarbonThickness", TotalCarbonThickness}, {"firstBlockZ", firstBlockZ},
@@ -75,6 +75,7 @@ private:
     ////messengar stuff
     G4GenericMessenger *fMessenger;
     G4int nCols, nRows, nBlocks, nBlocksTracking;
+    G4int nAdditionalTrackers = 3; //extra trackers evenly between each pair of trackers face to face, /detector/nAdditionalTrackers
     G4int nCols_detector, nRows_detector;
     G4int patchCells = 0; //0 = full detector grid, N = only the N x N cells at the lower left corner (display only, /detector/patchCells)
 

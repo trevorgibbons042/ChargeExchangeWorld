@@ -8,6 +8,7 @@ MyDetectorConstruction::MyDetectorConstruction()
     fMessenger = new G4GenericMessenger(this, "/detector/", "Detector Construction");
     fMessenger->DeclareProperty("nBlocks", nBlocks, "Number of Blocks");
     fMessenger->DeclareProperty("nBlocksTracking", nBlocksTracking, "Number of Tracking Blocks");
+    fMessenger->DeclareProperty("nAdditionalTrackers", nAdditionalTrackers, "Extra trackers placed evenly between each pair of trackers face to face (the tracker behind a block and the next tracker in front of the next block or the ZDC), 0 = none");
     fMessenger->DeclareProperty("patchCells", patchCells, "Display only, build just the N x N detector cells at the lower left corner (0 = all cells)");
 
     fMessenger->DeclareProperty("nCols_blocks", nCols, "Number of columns for tracking");
@@ -29,6 +30,7 @@ MyDetectorConstruction::MyDetectorConstruction()
     //default values
     nBlocks = 6; //default 6 blocks sharing TotalCarbonThickness, /detector/nBlocks 0 leaves only the ZDC
     nBlocksTracking = 2;
+    nAdditionalTrackers = 3;
     nCols = 11;
     nRows = 11;
     nCols_detector= 5;
@@ -125,6 +127,12 @@ G4VPhysicalVolume *MyDetectorConstruction::Construct() //defines volume and mate
 
         if (i > 0) placeTracker(zCarbon - trackerOffset);
         placeTracker(zCarbon + trackerOffset);
+
+        //nAdditionalTrackers extra planes, evenly spaced between the tracker behind this block and the next tracker (in front of the next block, or in front of the ZDC)
+        G4double zFrom = zCarbon + trackerOffset;
+        G4double zTo = (i + 1 < nBlocks) ? firstFace + (i + 1) * spacing + (CarbonThickness * m) / 2.0 - trackerOffset
+                                         : zdcFront - dz * m - detectorThickness / 2.0;
+        for (G4int k = 1; k <= nAdditionalTrackers; k++) placeTracker(zFrom + (zTo - zFrom) * k / (nAdditionalTrackers + 1));
     }
     if (nBlocks > 0) placeTracker(zdcFront - dz * m - detectorThickness / 2.0); //no blocks, no trackers
 
