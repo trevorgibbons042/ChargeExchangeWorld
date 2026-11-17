@@ -27,6 +27,7 @@ for i in range(totalfiles):
 /detector/nCols_detector {variable}
 /detector/nRows_detector {variable}
 #/detector/nBlocks
+#/detector/nAdditionalTrackers
 #/detector/TotalCarbonThickness
 #/detector/firstBlockZ
 #/detector/zdcFrontZ
