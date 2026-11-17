@@ -87,7 +87,7 @@ Without ReconAngleAll (reuses `cuts/cut_angles_all.root`):
 qsub -v RUN=<run>,SCRIPT=run_norecon.sh Analysis.pbs
 ```
 
-Signal vs background BDT (`run_tmva.sh`: TmvaSplit, TmvaTrain, TmvaApply; ReconAngleAll only when `cuts/cut_angles_all.root` is missing, `FORCE_RECON=1` reruns it). Each step logs to `tmva_*.log` in the run folder; `PRESCALE` (default 20) keeps every 20th event:
+Signal vs background BDT (`run_tmva.sh`: TmvaSplit, TmvaTrain, TmvaApply; ReconAngleAll only when `cuts/cut_angles_all.root` is missing, `FORCE_RECON=1` reruns it). Each step logs to `tmva_*.log` in the run folder; `PRESCALE` (default 2) keeps every 2nd event (the training half; the other events are left out of the BDT cut fits of F9_PlotReconNew.cpp, `cuts/tmva_prescale.txt`):
 
 ```
 qsub -v RUN=<run>,SCRIPT=run_tmva.sh Analysis.pbs

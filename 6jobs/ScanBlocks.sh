@@ -52,7 +52,7 @@ for es in $ENERGIES; do
         if [ -n "$FULL" ]; then
             # FULL=1: one job per run does the sim and then the whole analysis chain (Full.pbs)
             folder=$(awk '/^\/output\/folder /{print $2}' "../build/$TEMPLATE")
-            qsub -N "Full_${e}GeV_${n}block" -v MAC="$mac",RUN="${folder}_${UNIT}/${e}GeV/${n}block" Full.pbs
+            qsub -N "Full_${e}GeV_${n}block" -v MAC="$mac",RUN="${folder}_${UNIT}/${e}GeV/${n}block" ${FULLPBS:-Full.pbs}
         else
             bash Run.sh "$mac"
         fi

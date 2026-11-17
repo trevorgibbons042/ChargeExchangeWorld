@@ -18,7 +18,7 @@ BASE=${BASE:-/lcrc/project/eic/tgibbons/G4ChargeExchange}
 
 cd $BASE/build/root/$RUN || exit 1
 rsync -a --exclude __pycache__ --exclude '*_cpp.*' --exclude .DS_Store --exclude CLAUDE.md --exclude debug $BASE/5rootMacros/ $BASE/build/root/$RUN/
-rsync -a $BASE/6jobs/run_all.sh $BASE/6jobs/run_norecon.sh $BASE/6jobs/plot.sh $BASE/6jobs/run_lib.sh $BASE/6jobs/preflight.sh $BASE/6jobs/to_png.sh $BASE/6jobs/run_tmva.sh $BASE/build/root/$RUN/ # the scripts of the chain live in 6jobs/
+rsync -a $BASE/6jobs/run_all.sh $BASE/6jobs/run_norecon.sh $BASE/6jobs/plot.sh $BASE/6jobs/run_lib.sh $BASE/6jobs/preflight.sh $BASE/6jobs/to_png.sh $BASE/6jobs/run_tmva.sh $BASE/6jobs/run_tmva_cv.sh $BASE/6jobs/run_tmva_cv_drop.sh $BASE/6jobs/run_tmva_cv_opts.sh $BASE/6jobs/run_tmva_cv_theta.sh $BASE/build/root/$RUN/ # the scripts of the chain live in 6jobs/
 
 module load root
 module load openblas/0.3.26-gcc-12.3.0 # libTMVA.so (run_tmva.sh) needs libopenblas.so.0, which the compute nodes do not have in /usr/lib64

@@ -55,7 +55,7 @@ void PlotDiffPhiCuts(double absLo = 50, double absHi = 180, std::string energy =
     if (!ang){Error("PlotDiffPhiCuts", "no AnglesRaw in cuts/cut_angles_all.root (rerun ReconAngleAll.cpp)"); return;}
     const std::string angSel = AngleSelection("Angles"); // the same rows for both column sets, so they line up
     auto cAng = plan.C(ang, {"fEvent", KeVar(suffix), "isFromCE", "resDRms", "phiRelN", "phiRelND"}, angSel);
-    auto cEx = plan.C(ang, {"resRms", "nProtonsEv", "resHalfRatioD", "thetaRelN*180/TMath::Pi()", "thetaRelND*180/TMath::Pi()", "nHits"}, angSel);
+    auto cEx = plan.C(ang, {"resRms", "nChargedParticle", "resHalfRatioD", "thetaRelN*180/TMath::Pi()", "thetaRelND*180/TMath::Pi()", "nHits"}, angSel);
     // the position of the last tracker hit of every recon event, block (lastXD, lastYD): the window events and every recon event pick their rows by fEvent below
     auto cPos = plan.C(ang, {"fEvent", "lastXD", "lastYD"}, angSel);
     plan.Run();
