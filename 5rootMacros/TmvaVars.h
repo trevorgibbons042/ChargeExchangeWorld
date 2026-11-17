@@ -9,17 +9,13 @@
 
 struct TmvaVar {std::string name; char type; std::string unit;}; // type 'D' double or 'I' int, as in the AnglesRaw branch
 
-// The variables of a run: nChargedPlane<i>, the charged hits of the event on tracker plane i, has one column per plane of the run (StackZ, FitCore.h), so a run's block count sets the list.
-// A classifier is trained and applied on runs with the same block count.
+// The variables of a run: the block count (StackZ, FitCore.h) decides whether nPlanesUsed is in the list, so a classifier is trained and applied on runs with the same block count.
+// Dropped on purpose: outDPhi, resDRms, impactD, firstXD, firstYD, r2D, resHalfRatioD, nHits and nChargedPlane<i>.
 inline std::vector<TmvaVar> TmvaVariables(){
     std::vector<TmvaVar> v = {
-        {"zdcKEAllD", 'D', "MeV"}, {"outDTheta", 'D', "rad"}, {"outDPhi", 'D', "rad"}, {"resDRms", 'D', "mm"}, {"impactD", 'D', "mm"},
-        {"firstXD", 'D', "mm"}, {"firstYD", 'D', "mm"}, {"lastXD", 'D', "mm"}, {"lastYD", 'D', "mm"},
-        {"nProtonsEv", 'I', ""}};
-    const std::size_t nPlanes = StackZ(ReadSettings()).planeZ.size();
-    // With 2 planes every fit uses both: nPlanesUsed and nHits are 2 on every row, r2D needs 3 hits and resHalfRatioD more than 2, so they are missing on every row. TMVA stops on a variable with no spread, so they join from 3 planes on.
-    if (nPlanes >= 3){for (const char* n : {"r2D", "resHalfRatioD"}) v.push_back({n, 'D', ""}); for (const char* n : {"nPlanesUsed", "nHits"}) v.push_back({n, 'I', ""});}
-    for (std::size_t i = 0; i < nPlanes; i++) v.push_back({"nChargedPlane" + std::to_string(i), 'I', ""});
+        {"zdcKEAllD", 'D', "MeV"}, {"outDTheta", 'D', "rad"}, {"lastXD", 'D', "mm"}, {"lastYD", 'D', "mm"}, {"nChargedParticle", 'I', ""}};
+    // With 2 planes every fit uses both, so nPlanesUsed is 2 on every row and TMVA stops on a variable with no spread: it joins from 3 planes on.
+    if (StackZ(ReadSettings()).planeZ.size() >= 3) v.push_back({"nPlanesUsed", 'I', ""});
     return v;
 }
 

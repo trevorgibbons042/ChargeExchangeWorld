@@ -270,9 +270,9 @@ static void CalcAPandTBoth(){
 // The beam spread (settings.csv BeamMomentumSD) as relative errors on t and A_P, the same for every event (FitCore.h BeamTFrac, BeamAFrac); the P errors of the plots include
 // the A_P one. Printed and written to beam_errors.csv in the run folder.
 static void WriteBeamErrors(){
-    printf("beam p = %.1f MeV/c, SD = %.1f MeV/c: sigma_t/t = %.3f %%, sigma_A/A = %.3f %% (also the relative beam error on P)\n", kBeamMomentum, kBeamMomentumSD, 100 * kBeamTFrac, 100 * kBeamAFrac);
+    printf("beam p = %.1f MeV/c, SD = %.1f MeV/c: sigma_t/t = %.3f %%, beam (A_max - A_min) / 2A = %.3f %% (also the relative beam error on P); model coefficients (A, k fit) (A_max - A_min) / 2A = %.3f %%\n", kBeamMomentum, kBeamMomentumSD, 100 * kBeamTFrac, 100 * kBeamAFrac, 100 * kModelAFrac);
     if (FILE* f = fopen("beam_errors.csv", "w")){
-        fprintf(f, "BeamMomentum,BeamMomentumSD,sigma_t_over_t,sigma_A_over_A\n%.6f,%.6f,%.8g,%.8g\n", kBeamMomentum, kBeamMomentumSD, kBeamTFrac, kBeamAFrac);
+        fprintf(f, "BeamMomentum,BeamMomentumSD,sigma_t_over_t,sigma_A_over_A,sigma_A_over_A_model\n%.6f,%.6f,%.8g,%.8g,%.8g\n", kBeamMomentum, kBeamMomentumSD, kBeamTFrac, kBeamAFrac, kModelAFrac);
         fclose(f);
     }
 }

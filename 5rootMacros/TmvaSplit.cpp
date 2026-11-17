@@ -1,9 +1,10 @@
 // Splits AnglesRaw of a run folder into a signal file (the fit used a CE child hit, isFromCE == 1) and a background file (isFromCE == 0) that TmvaTrain.cpp reads.
-// Run in the run folder (build/root/<run>/): root -l -b -q 'TmvaSplit.cpp("cuts/cut_angles_all.root", 20)'
+// Run in the run folder (build/root/<run>/): root -l -b -q 'TmvaSplit.cpp("cuts/cut_angles_all.root", 2)'
 // Writes cuts/cut_tmva_signal.root (tree TmvaSignal) and cuts/cut_tmva_background.root (tree TmvaBackground), each with only the row key (fEvent, trackNo) and the detector-level inputs of TmvaVars.h:
 // no truth column, not even the label isFromCE (the file says which class a row is in).
 // Every row is kept; a NaN input is written as kTmvaMissing (-999, TmvaVars.h) because TMVA cannot take a NaN. prescale keeps only the events with fEvent % prescale == 0, all the tracks of such an event, so the files stay a size TMVA can load
-// (the full 80M rows of a run are about 10 GB); 1 keeps every event. The row order is not kept, the key of a row is fEvent + trackNo.
+// (the full 80M rows of a run are about 10 GB); 1 keeps every event. The default 2 trains the BDT on the even events; the odd events are never trained on, and F9_PlotReconNew.cpp runs its BDT cut fits on them only (it reads the prescale from cuts/tmva_prescale.txt, written here). The row order is not kept, the key of a row is fEvent + trackNo.
+#include <fstream>
 #include <iostream>
 #include <string>
 #include <vector>
@@ -15,7 +16,7 @@
 
 #include "TmvaVars.h"
 
-void TmvaSplit(const char* input = "cuts/cut_angles_all.root", int prescale = 1){
+void TmvaSplit(const char* input = "cuts/cut_angles_all.root", int prescale = 2){
     if (gSystem->AccessPathName(input)){Error("TmvaSplit", "no %s", input); return;}
     if (prescale < 1) prescale = 1;
 
@@ -42,4 +43,5 @@ void TmvaSplit(const char* input = "cuts/cut_angles_all.root", int prescale = 1)
     auto backgroundFile = background.Snapshot("TmvaBackground", "cuts/cut_tmva_background.root", columns);
     const ULong64_t nSig = *signalFile->Count(), nBkg = *backgroundFile->Count();
     std::cout << "==> cuts/cut_tmva_signal.root " << nSig << " rows, cuts/cut_tmva_background.root " << nBkg << " rows (prescale " << prescale << ")" << std::endl;
+    {std::ofstream out("cuts/tmva_prescale.txt"); out << prescale << "\n";} // the events with fEvent % prescale == 0 trained the BDT, F9_PlotReconNew.cpp leaves them out of the BDT cut fits
 }
