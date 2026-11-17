@@ -10,15 +10,12 @@
 struct TmvaVar {std::string name; char type; std::string unit;}; // type 'D' double or 'I' int, as in the AnglesRaw branch
 
 // The variables of a run: the block count (StackZ, FitCore.h) decides whether nPlanesUsed is in the list, so a classifier is trained and applied on runs with the same block count.
-// Dropped on purpose: outDPhi, thetaRelND (outDTheta covers it), impactD, r2D, firstXD, firstYD, resHalfRatioD and nHits (the same as nPlanesUsed).
+// Dropped on purpose: outDPhi, resDRms, impactD, firstXD, firstYD, r2D, resHalfRatioD, nHits and nChargedPlane<i>.
 inline std::vector<TmvaVar> TmvaVariables(){
     std::vector<TmvaVar> v = {
-        {"zdcKEAllD", 'D', "MeV"}, {"outDTheta", 'D', "rad"}, {"lastXD", 'D', "mm"}, {"lastYD", 'D', "mm"}, {"nChargedParticle", 'I', ""}, {"nTrackerTracksEv", 'I', ""}, {"nChargedPlane0", 'I', ""}, {"resDRms", 'D', ""}};
+        {"zdcKEAllD", 'D', "MeV"}, {"outDTheta", 'D', "rad"}, {"lastXD", 'D', "mm"}, {"lastYD", 'D', "mm"}, {"nChargedParticle", 'I', ""}};
     // With 2 planes every fit uses both, so nPlanesUsed is 2 on every row and TMVA stops on a variable with no spread: it joins from 3 planes on.
     if (StackZ(ReadSettings()).planeZ.size() >= 3) v.push_back({"nPlanesUsed", 'I', ""});
-    // one charged-hit count per tracker plane (ReconAngleAll.cpp writes nChargedPlane0 to nChargedPlane<planes - 1>, 2 planes per block), nChargedPlane0 is in the list above
-    const std::size_t nPlanes = StackZ(ReadSettings()).planeZ.size();
-    for (std::size_t i = 1; i < nPlanes; i++) v.push_back({"nChargedPlane" + std::to_string(i), 'I', ""});
     return v;
 }
 
