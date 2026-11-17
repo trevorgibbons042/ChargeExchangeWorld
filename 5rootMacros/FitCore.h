@@ -81,17 +81,31 @@ inline double ThetaScale(){return 25000.0 / kBeamMomentum;}
 inline double ThetaAxisMax(){return 2.3 * ThetaScale();} // deg
 
 // The beam spread as relative errors, the same for every event. t = (p sin(theta))^2 gives sigma_t / t = 2 sigma_p / p. A_P is -kAPA (1 - exp(-kAPk p)) p sin(theta) (APFromT), so
-// sigma_A / |A| = sigma_p (1 / p + kAPk e^(-kAPk p) / (1 - e^(-kAPk p))), the theta cancels. P is the fit amplitude over A, so P carries the same fraction as A (PFit, AddAErrToP).
+// A_max and A_min are A at p + sdP and p - sdP and the error is (A_max - A_min) / (2 A), the theta cancels. P is the fit amplitude over A, so P carries the same fraction as A (PFit, AddAErrToP).
+// Only the statistics term of A_eff is a sigma (std / sqrt(n)); the beam, model coefficient and est neutron range terms are all half the A_max to A_min span.
 // pBeam, sdP in MeV/c; kAPk is per GeV in the model.
 static const double kAPA = 0.7079, kAPk = 0.3860;
 inline double BeamTFrac(double pBeam, double sdP){return pBeam > 0 ? 2 * sdP / pBeam : 0;}
 inline double BeamAFrac(double pBeam, double sdP){
     if (pBeam <= 0) return 0;
-    const double k = kAPk / 1000.0, e = std::exp(-k * pBeam); // per MeV
-    return sdP * (1 / pBeam + k * e / (1 - e));
+    const double k = kAPk / 1000.0; // per MeV
+    const auto shape = [&](double p){return p * (1 - std::exp(-k * p));};
+    return (shape(pBeam + sdP) - shape(std::max(pBeam - sdP, 0.0))) / (2 * shape(pBeam));
 }
 static const double kBeamTFrac = BeamTFrac(kBeamMomentum, kBeamMomentumSD);
 static const double kBeamAFrac = BeamAFrac(kBeamMomentum, kBeamMomentumSD);
+
+// Errors of the fitted model coefficients (the real-world saturating-exponential fit of the raw analyzing power: A = 0.7079 +- 0.0303 GeV^-1, k = 0.3860 +- 0.0523 (GeV/c)^-1). Every proton of a run has
+// the same beam p, so theta cancels as in BeamAFrac: A_eff goes as A (1 - e^(-k p)), p in GeV/c. A_max and A_min are A_eff for the coefficients at the two ends of their errors (A + sA, k + sk and
+// A - sA, k - sk, the largest and smallest |AP|); the error is half their difference, relative to A_eff: (A_max - A_min) / (2 A_eff). The A-k covariance of the fit is not known, so the ends are the extremes.
+static const double kAPAErr = 0.0303, kAPkErr = 0.0523;
+inline double ModelAFrac(double pBeam){
+    if (pBeam <= 0) return 0;
+    const double p = pBeam / 1000.0; // GeV/c
+    const auto shape = [&](double a, double k){return a * (1 - std::exp(-k * p));};
+    return (shape(kAPA + kAPAErr, kAPk + kAPkErr) - shape(kAPA - kAPAErr, kAPk - kAPkErr)) / (2 * shape(kAPA, kAPk));
+}
+static const double kModelAFrac = ModelAFrac(kBeamMomentum);
 
 // Transverse-only t in GeV^2: (p_n sin(theta))^2, theta = proton lab polar angle (rad), p_n = lab beam momentum
 // (MeV). The full invariant also has an energy term, which the measured final KE (after energy loss) overwhelms.
@@ -402,7 +416,7 @@ inline void AddFitEquation(TH1* h, const std::vector<std::string>& lines){
 // each proton (aEach) has the beam spread only.
 // The error of P by source (the side box of the A_eff and P fits, PhiCosFit at the end of this file), all in quadrature in err: errFit the likelihood (statistics of the phi), errA the error of A carried over (errAStat
 // the spread of A over the theta distribution, errABeam the beam energy spread, errARange the est neutron theta range), errPhi the est neutron phi range (PhiRange). Each is |P| times a relative error.
-struct PFit {double p = 0, err = 0, errFit = 0, errA = 0, errPhi = 0, errAStat = 0, errABeam = 0, errARange = 0, errPhi2 = 0, errARange2 = 0, errASmear = 0; bool ok = false;}; // errPhi2, errARange2: the block grid range (the second range of AMean and PhiRange)
+struct PFit {double p = 0, err = 0, errFit = 0, errA = 0, errPhi = 0, errAStat = 0, errABeam = 0, errARange = 0, errPhi2 = 0, errARange2 = 0, errASmear = 0, errAModel = 0; bool ok = false;}; // errAModel: the errors of the model coefficients A and k (kModelAFrac); errPhi2, errARange2: the block grid range (the second range of AMean and PhiRange)
 
 // The mean A of a sample with its error: A = sum / n over the protons, StatErr = std(A) / sqrt(n) (the error of the mean over the theta distribution of the sample), BeamErr the beam spread
 // (kBeamAFrac), RangeErr the est neutron theta range: every proton has A at the central theta (the value that is quoted) and at thetaMin and thetaMax of its est neutron range (Add with aLo, aHi),
@@ -421,10 +435,10 @@ struct AMean {
         return std::sqrt(var / n);
     }
     double BeamErr() const {return std::fabs(Mean()) * kBeamAFrac;}
+    double ModelErr() const {return std::fabs(Mean()) * kModelAFrac;} // the errors of the fitted model coefficients A and k (kModelAFrac)
     double RangeErr() const {return n > 0 ? std::fabs(sHi - sLo) / (2 * n) : 0.0;}
-    double RangeErr2() const {return n > 0 ? std::fabs(sHi2 - sLo2) / (2 * n) : 0.0;}
-    double Err() const {const double s = StatErr(), b = BeamErr(), r = RangeErr(), r2 = RangeErr2(); return std::sqrt(s * s + b * b + r * r + r2 * r2 + smearErr * smearErr);}
-    double RelErr() const {const double m = std::fabs(Mean()); return m > 0 ? Err() / m : kBeamAFrac;}
+    double Err() const {const double s = StatErr(), b = BeamErr(), m = ModelErr(), r = RangeErr(); return std::sqrt(s * s + b * b + m * m + r * r + smearErr * smearErr);}
+    double RelErr() const {const double m = std::fabs(Mean()); return m > 0 ? Err() / m : std::sqrt(kBeamAFrac * kBeamAFrac + kModelAFrac * kModelAFrac);}
 };
 // The est neutron phi range: a proton whose est phi is only known within +-h (rad) has its cos(phi) modulation diluted by sin(h) / h, D is the mean of that over the protons of a fit, and P is
 // too small by the factor D: the error is |P| (1 / D - 1). h >= pi (the tube covers the axis) counts as D = 0 for that proton. Add per proton, or add the sums of parts (+=).
@@ -441,10 +455,12 @@ inline void AddAErrToP(PFit& r, const AMean& a, const PhiRange* ph = nullptr, bo
     const double m = std::fabs(a.Mean()), ap = std::fabs(r.p);
     r.errAStat = aEachBeamOnly || m <= 0 ? 0.0 : ap * a.StatErr() / m;
     r.errABeam = ap * kBeamAFrac;
+    r.errAModel = ap * kModelAFrac;
     r.errARange = aEachBeamOnly || m <= 0 ? 0.0 : ap * a.RangeErr() / m;
-    r.errARange2 = aEachBeamOnly || m <= 0 ? 0.0 : ap * a.RangeErr2() / m;
     r.errASmear = aEachBeamOnly || m <= 0 ? 0.0 : ap * a.smearErr / m;
-    r.errA = std::sqrt(r.errAStat * r.errAStat + r.errABeam * r.errABeam + r.errARange * r.errARange + r.errARange2 * r.errARange2 + r.errASmear * r.errASmear);
+    // P goes as 1 / A_eff: at A_eff max (rel = the relative A_eff error, terms above in quadrature) it is |P| / (1 + rel), at A_eff min |P| / (1 - rel); the error is half their difference, |P| rel / (1 - rel^2)
+    const double rel = ap > 0 ? std::sqrt(r.errAStat * r.errAStat + r.errABeam * r.errABeam + r.errAModel * r.errAModel + r.errARange * r.errARange + r.errASmear * r.errASmear) / ap : 0.0;
+    r.errA = rel < 0.99 ? ap * rel / (1 - rel * rel) : ap * rel;
     r.errPhi = ph ? ap * ph->RelErr() : 0.0;
     r.errPhi2 = ph2 ? ap * ph2->RelErr() : 0.0;
     r.err = std::sqrt(r.errFit * r.errFit + r.errA * r.errA + r.errPhi * r.errPhi + r.errPhi2 * r.errPhi2);
@@ -456,13 +472,13 @@ inline TPaveText* DrawErrorBySource(const AMean& a, const PFit& uf, bool hasRang
     eb->SetTextAlign(12); eb->SetTextSize(textSize); eb->SetFillColor(kWhite); eb->SetBorderSize(1);
     eb->AddText(Form("#bf{%s}", title));
     eb->AddText(Form("#bf{A_{eff}} #pm %.4f", a.Err()));
-    const bool hasBlock = a.RangeErr2() > 0 || uf.errPhi2 > 0; // the block grid range: only the block fits have one
+    const bool hasBlock = uf.errPhi2 > 0; // the block grid range: only the block fits have one
     const auto line = [&](const char* name, bool has, double v, const char* fmt){eb->AddText(has ? Form(fmt, name, v) : Form(" %s  n/a (exact angle)", name));};
     line(" est n #theta range", hasRange, a.RangeErr(), "%s  %.4f");
-    line(" block grid #theta range", hasBlock, a.RangeErr2(), "%s  %.4f");
     if (a.smearErr > 0) eb->AddText(Form(" recon #theta smear (bias)  %.4f", a.smearErr)); // only the recon theta fits that have it
     eb->AddText(Form(" statistics (#theta spread)  %.4f", a.StatErr()));
     eb->AddText(Form(" energy range (beam)  %.4f", a.BeamErr()));
+    eb->AddText(Form(" model coeff. (A, k fit)  %.4f", a.ModelErr()));
     eb->AddText(Form("#bf{P} #pm %.3f", uf.err));
     line(" est n #phi range", hasRange, uf.errPhi, "%s  %.3f");
     line(" block grid #phi range", hasBlock, uf.errPhi2, "%s  %.3f");

@@ -278,13 +278,14 @@ static void ReconAngleAllFit(){
         }, {"fEvent", "TrackID", "pdg", "fX", "fY", "fZ", "fDx", "fDy", "fDz", "ParentID", "entryNo"});
         // The fits run on every thread: each shard builds its events, fits them and keeps the results as rows. Only the TTree fills below are serial.
         struct Row {
-            int eventID, isFromCE, inCE, nProtonsEv, nZdcCharged, nTrackerHitsEv, nTrackerTracksEv, nHits, nMaxChargedPerPlaneEv, nPlanesHitEv;
+            int eventID, isFromCE, inCE, nChargedParticle, nZdcCharged, nTrackerHitsEv, nTrackerTracksEv, nHits, nMaxChargedPerPlaneEv, nPlanesHitEv;
             int nChargedPlane[kMaxPlanes] = {}; // charged hits of the event on tracker plane i (EvHits::perPlane)
             double theta, phi, dTheta, dPhi, x0D, y0D, bxD, byD, zdcKEAll, zdcKEAllD;
             double xVertex, yVertex, zVertex, zBxRecon;
             double resRms, resDRms, impact, impactD, r2, r2D, firstXD, firstYD, lastX, lastY, lastXD, lastYD, resHalfRatioD;
             int tubeBlock;
             int trackNo = 0, nPlanesUsed = 0, nCEUsed = 0, nOtherUsed = 0, evClass = -1; // trackNo: the order the finder found the track in its event (0 first), planes in the fit, CE child hits and other hits among them, 0 CE only / 1 CE mix / 2 non-CE
+            int nCEPartEv = 0, nOtherPartEv = 0, nCERecoEv = 0, nOtherRecoEv = 0; // event level, the same on every row: particles (distinct trackIDs) that entered a tracker, CE children and every other one, and those with a hit in a fit of the event
             int nProtonUsed = 0, nPionUsed = 0, nKaonUsed = 0, nNucleusUsed = 0; // of the other (non-CE child) hits, those of a proton (pdg 2212), a pi+ or pi-, a K+ or K-, and a nucleus (pdg above 1000000000: d, t, He, ...); the rest of nOtherUsed is any other charged particle
             double tubeZ0, tubeZ1, tubeRadius, tubeX0, tubeY0, tubeX1, tubeY1, thetaNMin, thetaNMax, phiNMid, phiNHalf;
             double thetaRelN, thetaRelNMin, thetaRelNMax, phiRelN, phiRelNHalf, thetaRelND, thetaRelNDMin, thetaRelNDMax, phiRelND, phiRelNDHalf; // proton angles in the frame of the estimated neutron
@@ -328,7 +329,7 @@ static void ReconAngleAllFit(){
             }
             // per event (a group of runs): the tracks of any pdg, and the most distinct charged tracks that entered one tracker plane (a plane is its centre z, 1 um steps;
             // the tracks TrackerHitsAll holds, every charged track that entered a tracker)
-            std::vector<int> nProtonsInEvent(runs.size()), nMaxPerPlaneInEvent(runs.size()), nPlanesHitInEvent(runs.size()); // nPlanesHitInEvent: the distinct tracker planes those tracks entered
+            std::vector<int> nChargedInEvent(runs.size()), nMaxPerPlaneInEvent(runs.size()), nPlanesHitInEvent(runs.size()); // nPlanesHitInEvent: the distinct tracker planes those tracks entered
             std::vector<std::pair<long, ULong64_t>> planeTracks;
             std::vector<std::pair<std::size_t, std::size_t>> evGroups; // the runs (i, j) of each event, the jobs
             for (std::size_t i = 0, j; i < runs.size(); i = j) {
@@ -344,7 +345,7 @@ static void ReconAngleAllFit(){
                     for (b = a + 1; b < planeTracks.size() && planeTracks[b].first == planeTracks[a].first; b++) {}
                     best = std::max(best, int(b - a)); nPlanes++;
                 }
-                for (std::size_t k = i; k < j; k++) {nProtonsInEvent[k] = int(j - i); nMaxPerPlaneInEvent[k] = best; nPlanesHitInEvent[k] = nPlanes;}
+                for (std::size_t k = i; k < j; k++) {nChargedInEvent[k] = int(j - i); nMaxPerPlaneInEvent[k] = best; nPlanesHitInEvent[k] = nPlanes;}
                 evGroups.emplace_back(i, j);
             }
 
@@ -357,16 +358,26 @@ static void ReconAngleAllFit(){
                 // Seed and extend (SeedExtend.h): every charged tracker hit of the event is a candidate, any particle. The hits of the track found are taken off and it runs again on the rest, until it finds no track (as F8_TrackerFits.cpp); each track with 2 or more planes is fitted below and is a row of its own, one hit per plane.
                 if (ev < 0 || (std::size_t)ev >= evHitsOf.size() || evHitsOf[ev].planes.size() < 2) continue;
                 std::vector<std::size_t> evPts; // the points of the event on a tracker plane, in sorted order
+                std::vector<std::size_t> evRunOf; // the run (track) of the event of each point of evPts
                 std::vector<double> hx, hy, hz;
                 for (std::size_t k = evGroups[job].first; k < evGroups[job].second; k++) for (std::size_t p = runs[k].first; p < runs[k].second; p++) {
                     if (at(p).zD == 0.0 || at(p).z > at(p).zD) continue; // a hit that entered the plane through its back face (z above the plane centre) is not a track hit
-                    evPts.push_back(p); hx.push_back(at(p).xD); hy.push_back(at(p).yD); hz.push_back(at(p).zD);
+                    evPts.push_back(p); evRunOf.push_back(k - evGroups[job].first); hx.push_back(at(p).xD); hy.push_back(at(p).yD); hz.push_back(at(p).zD);
                 }
                 std::vector<long> evPlanes; // the planes with a kept (front face) hit, back face hits do not make a plane
                 for (double zz : hz) evPlanes.push_back(std::lround(zz * 1000.0));
                 std::sort(evPlanes.begin(), evPlanes.end()); evPlanes.erase(std::unique(evPlanes.begin(), evPlanes.end()), evPlanes.end());
                 const auto ce = ceTracks.find(ev);
                 std::vector<char> taken(hx.size(), 0); // the hits already in a track found
+                // particles that entered a tracker: a run with a hit off the plane-less (zD 0) points, CE if its parent is a CE carbon child; usedRun: a run with a hit in a fit that became a row
+                const std::size_t nRunsEv = evGroups[job].second - evGroups[job].first;
+                std::vector<char> enteredRun(nRunsEv, 0), usedRun(nRunsEv, 0), ceRun(nRunsEv, 0);
+                for (std::size_t k = 0; k < nRunsEv; k++) {
+                    const auto &rn = runs[evGroups[job].first + k];
+                    for (std::size_t p = rn.first; p < rn.second; p++) if (at(p).zD != 0.0) {enteredRun[k] = 1; break;}
+                    ceRun[k] = (ce != ceTracks.end() && ce->second.count(at(rn.first).parentID)) ? 1 : 0;
+                }
+                const std::size_t rowStart = rows.size();
                 for (int trackNo = 0; ; trackNo++) {
                     std::vector<double> rx, ry, rz; std::vector<std::size_t> hitOf; // index in the hit vectors of each hit still free
                     for (std::size_t k = 0; k < hx.size(); k++) if (!taken[k]) {rx.push_back(hx[k]); ry.push_back(hy[k]); rz.push_back(hz[k]); hitOf.push_back(k);}
@@ -419,7 +430,7 @@ static void ReconAngleAllFit(){
                     r.impact  = ImpactToAxis(fit.x0, fit.y0, fit.bx, fit.by);
                     r.impactD = ImpactToAxis(fit.x0D, fit.y0D, fit.bxD, fit.byD);
 
-                    r.nProtonsEv = nProtonsInEvent[run];
+                    r.nChargedParticle = nChargedInEvent[run];
                     r.nMaxChargedPerPlaneEv = nMaxPerPlaneInEvent[run];
                     r.nPlanesHitEv = nPlanesHitInEvent[run];
                     if (ev >= 0 && (std::size_t)ev < evHitsOf.size()) for (std::size_t i = 0; i < evHitsOf[ev].perPlane.size(); i++) r.nChargedPlane[i] = evHitsOf[ev].perPlane[i];
@@ -545,8 +556,15 @@ static void ReconAngleAllFit(){
                             }
                         }
                     }
+                    for (const std::size_t c : best) usedRun[evRunOf[c]] = 1;
                     rows.push_back(r);
                 } // the tracks of the event
+                int nCEPart = 0, nOtherPart = 0, nCEReco = 0, nOtherReco = 0;
+                for (std::size_t k = 0; k < nRunsEv; k++) if (enteredRun[k]) {
+                    (ceRun[k] ? nCEPart : nOtherPart)++;
+                    if (usedRun[k]) (ceRun[k] ? nCEReco : nOtherReco)++;
+                }
+                for (std::size_t i = rowStart; i < rows.size(); i++) {rows[i].nCEPartEv = nCEPart; rows[i].nOtherPartEv = nOtherPart; rows[i].nCERecoEv = nCEReco; rows[i].nOtherRecoEv = nOtherReco;}
             }
         }, ROOT::TSeqU(nShards));
 
@@ -560,7 +578,7 @@ static void ReconAngleAllFit(){
             // one branch per Row field; a row is a track (fEvent and trackNo). zdcKEAll / zdcKEAllD are the true and smeared KE summed over all particles at the ZDC, charged and neutral (-1 / NAN without the sim column),
             // r2 / r2D are not cut on,
             // firstXD / firstYD the block position (mm) of the first tracker hit (lowest z), lastXD / lastYD (block) and lastX / lastY (true) the position (mm) of the last tracker hit (highest z, the plane before the ZDC), resHalfRatioD the block residual of the hits after the first 2 over the first 2 (NAN with 2 or fewer),
-            // nProtonsEv the tracks of the event that entered a tracker (any pdg), nTrackerHitsEv / nTrackerTracksEv from the sim EventSummary (all charged particles), nMaxChargedPerPlaneEv the most charged tracks
+            // nChargedParticle the tracks of the event that entered a tracker (any pdg), nTrackerHitsEv / nTrackerTracksEv from the sim EventSummary (all charged particles), nMaxChargedPerPlaneEv the most charged tracks
             // (TrackerHitsAll) that entered one tracker plane in the event, nPlanesHitEv the distinct tracker planes those tracks entered (the 5_avgTrackerHitsPerPlane denominator: a plane only a single-plane hit touched is not counted),
             // inCE: the event has a carbon CE (truth), isFromCE: the fit used a CE child hit (evClass 0 or 1)
             Row cur;
@@ -586,7 +604,7 @@ static void ReconAngleAllFit(){
             tree->Branch("impactD", &cur.impactD);
             tree->Branch("r2", &cur.r2);
             tree->Branch("r2D", &cur.r2D);
-            tree->Branch("nProtonsEv", &cur.nProtonsEv);
+            tree->Branch("nChargedParticle", &cur.nChargedParticle);
             tree->Branch("nZdcCharged", &cur.nZdcCharged);
             tree->Branch("zdcKEAll", &cur.zdcKEAll); // true KE sum of every particle (charged and neutral) at the ZDC entry (MeV), -1 without the sim column
             tree->Branch("zdcKEAllD", &cur.zdcKEAllD); // zdcKEAll smeared once with the ZDC resolution (MeV), NAN without it; the KE cut of F9_PlotReconNew.cpp
@@ -646,6 +664,10 @@ static void ReconAngleAllFit(){
             tree->Branch("nPionUsed", &cur.nPionUsed);
             tree->Branch("nKaonUsed", &cur.nKaonUsed);
             tree->Branch("nNucleusUsed", &cur.nNucleusUsed);
+            tree->Branch("nCEPartEv", &cur.nCEPartEv); // event level (same on every row of the event): particles that entered a tracker, CE children / every other one
+            tree->Branch("nOtherPartEv", &cur.nOtherPartEv);
+            tree->Branch("nCERecoEv", &cur.nCERecoEv); // those with a hit in a fit of the event
+            tree->Branch("nOtherRecoEv", &cur.nOtherRecoEv);
             for (const Row &r : shardRows[shard]) {
                 cur = r;
                 tree->Fill();
