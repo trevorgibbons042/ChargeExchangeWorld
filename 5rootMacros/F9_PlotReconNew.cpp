@@ -34,6 +34,7 @@ struct NewVar {
     const char* name; const char* title; int bins; double lo, hi; bool logY;
     std::function<double(const NewRow&)> value;
 };
+constexpr double kMegaKePercent = 90.0; // the KE cut of 6_megaCut: tighter than the 80% of 2_KECUT80, it costs about 4% of the CE and takes out much of the background
 constexpr double kKeCutPercent = 80.0; // the KE cut: the smeared all-particle ZDC total (zdcKEAllD, charged and neutral) above this percent of the beam KE (80% of 25 GeV = 20000 MeV)
 // the three curves are cumulative: CE only, CE only + CE mix, and every event (total recon particles)
 const char* ClassLabel(int c){return c == 0 ? "CE recon" : c == 1 ? "CE + CE mix recon" : "total recon particles";}
@@ -49,6 +50,7 @@ void F9_PlotReconNew(){
     if (!t->GetBranch("zdcKEAllD")){Error("F9_PlotReconNew", "cut_angles_all.root has no zdcKEAllD, the smeared total ZDC KE of the KE cut (rerun ReconAngleAll.cpp)"); return;}
 
     const double rad = 180.0 / M_PI;
+    const double keAxisMax = 1.2 * ReadSettings().at("BeamKE"); // the KE axes run to 120% of the beam KE (settings.csv), so the plots follow the sim energy
     const std::vector<NewVar> vars = {
         {"nPlanesUsed", "planes in the fit (exactly 1 charged hit each);planes", 9, 1.5, 10.5, true, [](const NewRow& x){return (double)x.nPlanesUsed;}},
         {"thetaBlock", "block fit theta in the est neutron frame;theta (degrees)", 55, 0.0, 2.2, true, [=](const NewRow& x){return x.thetaRelND * rad;}},
@@ -60,7 +62,7 @@ void F9_PlotReconNew(){
         {"impactD", "impact of the block fit on the beam axis;impact (mm)", 60, 0.0, 60.0, true, [](const NewRow& x){return x.impactD;}},
         {"r2D", "R^{2} of the block fit;R^{2}", 60, 0.0, 1.0, true, [](const NewRow& x){return x.r2D;}},
         {"resDRms", "RMS distance of the block hits to the fit;resDRms (mm)", 60, 0.0, 12.0, true, [](const NewRow& x){return x.resDRms;}},
-        {"KEEnd", "smeared total ZDC KE of the event (all particles, charged and neutral);KE (MeV)", 60, 0.0, 30000.0, false, [](const NewRow& x){return x.zdcKEAllD;}},
+        {"KEEnd", "smeared total ZDC KE of the event (all particles, charged and neutral);KE (MeV)", 60, 0.0, keAxisMax, false, [](const NewRow& x){return x.zdcKEAllD;}},
         {"nMaxChargedPerPlaneEv", "most charged tracks in any one tracker plane of the event (all planes, not only the fit planes);tracks", 10, 0.5, 10.5, true, [](const NewRow& x){return (double)x.nMaxPlane;}},
         {"avgTrackerHitsPerPlane", "average charged tracker plane hits per hit plane in the event (nTrackerHitsEv / planes hit, all planes, not only the fit planes);nTrackerHitsEv / planes hit", 100, 0.5, 5.5, true, [](const NewRow& x){return x.nPlanesHit > 0 ? (double)x.nTrackerHits / x.nPlanesHit : NAN;}},
         {"nReconstructedTracksInEvent", "reconstructed tracks in the event (every fit the finder makes, whether or not they are the same particle), one entry per event (its first fit, so the legend N counts every fit);reconstructed tracks in the event", 10, 0.5, 10.5, true, [](const NewRow& x){return x.trackNo == 0 ? (double)x.nRecoEv : NAN;}},
@@ -96,20 +98,68 @@ void F9_PlotReconNew(){
     }
     std::vector<std::string> colNames = {"outTheta", "outDTheta", "outPhi", "outDPhi", "thetaRelND", "phiRelND", "impactD", "r2D", "resDRms", "zdcKEAllD", "nHits", "nPlanesUsed", "evClass", "nCEUsed", "nOtherUsed", "nProtonUsed", "nPionUsed", "nKaonUsed", "nNucleusUsed", "nMaxChargedPerPlaneEv", "nTrackerHitsEv", "nPlanesHitEv", "thetaRelNDMin", "thetaRelNDMax", "phiRelNDHalf", "thetaRelNDBMin", "thetaRelNDBMax", "phiRelNDBHalf", "fEvent", "tubeX0", "tubeY0", "tubeZ0", "tubeX1", "tubeY1", "tubeZ1", "trackNo", "nTrackerTracksEv", "nCEPartEv", "nOtherPartEv", "nCERecoEv", "nOtherRecoEv"};
     if (haveBdt) colNames.push_back("entryNo"); // the entry number of the row in AnglesRaw, the key of bdtByEntry
-    auto cols = ColumnsUnordered(t, colNames);
-    // the columns go into rows on all the threads (MapRows): each range fills its own rows [a, z) and only reads the columns
-    MapRows(n, [&](Long64_t a, Long64_t z){
-    for (Long64_t i = a; i < z; i++){
-        NewRow& x = rows[i]; size_t k = 0;
-        x.outTheta = cols[k++][i]; x.outDTheta = cols[k++][i]; x.outPhi = cols[k++][i]; x.outDPhi = cols[k++][i]; x.thetaRelND = cols[k++][i]; x.phiRelND = cols[k++][i]; x.impactD = cols[k++][i]; x.r2D = cols[k++][i]; x.resDRms = cols[k++][i]; x.zdcKEAllD = cols[k++][i];
-        x.nHits = (int)cols[k++][i]; x.nPlanesUsed = (int)cols[k++][i]; x.evClass = (int)cols[k++][i]; x.nCEUsed = (int)cols[k++][i]; x.nOtherUsed = (int)cols[k++][i]; x.nProtonUsed = (int)cols[k++][i]; x.nPionUsed = (int)cols[k++][i]; x.nKaonUsed = (int)cols[k++][i]; x.nNucleusUsed = (int)cols[k++][i]; x.nMaxPlane = (int)cols[k++][i]; x.nTrackerHits = (int)cols[k++][i]; x.nPlanesHit = (int)cols[k++][i];
-        x.thMin = cols[k++][i] * rad; x.thMax = cols[k++][i] * rad; x.phHalf = cols[k++][i]; x.th2Min = cols[k++][i] * rad; x.th2Max = cols[k++][i] * rad; x.ph2Half = cols[k++][i]; x.eventID = (int)cols[k++][i];
-        x.tubeX0 = cols[k++][i]; x.tubeY0 = cols[k++][i]; x.tubeZ0 = cols[k++][i]; x.tubeX1 = cols[k++][i]; x.tubeY1 = cols[k++][i]; x.tubeZ1 = cols[k++][i]; x.trackNo = (int)cols[k++][i]; x.nTrackerTracks = (int)cols[k++][i]; x.nCEPart = (int)cols[k++][i]; x.nOtherPart = (int)cols[k++][i]; x.nCEReco = (int)cols[k++][i]; x.nOtherReco = (int)cols[k++][i];
-        x.bdt = haveBdt ? bdtByEntry[(size_t)cols[k++][i]] : NAN;
+    // the columns are read in groups of 9 and put into rows by entry number: all 41 at once (and the per-thread copies the merge makes) needed about 240 GB at 272M rows and the job died with exit 9 and no plots
+    const size_t nCol = colNames.size();
+    for (size_t g0 = 0; g0 < nCol; g0 += 9){
+        const size_t g1 = std::min(nCol, g0 + 9);
+        std::vector<std::string> names = {"entryNo"}; // the key that puts a row of this group into the same rows[] entry as in the other groups
+        names.insert(names.end(), colNames.begin() + g0, colNames.begin() + g1);
+        const auto cols = ColumnsUnordered(t, names);
+        MapRows(n, [&](Long64_t a, Long64_t z){
+        for (Long64_t i = a; i < z; i++){
+            NewRow& x = rows[(size_t)cols[0][i]];
+            if (g0 == 0 && !haveBdt) x.bdt = NAN;
+            for (size_t c = g0; c < g1; c++){
+                const double v = cols[c - g0 + 1][i];
+                switch (c){
+                case 0: x.outTheta = v; break;
+                case 1: x.outDTheta = v; break;
+                case 2: x.outPhi = v; break;
+                case 3: x.outDPhi = v; break;
+                case 4: x.thetaRelND = v; break;
+                case 5: x.phiRelND = v; break;
+                case 6: x.impactD = v; break;
+                case 7: x.r2D = v; break;
+                case 8: x.resDRms = v; break;
+                case 9: x.zdcKEAllD = v; break;
+                case 10: x.nHits = (int)v; break;
+                case 11: x.nPlanesUsed = (int)v; break;
+                case 12: x.evClass = (int)v; break;
+                case 13: x.nCEUsed = (int)v; break;
+                case 14: x.nOtherUsed = (int)v; break;
+                case 15: x.nProtonUsed = (int)v; break;
+                case 16: x.nPionUsed = (int)v; break;
+                case 17: x.nKaonUsed = (int)v; break;
+                case 18: x.nNucleusUsed = (int)v; break;
+                case 19: x.nMaxPlane = (int)v; break;
+                case 20: x.nTrackerHits = (int)v; break;
+                case 21: x.nPlanesHit = (int)v; break;
+                case 22: x.thMin = v * rad; break;
+                case 23: x.thMax = v * rad; break;
+                case 24: x.phHalf = v; break;
+                case 25: x.th2Min = v * rad; break;
+                case 26: x.th2Max = v * rad; break;
+                case 27: x.ph2Half = v; break;
+                case 28: x.eventID = (int)v; break;
+                case 29: x.tubeX0 = v; break;
+                case 30: x.tubeY0 = v; break;
+                case 31: x.tubeZ0 = v; break;
+                case 32: x.tubeX1 = v; break;
+                case 33: x.tubeY1 = v; break;
+                case 34: x.tubeZ1 = v; break;
+                case 35: x.trackNo = (int)v; break;
+                case 36: x.nTrackerTracks = (int)v; break;
+                case 37: x.nCEPart = (int)v; break;
+                case 38: x.nOtherPart = (int)v; break;
+                case 39: x.nCEReco = (int)v; break;
+                case 40: x.nOtherReco = (int)v; break;
+                case 41: x.bdt = bdtByEntry[(size_t)v]; break; // only there with haveBdt (entryNo is the last column)
+                }
+            }
+        }
+        return 0;
+        });
     }
-    return 0;
-    });
-    std::vector<std::vector<double>>().swap(cols);
     // fits per event: the number of rows with the same fEvent (one row per fit), counted in an array indexed by the event number; the nReconstructedTracksInEvent plot (reconstructed particles per event, not only protons) reads it on the first fit of every event
     {
         int maxEv = 0;
@@ -130,7 +180,7 @@ void F9_PlotReconNew(){
     // 3_nPlanesUsedEven: a whole-event cut on the planes in the fit, an even number and at most 2 * nBlocks (EvenHits, FitCore.h)
     // 4_Theta0_1: the block fit theta in the est neutron frame (the thetaBlock plot) from 0 to 1 degree
     // 5_avgTrackerHitsPerPlane1: on average one charged tracker hit per hit plane (nTrackerHitsEv == planes hit, the avgTrackerHitsPerPlane plot at 1)
-    // 6_megaCut: the KE cut, the even planes, theta 0 to 1 degree and the average of 1 hit per plane, all together
+    // 6_megaCut: the KE cut (90%), theta 0 to 1 degree and the average of 1 hit per plane and exactly 1 recon track in the event and at least 3 planes in the fit, all together
     // modes 6 to 41: the BDT score cut -0.50 to 0.20 in steps of 0.02 (plots/10_BDTcuts), only when the scores are there
     std::vector<int> modes = {0, 1, 2, 3, 4, 5, 100}; // mode 100: 6_nReconstructedTracksInEvent1, the events with exactly 1 reconstructed track
     if (haveBdt) for (int m = 6; m < 42; m++) modes.push_back(m);
@@ -144,7 +194,10 @@ void F9_PlotReconNew(){
     const int bdtFullNo = (mode >= 42 && !oneTrack) ? 1 : 0; // the one cut with a plot folder, the one whose total recon P is closest to the true P
     const bool bdtFull = bdtFullNo > 0;
     const std::string bdtStat = Form("plots/10_BDTcuts/scan_csv/BDT%.2f", bdtCut); // cuts.txt and scan_stats.csv of every BDT cut
-    const bool ke80 = mode == 1 || mega, evenPlanes = mode == 2 || mega, theta01 = mode == 3 || mega, avgOne = mode == 4 || mega;
+    const bool ke80 = mode == 1 || mega, evenPlanes = mode == 2, // not in the megaCut: it cost about 40% of the CE for almost no purity
+         theta01 = mode == 3 || mega, avgOne = mode == 4 || mega, firstTrack = mega;
+    const double keCutMode = mega ? kMegaKePercent / 100.0 * settings.at("BeamKE") : keCut; // this folder's KE cut (the megaCut has its own percent)
+    const std::string kePctMode = mega ? Form("%.0f", kMegaKePercent) : kePct;
     const std::string dir = oneTrack ? "plots/6_ReconNew_1/6_nReconstructedTracksInEvent1" : mode == 0 ? "plots/6_ReconNew_1/1_noCuts" : mode == 1 ? "plots/6_ReconNew_1/2_KECUT" + kePct : mode == 2 ? "plots/6_ReconNew_1/3_nPlanesUsedEven" : mode == 3 ? "plots/6_ReconNew_1/4_Theta0_1" : mode == 4 ? "plots/6_ReconNew_1/5_avgTrackerHitsPerPlane1" : mode == 5 ? "plots/6_ReconNew_1/6_megaCut" : bdtFull ? std::string(Form("plots/10_BDTcuts/%d_BDT%.2f", bdtFullNo, bdtCut)) : bdtStat;
     const std::string statDir = bdtMode ? bdtStat : dir; // where cuts.txt and scan_stats.csv go
     const std::string infoDir = dir + "/1_additionalinfo"; // the main plot (KEEnd) in the folder, the other plots in 1_additionalinfo, the polarization fits of the megaCut in 2_phi_cosfit
@@ -153,18 +206,21 @@ void F9_PlotReconNew(){
     const auto passes = [&](const NewRow& x){
         if (bdtMode && !(std::isfinite(x.bdt) && x.bdt >= bdtCut)) return false;
         if (bdtMode && tmvaEvery > 1 && x.eventID % tmvaEvery == 0) return false; // an event the BDT trained on
-        if (ke80 && !(std::isfinite(x.zdcKEAllD) && x.zdcKEAllD > keCut)) return false;
+        if (ke80 && !(std::isfinite(x.zdcKEAllD) && x.zdcKEAllD > keCutMode)) return false;
         if (evenPlanes && !EvenHits(x.nPlanesUsed, maxPlanes)) return false;
         if (theta01 && !(x.thetaRelND * rad >= 0.0 && x.thetaRelND * rad <= 1.0)) return false; // NAN (no tube) fails too
         if (avgOne && !(x.nPlanesHit > 0 && x.nTrackerHits == x.nPlanesHit)) return false;
+        if (firstTrack && x.nPlanesUsed < 3) return false; // no 2-plane tracks (with the even planes cut, 4 or more): two points always fit a line, nothing checks them
+        if (firstTrack && x.nRecoEv != 1) return false; // only events with exactly 1 recon track (nRecoEv: the fits of the event)
         if (oneTrack && x.nRecoEv != 1) return false;
         return true;
     };
     std::string cutText; // every cut of the folder, named in the title; "no cuts" when there is none
-    if (ke80) cutText += ", smeared total ZDC KE (all particles) above " + kePct + "% of the beam KE";
+    if (ke80) cutText += ", smeared total ZDC KE (all particles) above " + kePctMode + "% of the beam KE";
     if (evenPlanes) cutText += ", planes in the fit even and at most " + std::to_string(maxPlanes);
     if (theta01) cutText += ", theta 0 to 1 degree";
     if (avgOne) cutText += ", average tracker hits per hit plane = 1";
+    if (firstTrack) cutText += ", exactly 1 reconstructed track in the event, at least 3 planes in the fit";
     if (oneTrack) cutText += ", exactly 1 reconstructed track in the event";
     if (bdtMode) cutText += Form(", BDT score >= %.2f (TmvaApply.cpp), no other cut", bdtCut);
     if (bdtMode && tmvaEvery > 1) cutText += Form(", events the BDT trained on (fEvent %% %d == 0) left out", tmvaEvery);
@@ -177,7 +233,7 @@ void F9_PlotReconNew(){
         const bool keVar = std::string(v.name) == "KEEnd";
         TH1D* h[3];
         for (int k = 0; k < 3; k++){
-            h[k] = new TH1D(Form("hRN_%s_%d", v.name, k), "", v.bins, keVar && ke80 ? keCut : v.lo, v.hi);
+            h[k] = new TH1D(Form("hRN_%s_%d", v.name, k), "", v.bins, keVar && ke80 ? keCutMode : v.lo, v.hi);
             h[k]->SetLineColor(ClassColor(k)); h[k]->SetLineWidth(2);
         }
         double nClass[3] = {0, 0, 0};
@@ -520,17 +576,18 @@ void F9_PlotReconNew(){
             gSystem->Unlink(fitFile.c_str());
             made++;
             if (k == 2 && !bdtMode){ // the all recon fit again for 10 random 50% subsamples (no replacement, fixed seeds), one page each, then a page of the 10 P values, to see the effect of the statistics
-                struct SubIn {double ph, a, a1lo, a1hi, a2lo, a2hi, h1, h2;};
+                struct SubIn {double ph, a, a1lo, a1hi, a2lo, a2hi, h1, h2; int ce;}; // ce: 1 for a CE only recon track (evClass 0), for the purity of each subsample
                 std::vector<SubIn> all;
                 const double pTrue = settings.at("PPValue");
                 for (const NewRow& x : rows){
                     if (!inFit(x, 2)) continue;
                     const AEffIn e = aeffOf(x);
-                    all.push_back({x.phiRelND * rad, e.a, e.a1lo, e.a1hi, e.a2lo, e.a2hi, e.r1 ? x.phHalf : NAN, e.r2 ? x.ph2Half : NAN});
+                    all.push_back({x.phiRelND * rad, e.a, e.a1lo, e.a1hi, e.a2lo, e.a2hi, e.r1 ? x.phHalf : NAN, e.r2 ? x.ph2Half : NAN, x.evClass == 0 ? 1 : 0});
                 }
                 const int nSub = 100, nShow = 5, nb = 33; const double frac = 0.5; // 100 subsamples are fitted, the phi plots of the first 5 are drawn, the P page has all 100
                 const std::string path = dir + "/2_phi_cosfit/4_phiBlock_cosfit_all_50pct_subsamples.pdf";
-                std::vector<double> pSub, eSub; double pFull = 0, eFull = 0;
+                std::vector<double> pSub, eSub, purSub; double pFull = 0, eFull = 0; size_t ceAll = 0; for (const SubIn& e : all) ceAll += e.ce;
+                const double purFull = all.empty() ? 0.0 : (double)ceAll / all.size();
                 if (all.size() >= 10){
                     pFull = pFitV[2]; eFull = eFitV[2]; // the fit of the full sample, already done for scan_stats.csv (same rows, same A_eff and ranges)
                     for (int s = 0; s < nSub; s++){
@@ -539,18 +596,18 @@ void F9_PlotReconNew(){
                         TRandom3 rng(12345 + 200 + s);
                         for (size_t i = idx.size() - 1; i > 0; i--) std::swap(idx[i], idx[rng.Integer(i + 1)]);
                         const size_t m = size_t(std::lround(frac * idx.size()));
-                        std::vector<double> phS; AMean aM; PhiRange r1, r2;
+                        std::vector<double> phS; AMean aM; PhiRange r1, r2; size_t ceS = 0;
                         TH1D hS(Form("hPhiSubNew_%d", s), "", nb, 0, 360);
                         for (size_t q = 0; q < m; q++){
                             const SubIn& e = all[idx[q]];
-                            phS.push_back(e.ph); hS.Fill(e.ph);
+                            phS.push_back(e.ph); hS.Fill(e.ph); ceS += e.ce;
                             aM.Add(e.a, e.a1lo, e.a1hi, e.a2lo, e.a2hi);
                             if (std::isfinite(e.h1)) r1.Add(e.h1);
                             if (std::isfinite(e.h2)) r2.Add(e.h2);
                         }
                         aM.smearBias = smearBias;
                         const PFit uf = UnbinnedP(phS, aM, kBlockPhiLo, kBlockPhiHi, nullptr, true, &r1, &r2);
-                        pSub.push_back(uf.p); eSub.push_back(uf.err);
+                        pSub.push_back(uf.p); eSub.push_back(uf.err); purSub.push_back(m ? (double)ceS / m : 0.0);
                         if (s >= nShow) continue;
                         c.Clear(); c.cd();
                         c.SetLeftMargin(0.16); c.SetRightMargin(0.25); c.SetTopMargin(0.17); c.SetBottomMargin(0.13);
@@ -575,7 +632,7 @@ void F9_PlotReconNew(){
                     rms = pSub.size() > 1 ? std::sqrt(rms / (pSub.size() - 1)) : 0;
                     lo = std::min(lo, std::min(pFull, pTrue)); hi = std::max(hi, std::max(pFull, pTrue));
                     const double pad = 0.1 * (hi - lo > 0 ? hi - lo : 0.1);
-                    TH1D hP("hSubPNew", Form("P of %d random 50%% subsamples, %s%s;Polarization fit P;Subsamples", nSub, sampleName[2], cutText.c_str()), 20, lo - pad, hi + pad);
+                    TH1D hP("hSubPNew", Form("P of %d random 50%% subsamples, %s%s;Polarization fit P;Subsamples", nSub, sampleName[2], cutText.c_str()), 50, lo - pad, hi + pad); // 50 bins
                     for (const double p : pSub) hP.Fill(p);
                     hP.SetStats(0); hP.SetLineColor(ClassColor(2)); hP.SetLineWidth(2); hP.SetFillColorAlpha(ClassColor(2), 0.35); hP.SetMinimum(0); hP.SetMaximum(1.3 * hP.GetMaximum());
                     hP.Draw("hist");
@@ -585,9 +642,27 @@ void F9_PlotReconNew(){
                     tx.DrawLatex(0.14, 0.93, "solid line = P of the full sample, dotted black = true P (PPValue)");
                     tx.DrawLatex(0.14, 0.89, Form("full P = %.3g #pm %.2g, subsample mean %.3g, RMS %.2g, expected RMS %.2g (full error #times #sqrt{(1-f)/f}, f = 0.5)", pFull, eFull, mean, rms, eFull * std::sqrt((1 - frac) / frac)));
                     c.Modified(); c.Update();
+                    c.Print(path.c_str());
+                    // last page: the purity (CE only recon tracks / all recon tracks) of each of the subsamples
+                    c.Clear(); c.cd();
+                    double plo = purSub[0], phi = purSub[0], pmean = 0, prms = 0;
+                    for (const double v : purSub){plo = std::min(plo, v); phi = std::max(phi, v); pmean += v / purSub.size();}
+                    for (const double v : purSub) prms += (v - pmean) * (v - pmean);
+                    prms = purSub.size() > 1 ? std::sqrt(prms / (purSub.size() - 1)) : 0;
+                    plo = std::min(plo, purFull); phi = std::max(phi, purFull);
+                    const double ppad = 0.1 * (phi - plo > 0 ? phi - plo : 0.01);
+                    TH1D hQ("hSubPurNew", Form("purity of %d random 50%% subsamples, %s%s;purity (CE recon / all recon tracks);Subsamples", nSub, sampleName[2], cutText.c_str()), 50, plo - ppad, phi + ppad);
+                    for (const double v : purSub) hQ.Fill(v);
+                    hQ.SetStats(0); hQ.SetLineColor(ClassColor(2)); hQ.SetLineWidth(2); hQ.SetFillColorAlpha(ClassColor(2), 0.35); hQ.SetMinimum(0); hQ.SetMaximum(1.3 * hQ.GetMaximum());
+                    hQ.Draw("hist");
+                    TLine lq(purFull, 0, purFull, hQ.GetMaximum()); lq.SetLineColor(ClassColor(2)); lq.SetLineWidth(3); lq.Draw();
+                    TLatex tq; tq.SetNDC(); tq.SetTextSize(0.026);
+                    tq.DrawLatex(0.14, 0.93, "solid line = purity of the full sample");
+                    tq.DrawLatex(0.14, 0.89, Form("full purity = %.3f, subsample mean %.3f, RMS %.3f", purFull, pmean, prms));
+                    c.Modified(); c.Update();
                     c.Print((path + ")").c_str());
                     c.Clear(); c.SetLeftMargin(0.13); c.SetRightMargin(0.30); c.SetTopMargin(0.1); c.SetBottomMargin(0.13);
-                    made += nShow + 1;
+                    made += nShow + 2;
                 }
             }
         }
@@ -598,7 +673,7 @@ void F9_PlotReconNew(){
     // Per bin, fraction = events of that kind / all recon events, with the binomial error. The bins hold the events counted on all the threads (MapRows).
     {
         number++;
-        const double kLo = ke80 ? keCut : 0.0, kHi = 30000.0;
+        const double kLo = ke80 ? keCutMode : 0.0, kHi = keAxisMax;
         const int nb = 60;
         struct FracPart {std::vector<double> ce, mix, all;};
         const auto fracParts = MapRows(n, [&](Long64_t a, Long64_t z){
