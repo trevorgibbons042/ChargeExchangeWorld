@@ -125,7 +125,7 @@ void F9_PlotReconNew(){
     int made = 0;
     const bool scanOnly = gSystem->Getenv("SCAN_ONLY") != nullptr; // SCAN_ONLY set: write only cuts.txt and scan_stats.csv of every folder, no pdf (SubmitPlotNew.sh)
     // plots/6_ReconNew_1/1_noCuts (every event; its KE plot alone shows the events above the KE cut) and plots/6_ReconNew_1/2_KECUT80 (every plot with the 80% KE cut).
-    const int maxPlanes = MaxTrackerHits(); // 2 * nBlocks, the most planes a track can cross
+    const int maxPlanes = (int)std::lround(ReadSettings().at("nBlocks") * (2.0 + ReadSettings().at("nAdditionalTrackers"))); // every tracker of the stack: 2 per block plus nAdditionalTrackers in each gap behind a block (12 for 1 block with 10 extra); 2 * nBlocks cut nearly every CE fit once there are additional trackers
     // Every folder after 2_ has one cut of its own, 6_megaCut has them all:
     // 3_nPlanesUsedEven: a whole-event cut on the planes in the fit, an even number and at most 2 * nBlocks (EvenHits, FitCore.h)
     // 4_Theta0_1: the block fit theta in the est neutron frame (the thetaBlock plot) from 0 to 1 degree

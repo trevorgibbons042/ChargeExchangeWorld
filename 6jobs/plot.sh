@@ -16,8 +16,7 @@ total=$SECONDS
 if [ "${ACLIC-+O}" != "" ]; then
     nc=0
     for m in CutPlots F1_2_Plot3D F3_ReconCalcVals F4_CEBlock F5_FomCalc F7_SecondaryCE F8_TrackerFits F9_PlotReconNew F10_BDTCuts; do
-        nice -n 10 root -l -b -q -e ".L $m.cpp${ACLIC-+O}" > /dev/null 2>&1 &
-        (( ++nc % MAXJOBS == 0 )) && wait
+        nice -n 10 root -l -b -q -e ".L $m.cpp${ACLIC-+O}" > /dev/null 2>&1 # one after the other: compiling them side by side raced in ACLiC (F9 and F4 failed silently with no member RResultHandle), the errors went to /dev/null
     done
     wait
     echo ">>> compile step took $((SECONDS - total)) s"
