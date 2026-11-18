@@ -32,7 +32,7 @@
 // Run after ReconAngleAll.cpp, with all the threads: the maps of AnglesRaw are read once (serial), then the files are written in one parallel pass.
 static void ZdcColumns(){
     ROOT::EnableImplicitMT(NThreads());
-    ROOT::RDF::RSnapshotOptions lazy;
+    ROOT::RDF::RSnapshotOptions lazy; lazy.fCompressionAlgorithm = ROOT::kZLIB; lazy.fCompressionLevel = 6; // zlib level 6 like the sim output (7run.cc), ROOT default is level 1
     lazy.fLazy = true;
 
     const time_t t0 = time(nullptr);
@@ -94,7 +94,7 @@ void CutEvents(){
     //   stage 3 (cut_CEall):   the carbon CE rows, added as the second tree (UPDATE) of cut_CE
     // Each stage is lazy: all the cuts of a stage are written in one pass over their input. The result handles own the open output files, so they are cleared (files closed)
     // before the next stage reads those files; left open, cut_CE.root came out without ChargeExchange_values.
-    ROOT::RDF::RSnapshotOptions lazy;
+    ROOT::RDF::RSnapshotOptions lazy; lazy.fCompressionAlgorithm = ROOT::kZLIB; lazy.fCompressionLevel = 6; // zlib level 6 like the sim output (7run.cc), ROOT default is level 1
     lazy.fLazy = true;
     const std::string pInfo = events->GetName(), ceTree = ChargeExchange->GetName();
 
@@ -111,7 +111,7 @@ void CutEvents(){
         handles.emplace_back(children.Filter("boundaryType == 0 && pdg == 2212").Snapshot(pInfo, "cuts/cut_ParentTracker.root", "", lazy));
         ROOT::RDF::RunGraphs(handles);
     }
-    ROOT::RDF::RSnapshotOptions update;
+    ROOT::RDF::RSnapshotOptions update; update.fCompressionAlgorithm = ROOT::kZLIB; update.fCompressionLevel = 6; // zlib level 6 like the sim output (7run.cc), ROOT default is level 1
     update.fMode = "UPDATE";
     ROOT::RDataFrame dfCEallRows(ceTree, "cuts/cut_CEall.root");
     dfCEallRows.Filter(CarbonCeCut()).Snapshot(ceTree, "cuts/cut_CE.root", "", update); // the carbon-block CE rows, beside ParticleInfo
@@ -222,7 +222,7 @@ void CountCE(){
         addCol("trackerX", 1); addCol("trackerY", 2); addCol("trackerDX", 3); addCol("trackerDY", 4);
         addCol("detectorDX", 8); addCol("detectorDY", 9); addCol("detectorX", 6); addCol("detectorY", 7);
         cols.push_back("reachedDetector");
-        ROOT::RDF::RSnapshotOptions opts;
+        ROOT::RDF::RSnapshotOptions opts; opts.fCompressionAlgorithm = ROOT::kZLIB; opts.fCompressionLevel = 6; // zlib level 6 like the sim output (7run.cc), ROOT default is level 1
         opts.fMode = b == 0 ? "RECREATE" : "UPDATE";
         df.Snapshot(Form("Block%zu", b + 1), outname.Data(), cols, opts);
         {
