@@ -233,7 +233,7 @@ static void ReconAngleAllFit(){
     // One tree of every recon track, before any cut. The views Angles and AnglesCE (and their _DE copies) are views of it
     // (AngleSelection, CutFiles.h): inCE picks the rows, zdcKEAll / zdcKEAllD the true / smeared ZDC KE.
     // The file is written through a TBufferMerger: the shards fill their own trees on all the threads (see the write below).
-    ROOT::TBufferMerger merger("cuts/cut_angles_all.root", "RECREATE");
+    ROOT::TBufferMerger merger("cuts/cut_angles_all.root", "RECREATE", 106); // zlib level 6 like the sim output (7run.cc), ROOT default is level 1
 
     // A group of raw files at a time (ANA_FILES_PER_PASS, default 8): an event, and so every track, lives in a single output0_t<thread>.root, so the tracks of a group are complete
     // and only that group's tracker points are held in memory (all files at once does not fit at 100M events). One file alone cannot keep all the threads busy.
