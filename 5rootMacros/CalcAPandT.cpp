@@ -115,7 +115,7 @@ static void CalcAPandTBoth(){
     // The five trees are filled in the same loop, so their entries line up (the plots use them as friends). TTree::Fill is not thread-safe: the CE tracks are cut into chunks, every chunk is
     // filled by one thread into five trees of its own in a file the TBufferMerger gives it, and a chunk's five trees reach the output file together, so the entries stay aligned.
     // The rows come in the order the chunks finish; nothing reads them by position.
-    ROOT::TBufferMerger merger("cuts/cut_APandT.root", "RECREATE");
+    ROOT::TBufferMerger merger("cuts/cut_APandT.root", "RECREATE", 106); // zlib level 6 like the sim output (7run.cc)
     std::vector<std::pair<const Key3*, const Track*>> ceTracks;
     for (auto &shardMap : tracksCE) for (auto &kt : shardMap) ceTracks.emplace_back(&kt.first, &kt.second);
     const std::size_t nChunks = std::min<std::size_t>(ceTracks.size(), nShards * 4);
