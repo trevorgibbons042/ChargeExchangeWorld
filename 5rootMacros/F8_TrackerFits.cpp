@@ -1,3 +1,4 @@
+#include <fstream>
 #include <TCanvas.h>
 #include <TChain.h>
 #include <TH1D.h>
@@ -35,6 +36,7 @@
 //   12_chain_vs_last_tracker_CE.pdf, 13_chain_vs_last_tracker_all.pdf  2D, the clean chain length of 11_max_hits_clean_chain against the last tracker of the longest track, CE and all events
 //   1_indivtrackers/  one pdf per tracker plane (named by its order and z): the charged hits on that plane per event, all, CE (an event whose CE particle has a pure reconstructed track) and CE + CE mix (CE, and the events whose CE particle is only in mixed reconstructed tracks), only the events with at least 1 hit on the plane (no 0 bin)
 void F8_TrackerFits(){
+    long long tPure = 0, tMixed = 0; // the reconstructed tracks of all events: pure (all hits one track ID) and mixed (2+ track IDs), for D_track
     FastJit();
     ROOT::EnableImplicitMT(NThreads());
     gStyle->SetOptStat(0);
@@ -109,6 +111,7 @@ void F8_TrackerFits(){
             std::set<int> ids; bool anyCE = false;
             for (size_t f : found){taken[at[f]] = 1; ids.insert(hid[at[f]]); anyCE = anyCE || hce[at[f]];}
             usedIDs.insert(ids.begin(), ids.end());
+            if (ids.size() == 1) tPure++; else tMixed++;
             if (ids.size() == 1){pure++; if (anyCE) pureCEIDs.insert(*ids.begin());}
             else if (anyCE){for (size_t f : found) if (hce[at[f]]) mixedCEIDs.insert(hid[at[f]]);}
             else mixedNoCE++;
@@ -145,6 +148,11 @@ void F8_TrackerFits(){
         nMissing.push_back(missing); nMissingCE.push_back(missingCE);
     }
 
+    {const double n = (double)(tPure + tMixed), d = n > 0 ? tPure / n : 0.0;
+     printf("D_track pure %lld mixed %lld total %.0f D_track = %.5f +- %.5f\n", tPure, tMixed, n, d, n > 0 ? std::sqrt(d * (1 - d) / n) : 0.0);
+     gSystem->mkdir("plots/8_trackerfits", true);
+     std::ofstream dt("plots/8_trackerfits/D_track.txt"); dt << "D_track (recon tracks whose hits all share one track ID / all recon tracks)\npure " << tPure << " mixed " << tMixed << "\nD_track = " << d << " +- " << (n > 0 ? std::sqrt(d * (1 - d) / n) : 0.0) << "\n";}
+    if (std::getenv("D_TRACK_ONLY")) return; // only the D_track total, no pdfs
     gSystem->mkdir("plots/8_trackerfits", true);
     std::set<std::string> numberFiles;
     const long long nEvents = (long long)nPure.size();
