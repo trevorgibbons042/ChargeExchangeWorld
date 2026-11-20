@@ -3,7 +3,7 @@
 # Usage: bash SubmitPlotNew.sh <run folder in build/root> [more run folders ...], e.g. bash SubmitPlotNew.sh newPhysics_801_250m_0.4m/25GeV/8block newPhysics_801_250m_0.4m/25GeV/9block
 # A run folder with cuts/cut_angles_all.root runs only F9_PlotReconNew.cpp (step plotnew). One without it runs the recon first (step reconnew).
 # Only the csv files: SCAN_ONLY=1 makes F9_PlotReconNew.cpp write cuts.txt and scan_stats.csv of every folder and no pdf. No Pdfs job either.
-export SCAN_ONLY=1
+export SCAN_ONLY=${SCAN_ONLY:-1} # SCAN_ONLY=0 bash SubmitPlotNew.sh ... also makes the pdfs and the 100 subsample csv (plots/6_ReconNew_1/6_megaCut/2_phi_cosfit/subsamples.csv)
 [ $# -gt 0 ] || { echo "usage: bash SubmitPlotNew.sh <run folder in build/root> [more run folders ...]"; exit 1; }
 cd "$(dirname "$0")" || exit 1
 source ./submit_lib.sh

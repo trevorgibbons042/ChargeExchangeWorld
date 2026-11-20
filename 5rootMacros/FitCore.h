@@ -4,6 +4,7 @@
 #include <TCanvas.h>
 #include <TF1.h>
 #include <TLatex.h>
+#include <TLine.h>
 #include <TTree.h>
 #include <TGraph.h>
 #include <TH1.h>
@@ -943,6 +944,7 @@ inline std::string PhiAxisName(const std::string& phiBranch){
 // range: {thetaMin, thetaMax, phiHalf} branches (degrees, degrees, rad) of the est neutron range of each proton (CalcAPandT.cpp), none for a fit with no est neutron frame. With them A_eff gets the
 // theta range error (A at the two ends, AMean) and P the phi range error (PhiRange), and the side box splits the errors of A_eff and P by source.
 // range2: the same three branches for the block grid range alone (the slope error of the block position fit, a range of its own in quadrature), only on the block fits.
+inline double gPTrue = -99; // the true P of the sim (PPValue), set by F9_PlotReconNew.cpp, for the pull on the phi fit pages; -99 = not set
 inline void PhiCosFit(TCanvas* canvas, TTree* t, const std::string& phiBranch, const std::string& thetaBranch, const std::string& cut, const std::string& name, const std::string& title, const std::string& path, const std::vector<std::string>& notes = {}, const std::string& aBranch = "", const std::vector<std::string>& range = {}, const std::vector<std::string>& range2 = {}, int color = -1, double aSmearBias = 0, int nBins = 50){ // aSmearBias: the signed A_eff bias of the smeared recon theta, corrected in A_eff and P (0 none) // color: the histogram line, -1 the CE color // nBins: phi bins of the plot
     canvas->Clear(); canvas->SetRightMargin(0.25); canvas->SetTopMargin(0.17);
     TH1* h = MakeHist(name + "(" + std::to_string(nBins) + ",0,360)");
@@ -969,9 +971,11 @@ inline void PhiCosFit(TCanvas* canvas, TTree* t, const std::string& phiBranch, c
             if (r2 && std::isfinite(cols[iRange2 + 2][k])) phiRange2.Add(cols[iRange2 + 2][k]);
         }
         aMean.smearBias = aSmearBias;
-        h->Draw();
+        canvas->SetTopMargin(0.17); // room for the three text lines above the plot, the P line included
+        h->Draw(); h->Draw("E same"); // the histogram with the fit curve, then the error bars sqrt(N) on every phi bin
     }
     if (!h || h->GetEntries() < 10){canvas->SetRightMargin(0.30); canvas->SetTopMargin(0.1); return;}
+    canvas->SetTopMargin(0.17); // room for the three text lines above the plot, the P line included
     const double nFit = h->GetEntries();
     h->SetTitle((title + Form(", %d phi bins of %.1f deg", nBins, 360.0 / nBins) + ";" + PhiAxisName(phiBranch) + " (degrees);Count").c_str());
     h->SetLineColor(color >= 0 ? color : CbCE()); // CE protons are vermillion
@@ -979,16 +983,20 @@ inline void PhiCosFit(TCanvas* canvas, TTree* t, const std::string& phiBranch, c
     TF1& fit = *AddUnbinnedFit(h, "fPhiCos", uf, aMean.Corrected(), aMean.Err(), true);
     fit.SetParameter(0, nFit / nBins);
     fit.SetLineColor(kBlack);
+    {TLine* meanLine = new TLine(0, nFit / nBins, 360, nFit / nBins); meanLine->SetLineStyle(3); meanLine->SetLineWidth(2); meanLine->SetLineColor(kBlack); h->GetListOfFunctions()->Add(meanLine);} // dotted line at the mean bin content (N0), the cosine swings around it
     h->SetMinimum(0); h->SetMaximum(1.1 * h->GetMaximum());
     h->SetName("Fit results"); // the first line of the stats box is the histogram name
     canvas->Update();
     if (auto* st = (TPaveStats*)h->FindObject("stats")){st->SetX1NDC(0.76); st->SetX2NDC(0.995); st->SetY1NDC(0.55); st->SetY2NDC(0.83);}
     TLatex tx; tx.SetNDC(); tx.SetTextSize(0.028);
-    tx.DrawLatex(0.13, 0.90, "Unbinned fit  N(#phi) #propto N_{0} (1 + P #upoint A_{eff} cos#phi) (every proton, no bins), N_{0} = protons / bins, fixed");
-    tx.DrawLatex(0.13, 0.865, Form(aBranch.empty() ? "%s = %.4f #pm %.4f (fixed, per-proton #theta),   P = %.2f #pm %.2f" : "%s = %.4f #pm %.4f (fixed, AP = LastAP of each CE),   P = %.2f #pm %.2f", AEffEq(), aMean.Corrected(), aMean.Err(), uf.p, uf.err));
+    tx.DrawLatex(0.13, 0.925, "Unbinned fit  N(#phi) #propto N_{0} (1 + P #upoint A_{eff} cos#phi) (every proton, no bins), N_{0} = protons / bins, fixed");
+    const double pStat = std::sqrt(uf.errFit * uf.errFit + uf.errAStat * uf.errAStat); // statistics: the likelihood and the spread of AP over the tracks
+    const double pSyst = std::sqrt(uf.errABeam * uf.errABeam + uf.errARange * uf.errARange + uf.errARange2 * uf.errARange2 + uf.errAModel * uf.errAModel + uf.biasPhi * uf.biasPhi); // beam, theta ranges, model coefficients, and the full size of the phi dilution correction
+    const double pTot = std::sqrt(pStat * pStat + pSyst * pSyst);
+    tx.DrawLatex(0.13, 0.89, Form(aBranch.empty() ? "%s = %.4f #pm %.4f (fixed, per-proton #theta)" : "%s = %.4f #pm %.4f (fixed, AP = LastAP of each CE)", AEffEq(), aMean.Corrected(), aMean.Err()));
+    tx.DrawLatex(0.13, 0.855, gPTrue > -90 ? Form("#bf{P = %.3f #pm %.3f (stat) #pm %.3f (syst)}, pull %+.1f (total error %.3f)", uf.p, pStat, pSyst, (uf.p - gPTrue) / pTot, pTot) : Form("#bf{P = %.3f #pm %.3f (stat) #pm %.3f (syst)} (total error %.3f)", uf.p, pStat, pSyst, pTot));
     tx.SetTextSize(0.026);
-    DrawErrorBySource(aMean, uf, range.size() == 3); // side box (under the stats box): the errors of A_eff and P by source
-    for (size_t i = 0; i < notes.size(); i++) tx.DrawLatex(0.13, 0.83 - 0.034 * i, notes[i].c_str());
+    for (size_t i = 0; i < notes.size(); i++) tx.DrawLatex(0.13, 0.80 - 0.034 * i, notes[i].c_str());
     canvas->Modified(); canvas->Update();
     canvas->SaveAs(path.c_str());
     canvas->SetRightMargin(0.30); canvas->SetTopMargin(0.1);
