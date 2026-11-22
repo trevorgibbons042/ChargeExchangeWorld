@@ -130,6 +130,15 @@ void PErrorBudget(){
     gSystem->mkdir(dir.c_str(), true);
     const auto put = [&](const char* name, const std::string& body){std::ofstream o(dir + "/" + name + ".txt"); o << body;};
     const auto fmt = [](const char* f, auto... a){return std::string(Form(f, a...));}; // every argument is a double
+    // P_result.csv: item,quantity,value,error,note, one row per number of the txt files (commas in a note become semicolons, error empty when none)
+    std::string csvRows;
+    const auto csvRow = [&](const std::string& item, const std::string& q, double v, double e, std::string note){
+        std::replace(note.begin(), note.end(), ',', ';');
+        csvRows += item + "," + q + "," + std::string(Form("%.6g", v)) + "," + (std::isnan(e) ? std::string() : std::string(Form("%.6g", e))) + "," + note + "\n";
+    };
+    const auto row = [&](const std::string& item, const std::string& q, double v, const std::string& note = ""){csvRow(item, q, v, NAN, note);};
+    const auto rowE = [&](const std::string& item, const std::string& q, double v, double e, const std::string& note = ""){csvRow(item, q, v, e, note);};
+    const auto rowNote = [&](const std::string& item, std::string note){std::replace(note.begin(), note.end(), ',', ';'); csvRows += item + ",status,,," + note + "\n";};
 
     // ---------- statistical ----------
     const double sigFit = u.errFit;
@@ -193,15 +202,19 @@ void PErrorBudget(){
     const auto variation = [&](const char* name, const char* what, std::vector<Var> vars){
         std::string txt = std::string(name) + " (" + what + ")\nbase P = " + std::string(Form("%.5f", P)) + " +- " + std::string(Form("%.5f", u.err)) + ", N = " + std::string(Form("%.0f", N)) + "\n";
         double dMax = 0;
+        rowE(name, "base P", P, u.err); row(name, "base N", N);
         for (const Var& v : vars){
             const std::vector<Sel> sv = select(v.c);
             const Result r = fit(sv, 2, smearOf(sv).mean, v.c.phiTrim);
             const double dP = r.uf.p - P, sd = std::sqrt(std::fabs(r.uf.err * r.uf.err - u.err * u.err));
             const double sig = std::sqrt(std::max(0.0, dP * dP - sd * sd)); // the part of the shift beyond its statistical size
             if (r.uf.ok) dMax = std::max(dMax, sig);
+            row(name, std::string(v.label) + " N", (double)r.n); rowE(name, std::string(v.label) + " P", r.uf.p, r.uf.err); row(name, std::string(v.label) + " P - P_base", dP);
+            row(name, std::string(v.label) + " statistical size of the shift", sd); row(name, std::string(v.label) + " shift beyond statistics", sig);
             txt += std::string(Form("%s: N = %zu, P = %.5f +- %.5f, P - P_base = %+.5f, statistical size of the shift %.5f, shift beyond statistics %.5f\n", v.label, r.n, r.uf.p, r.uf.err, dP, sd, sig));
         }
         txt += std::string(Form("value on P (largest shift beyond statistics) = %.5f\n", dMax));
+        row(name, "value on P", dMax, "largest shift beyond statistics");
         put(name, txt);
         return dMax;
     };
@@ -223,25 +236,27 @@ void PErrorBudget(){
         {"delta_plane_weights", "the plane weights 1, 1, 0.5, 0.25 need ReconAngleAll.cpp rerun with other weights"},
         {"delta_kTubeSigmas", "kTubeSigmas = 2 (tube holds 92% of the CE vertices) needs ReconAngleAll.cpp rerun with 1 and 3"},
         {"delta_target_HC", "the CH2 target (CE on H with t slope 14.5 and on C with 76) needs a sim with the target material split or a CE target column"}};
-    for (const auto& nc : notComputed) put(nc[0], std::string(nc[0]) + "\nnot computed: " + nc[1] + "\n");
+    for (const auto& nc : notComputed){put(nc[0], std::string(nc[0]) + "\nnot computed: " + nc[1] + "\n"); rowNote(nc[0], std::string("not computed: ") + nc[1]);}
 
     // ---------- bias and dilution ----------
     const double Dblk = B.q2.D();
     std::vector<double> d2v;
     for (const Sel& q : s0) d2v.push_back(Dof(q.r2, q.h2));
     const MeanErr d2 = Stats(d2v);
-    put("D_block", fmt("D_block (block grid phi range dilution, mean sin(h)/h of the block range, corrected: P = P / D)\nD = %.5f +- %.5f\nshift of P = %+.5f\n", Dblk, d2.sem, u.biasPhi2));
+    put("D_block", fmt("D_block (block grid phi range dilution, mean sin(h)/h of the block range, shown, not applied)\nD = %.5f +- %.5f\nshift of P = %+.5f\n", Dblk, d2.sem, u.biasPhi2));
     // actual dilution: CE recon rows, est neutron phi against the true neutron frame phi of the CE
     std::vector<double> cosD;
     for (const Sel& q : s0) if (q.cls == 0 && q.ceIdx >= 0 && q.r1) cosD.push_back(std::cos((q.ph - ce[1][q.ceIdx]) / kRad));
     const MeanErr mCos = Stats(cosD);
 
     // ---------- totals, in the structure of the error list: P fit uncertainty (sigma_P, delta_P), Dilution (D), Bias ----------
-    // Dtrack: the dilution of the evClass 1 tracks (CE mixed with other hits), the same cos(phi_est - phi_true in the true neutron frame) as D_actual over cls 1 instead of cls 0
-    std::vector<double> cosT;
-    for (const Sel& q : s0) if (q.cls == 1 && q.ceIdx >= 0 && q.r1) cosT.push_back(std::cos((q.ph - ce[1][q.ceIdx]) / kRad));
-    const MeanErr mTrk = Stats(cosT);
-    put("D_track", fmt("D_track (evClass 1 tracks, CE mixed with other hits: mean cos(phi_est - phi_true in the true neutron frame), N = %.0f)\nD_track = %.5f +- %.5f\nmix fraction of the fit sample f1 - f0 = %.5f\n", mTrk.n, mTrk.mean, mTrk.sem, f1 - f0));
+    // Dtrack: the true tracks (2+ tracker hits) that sit in a pure reconstructed track over all true tracks with 2+ tracker hits, no cuts (F8_TrackerFits.cpp writes the two counts from the sim output)
+    // Dtrack is the CE child protons only (nPureTrueCE of nTrueTracksCE); the all particle ratio (nPureTrue of nTrueTr) is only in D_track.txt
+    double nPureTrue = 0, nTrueTr = 0, nPureTrueCE = 0, nTrueTrCE = 0;
+    { std::ifstream in("plots/8_trackerfits/track_purity.csv"); std::string hdr; char c1 = 0, c2 = 0, c3 = 0; if (!(std::getline(in, hdr) && (in >> nPureTrue >> c1 >> nTrueTr >> c2 >> nPureTrueCE >> c3 >> nTrueTrCE))) nTrueTrCE = 0; }
+    const bool haveTrk = nTrueTrCE > 0;
+    const double Dtrk = haveTrk ? nPureTrueCE / nTrueTrCE : 0.0, sigTrk = haveTrk ? std::sqrt(Dtrk * (1 - Dtrk) / nTrueTrCE) : 0.0; // binomial error
+    put("D_track", haveTrk ? fmt("D_track (CE child protons with 2+ tracker hits that sit in a pure reconstructed track, all hits one track ID, no cuts)\nD_track = %.5f +- %.5f (binomial), %.0f of %.0f\nall particles with 2+ tracker hits: %.5f, %.0f of %.0f\n", Dtrk, sigTrk, nPureTrueCE, nTrueTrCE, nTrueTr > 0 ? nPureTrue / nTrueTr : 0.0, nPureTrue, nTrueTr) : std::string("D_track\nnot computed: no plots/8_trackerfits/track_purity.csv with the CE columns (run F8_TrackerFits.cpp)\n"));
     // sigma_phi: statistics of the actual phi dilution. delta_phi: the est n frame phi dilution really present, counted once here (D_actual) and not again as Ddelta_nphi
     const double Dact = mCos.mean;
     const double sigPhi = d2.mean != 0 ? std::fabs(P) * d2.sem / std::fabs(d2.mean) : 0.0; // std(D_block)/sqrt(N) over the fit tracks, like sigma_theta
@@ -264,7 +279,7 @@ void PErrorBudget(){
     const double dSyst = std::sqrt(dSq), sigTot = std::sqrt(sigStat * sigStat + dSq);
     const double pull = sigTot > 0 ? (P - pTrue) / sigTot : 0.0;
     put("bias_closure", fmt("bias_closure (corrected P against the true P of the run)\nP = %.5f, P_true = %.5f, P - P_true = %+.5f\nsigma_stat = %.5f, delta_syst = %.5f, total = %.5f\npull = (P - P_true) / total = %+.3f (one run, a pull needs many runs: error on the mean 1/sqrt(N runs), on the RMS 1/sqrt(2 N runs))\nP - P_true in sigma_stat only = %+.3f\n", P, pTrue, P - pTrue, sigStat, dSyst, sigTot, pull, sigStat > 0 ? (P - pTrue) / sigStat : 0.0));
-    const double sigCon = std::sqrt(f1 * (1 - f1) / nCls[2]);
+    const double sigCon = std::sqrt(f0 * (1 - f0) / nCls[2]);
     // Ddelta_CEXS: sigma at the beam s over all 2^6 corners of the parameter errors, smallest and biggest sigma as ratios r to the nominal, the CE + CE mix count scaled by r, half the f1 span
     const double mN = 0.939565, mP = 0.938272, sBeam = mP * mP + 2 * (beamKE / 1000.0 + mN) * mP + mN * mN;
     const double sigNom = CEXSShape(kCEXSNom, sBeam);
@@ -282,10 +297,10 @@ void PErrorBudget(){
         if (r < rMin){rMin = r; std::copy(p, p + 6, pLo);}
         if (r > rMax){rMax = r; std::copy(p, p + 6, pHi);}
     }
-    const double nOther = nCls[2] - nCls[1];
-    const auto f1At = [&](double r){return r * nCls[1] / (r * nCls[1] + nOther);};
-    const double dCEXS = std::fabs(f1At(rMax) - f1At(rMin)) / 2, dNCE = nCls[1] * (rMax - rMin) / 2;
-    put("delta_CEXS", fmt("delta_CEXS (np CE cross section A, alpha, c1 over their errors, all 8 corners, g0, g1, c0 held at nominal, beam KE %.0f MeV, s = %.4f GeV^2)\nsigma_min / sigma = %.4f, sigma_max / sigma = %.4f\nCE recon (CE + CE mix) N = %.0f, from %.0f to %.0f (+- %.0f)\nf1 = %.5f, at sigma_min %.5f, at sigma_max %.5f\nDdelta_CEXS = half the f1 span = %.5f\nparameters at sigma_min: %.5g %.5g %.5g %.5g %.5g %.5g\nparameters at sigma_max: %.5g %.5g %.5g %.5g %.5g %.5g\n", beamKE, sBeam, rMin, rMax, nCls[1], nCls[1] * rMin, nCls[1] * rMax, dNCE, f1, f1At(rMin), f1At(rMax), dCEXS, pLo[0], pLo[1], pLo[2], pLo[3], pLo[4], pLo[5], pHi[0], pHi[1], pHi[2], pHi[3], pHi[4], pHi[5]));
+    const double nOther = nCls[2] - nCls[0];
+    const auto f0At = [&](double r){return r * nCls[0] / (r * nCls[0] + nOther);};
+    const double dCEXS = std::fabs(f0At(rMax) - f0At(rMin)) / 2, dNCE = nCls[0] * (rMax - rMin) / 2;
+    put("delta_CEXS", fmt("delta_CEXS (np CE cross section A, alpha, c1 over their errors, all 8 corners, g0, g1, c0 held at nominal, beam KE %.0f MeV, s = %.4f GeV^2)\nsigma_min / sigma = %.4f, sigma_max / sigma = %.4f\nCE recon (CE only) N = %.0f, from %.0f to %.0f (+- %.0f)\nf0 = %.5f, at sigma_min %.5f, at sigma_max %.5f\nDdelta_CEXS = half the f0 span = %.5f\nparameters at sigma_min: %.5g %.5g %.5g %.5g %.5g %.5g\nparameters at sigma_max: %.5g %.5g %.5g %.5g %.5g %.5g\n", beamKE, sBeam, rMin, rMax, nCls[0], nCls[0] * rMin, nCls[0] * rMax, dNCE, f0, f0At(rMin), f0At(rMax), dCEXS, pLo[0], pLo[1], pLo[2], pLo[3], pLo[4], pLo[5], pHi[0], pHi[1], pHi[2], pHi[3], pHi[4], pHi[5]));
     const bool atBound = std::fabs(u.pRaw) > 0.9999;
 
     std::string sum = fmt("P_summary, run %.0f blocks, %.0f neutrons, true P = %.3f, beam KE %.0f MeV\nsample: total recon, 6_megaCut (KE %.0f%%, even planes, theta 0 to 1 degree, 1 hit per plane), N = %.0f fit tracks\n\n", settings.at("nBlocks"), settings.at("TotalNeutrons"), pTrue, beamKE, 100 * base.ke, N);
@@ -300,18 +315,19 @@ void PErrorBudget(){
     sum += "   not computed (need other runs) efficiency, seed road, plane weights, kTubeSigmas, H/C target mix\n";
     sum += "\nDILUTION (shown, not in the +- sums)\n";
     sum += fmt("1. Dcon: CE only fraction f0 = %.4f, CE + CE mix f1 = %.4f (not corrected)\n", f0, f1);
-    sum += fmt("   a. Dsigma_con = %.4f (binomial error of f1)\n", sigCon);
-    sum += fmt("   b. Ddelta_con = Ddelta_CEXS (A, alpha, c1) = %.4f (sigma x %.3f to x %.3f, CE count %.0f +- %.0f)\n", dCEXS, rMin, rMax, nCls[1], dNCE);
-    sum += fmt("   c. Dtrack = %.4f +- %.4f (evClass 1 tracks, N = %.0f, not corrected)\n", mTrk.mean, mTrk.sem, mTrk.n);
-    sum += fmt("      i. Dsigma_track = %.4f\n", mTrk.sem);
-    sum += "2. Dphi\n";
-    sum += fmt("   Ddelta_phi block grid phi range D_block = %.4f, shift of P %+.4f (applied)\n", Dblk, u.biasPhi2);
+    sum += fmt("   a. Dsigma_con = %.4f (binomial error of f0)\n", sigCon);
+    sum += fmt("   b. Ddelta_con = Ddelta_CEXS (A, alpha, c1) = %.4f (sigma x %.3f to x %.3f, CE only count %.0f +- %.0f)\n", dCEXS, rMin, rMax, nCls[0], dNCE);
+    if (haveTrk){
+        sum += fmt("2. Dtrack = %.4f (CE protons with a pure reconstructed track %.0f of %.0f with 2+ tracker hits, not corrected)\n", Dtrk, nPureTrueCE, nTrueTrCE);
+        sum += fmt("   a. Dsigma_track = %.4f (binomial)\n", sigTrk);
+    } else sum += "2. Dtrack: not computed (no plots/8_trackerfits/track_purity.csv, run F8_TrackerFits.cpp)\n";
+    sum += "3. Dphi\n";
+    sum += fmt("   Ddelta_phi block grid phi range D_block = %.4f, shift of P %+.4f (not applied)\n", Dblk, u.biasPhi2);
     sum += fmt("   Ddelta_nphi est n frame phi - true n frame phi, D_actual = %.4f +- %.4f (not applied)\n", Dact, mCos.sem);
     sum += fmt("   total applied dilution D = %.4f\n", u.dil);
-    sum += "\nBIAS\n";
-    sum += fmt("1. BiasAP, Biastheta: P before any correction = %.4f\n", u.pRaw);
-    sum += fmt("   Biasdelta_ntheta est n frame theta - true n frame theta (smearBias) %+.5f +- %.5f, would shift P by %+.4f (not applied)\n", sm0.mean, sm0.sem, P * (A / (A - sm0.mean) - 1.0));
-    sum += "   Biasdelta_theta block theta - true theta smear: not computed\n";
+    sum += fmt("4. DAP, Dtheta: P before any correction = %.4f\n", u.pRaw);
+    sum += fmt("   Ddelta_ntheta est n frame theta - true n frame theta (smearBias) %+.5f, would shift P by %+.4f (not applied)\n", sm0.mean, P * (A / (A - sm0.mean) - 1.0));
+    sum += "   Ddelta_theta block theta - true theta smear: not computed\n";
     sum += fmt("\nCLOSURE: P - P_true = %+.4f, pull = %+.3f (total error %.4f)\n", P - pTrue, pull, sigTot);
     put("P_summary", sum);
 
@@ -338,50 +354,80 @@ void PErrorBudget(){
     if (atBound) md += " The raw fit sits at the +1 or -1 bound, so errFit and the total are not Gaussian at this N.";
     md += "\n\nA parent is the quadrature of its children.\n\n";
 
-    md += fmt("## 1. P fit uncertainty\n\n### On A_eff\n\nA_eff = %.5f. Absolute error, the relative error in brackets.\n\n", A);
-    md += block({{"AP  [on A_eff]", ""},
+    md += fmt("## 1. P fit uncertainty\n\n### On P\n\nP = %.4f. Absolute error, the relative error in brackets.\n\n", P);
+    const auto pCell = [&](double v){return std::string(Form("%.4f (%.2f%%)", v, 100.0 * v / std::fabs(P)));};
+    md += block({{"σ_P (stat)  [on P]", pCell(sigStat)},
+                 {"├─ errFit (likelihood)", pCell(sigFit)},
+                 {"├─ σ_φ  stat of φ over the tracks", pCell(sigPhi)},
+                 {"└─ σ_AP  stat of θ over the tracks (σ_t)", pCell(sigTheta)},
+                 {"δ_P (syst)  [on P]", pCell(dSyst)},
+                 {"├─ δ_φ  est n frame φ range", pCell(dPhi)},
+                 {"└─ δ_AP  [on P, |P| × the relative A_eff error]", pCell(pAP)}});
+    md += fmt("### On A_eff\n\nA_eff = %.5f ± %.5f (stat) ± %.5f (syst). Absolute error, the relative error in brackets.\n\n", A, aSigTh, aTot);
+    md += block({{"AP  [on A_eff]", fmt("± %.5f (stat) ± %.5f (syst)", aSigTh, aTot)},
                  {"├─ σ_AP (stat)", aCell(aSigTh)},
-                 {"│  └─ σ_t  stat of θ over the tracks", aCell(aSigTh)},
+                 {"│  └─ σ_t", aCell(aSigTh)},
+                 {"│     └─ σ_θ  stat of θ over the tracks", aCell(aSigTh)},
                  {"└─ δ_AP (syst)", aCell(aTot)},
                  {"   ├─ δ_t", aCell(aT)},
                  {"   │  ├─ δ_θ  est n frame θ range", aCell(aRng)},
                  {"   │  └─ δ_beam  beam spread", aCell(aBeam)},
                  {"   └─ δ_model  A, k", aCell(aMod)}});
-    md += "### On P\n\n";
-    md += block({{"σ_P (stat)  [on P]", pv(sigStat)},
-                 {"├─ errFit (likelihood)", pv(sigFit)},
-                 {"├─ σ_φ  stat of φ over the tracks", pv(sigPhi)},
-                 {"└─ σ_AP  stat of θ over the tracks (σ_t)", pv(sigTheta)},
-                 {"δ_P (syst)  [on P]", pv(dSyst)},
-                 {"├─ δ_φ  est n frame φ range", pv(dPhi)},
-                 {"└─ δ_AP  [on P, |P| × the relative A_eff error]", pv(pAP)},
-                 {"   ├─ δ_t", pv(pT)},
-                 {"   │  ├─ δ_θ  est n frame θ range", pv(dRange)},
-                 {"   │  └─ δ_beam  beam spread", pv(dBeam)},
-                 {"   └─ δ_model  A, k", pv(dModel)}});
     md += "- δ_AP and its terms are the same in both trees: P carries the relative A_eff error. σ_AP is σ_t, the stat of θ over the tracks, std(A)/√N, and σ_φ is std(D_block)/√N; σ_AP may overlap errFit, both come from the same tracks. δ_AP is the syst side, δ_t and δ_model in quadrature.\n";
     md += "- δ_φ is half the P span when every track's est n frame φ moves by −h and +h (h the φ range half-width), refit. δ_t is δ_θ and δ_beam in quadrature (both act through t). δ_θ is half the A_eff span of the θ range, δ_model the A, k envelope (no covariance), δ_beam the ±1σ beam momentum spread propagated.\n";
     md += "- Not computed: efficiency, seed road, plane weights, kTubeSigmas, H/C target mix.\n\n";
 
-    md += "## 2. Dilution (not in the ± sums)\n\n";
+    md += "## 2. Dilution (not in the ± sums)\n\nThe relative error in brackets: Dσ_con and Dδ_con against f0, Dσ_track against |Dtrack|, Dδ_θ against |A_eff|.\n\n";
+    const auto rCell = [&](double v, double base, const char* f){return std::string(Form(f, v)) + Form(" (%.2f%%)", 100.0 * std::fabs(v) / std::fabs(base));};
     md += block({{fmt("Dcon  f0 = %.3f (CE only), f1 = %.3f (CE + CE mix), not applied", f0, f1), ""},
-                 {"├─ Dσ_con  binomial error of f1", pv(sigCon)},
-                 {"├─ Dδ_con", pv(dCEXS)},
-                 {"│  └─ Dδ_CEXS  A, α, c1", pv(dCEXS)},
-                 {"└─ Dtrack  not applied", pv(mTrk.mean)},
-                 {"   └─ Dσ_track", pv(mTrk.sem)},
+                 {"├─ Dσ_con  binomial error of f0", rCell(sigCon, f0, "%.4f")},
+                 {"└─ Dδ_con", rCell(dCEXS, f0, "%.4f")},
+                 {"   └─ Dδ_CEXS  A, α, c1", rCell(dCEXS, f0, "%.4f")},
+                 {"Dtrack  not applied", haveTrk ? pv(Dtrk) : std::string("not computed")},
+                 {"└─ Dσ_track", haveTrk ? rCell(sigTrk, Dtrk, "%.4f") : std::string("not computed")},
                  {"Dφ", ""},
-                 {"└─ Dδ_φ  block grid φ range D_block, applied", pv(Dblk)}});
-    md += fmt("- Dtrack = mean cos(φ_est − φ_true,n) over the evClass 1 tracks, N = %.0f.\n", mTrk.n);
-    md += fmt("- Dδ_CEXS is half the f1 span when the CE count is scaled by σ_min/σ = %.3f and σ_max/σ = %.3f, the np CE cross section over all 8 corners of A, α, c1 at their errors (g0, g1, c0 held at nominal), at the beam s. CE recon N = %.0f ± %.0f.\n", rMin, rMax, nCls[1], dNCE);
-    md += fmt("- Dδ_φ shifts P by %+.4f.\n\n", u.biasPhi2);
+                 {"└─ Dδ_φ  block grid φ range D_block, not applied", pv(Dblk)},
+                 {"DAP  not applied", ""},
+                 {"└─ Dθ", ""},
+                 {"   └─ Dδ_θ  θ_block − θ_true smear (smearBias)", rCell(sm0.mean, A, "%+.5f")}});
+    md += haveTrk ? fmt("- Dtrack = CE child protons with a pure reconstructed track (all hits one track ID) over the CE child protons with 2 or more tracker hits, no cuts (F8_TrackerFits.cpp), %.0f of %.0f; Dσ_track is binomial.\n", nPureTrueCE, nTrueTrCE) : std::string("- Dtrack not computed: run F8_TrackerFits.cpp for plots/8_trackerfits/track_purity.csv.\n");
+    md += fmt("- Dδ_CEXS is half the f0 span when the CE only count is scaled by σ_min/σ = %.3f and σ_max/σ = %.3f, the np CE cross section over all 8 corners of A, α, c1 at their errors (g0, g1, c0 held at nominal), at the beam s. CE only recon N = %.0f ± %.0f.\n", rMin, rMax, nCls[0], dNCE);
+    md += fmt("- Dδ_φ would shift P by %+.4f; it is measured and not applied (kApplyBlockPhiDilution in FitCore.h).\n", u.biasPhi2);
 
-    md += "## 3. Bias (not applied, not in the ± sums)\n\n";
-    md += block({{"BiasAP", ""},
-                 {"└─ Biasθ", ""},
-                 {"   └─ Biasδ_θ  θ_block − θ_true smear (smearBias)", fmt("%+.5f ± %.5f", sm0.mean, sm0.sem)}});
-    md += fmt("- Biasδ_θ would shift P by %+.4f; it is measured and not applied (kApplySmearBias in FitCore.h).\n", P * (A / (A - sm0.mean) - 1.0));
+    md += fmt("- Dδ_θ would shift P by %+.4f; it is measured and not applied (kApplySmearBias in FitCore.h).\n", P * (A / (A - sm0.mean) - 1.0));
     { std::ofstream o(dir + "/P_table.md"); o << md; }
+    // P_result.csv: every number of the txt files; the rows of the totals first, then the variations and the not computed items collected above. F9_PlotReconNew.cpp reads the item P rows (P +- stat +- syst on the total recon fit plot of 6_megaCut)
+    const std::string earlyRows = csvRows;
+    csvRows.clear();
+    row("P", "P", P); row("P", "sigma_stat", sigStat); row("P", "delta_syst", dSyst); row("P", "sigma_total", sigTot); row("P", "P_true", pTrue); row("P", "P - P_true", P - pTrue); row("P", "pull", pull); row("P", "P_before_correction", u.pRaw);
+    row("P_stat", "errFit", sigFit); row("P_stat", "sigma_phi", sigPhi); row("P_stat", "sigma_AP", sigTheta); row("P_stat", "bootstrap sd", bs.sd, "200 resamples");
+    row("P_syst", "delta_phi", dPhi); row("P_syst", "delta_AP", pAP); row("P_syst", "delta_t", pT); row("P_syst", "delta_theta", dRange); row("P_syst", "delta_beam", dBeam); row("P_syst", "delta_model", dModel);
+    row("A_eff", "A_eff", A); row("A_eff", "sigma_AP", aSigTh); row("A_eff", "sigma_t", aSigTh); row("A_eff", "sigma_theta", aSigTh); row("A_eff", "delta_AP", aTot); row("A_eff", "delta_t", aT); row("A_eff", "delta_theta", aRng); row("A_eff", "delta_beam", aBeam); row("A_eff", "delta_model", aMod);
+    row("sigma_P_fit", "errFit", sigFit); row("sigma_P_fit", "N", N); row("sigma_P_fit", "check sqrt(2/N)/|A_eff|", std::sqrt(2.0 / N) / std::fabs(A));
+    row("sigma_theta", "value on A_eff", B.a.StatErr()); row("sigma_theta", "value on P", sigTheta);
+    row("delta_AP_model", "relative on A_eff", kModelAFrac); row("delta_AP_model", "value on P", dModel);
+    row("delta_AP_beam", "beam momentum spread MeV/c", kBeamMomentumSD); row("delta_AP_beam", "beam momentum MeV/c", kBeamMomentum); row("delta_AP_beam", "relative on A_eff", kBeamAFrac); row("delta_AP_beam", "value on P", dBeam);
+    row("delta_AP_range", "value on A_eff", B.a.RangeErr()); row("delta_AP_range", "value on P", dRange);
+    row("delta_AP_tmismatch_block", "CE recon rows", mAB.n); rowE("delta_AP_tmismatch_block", "A_eff block theta", mAB.mean, mAB.sem); rowE("delta_AP_tmismatch_block", "A_eff model (LastAP)", mAM.mean, mAM.sem);
+    row("delta_AP_tmismatch_block", "ratio A_model / A_block", rTB); row("delta_AP_tmismatch_block", "t-only ratio", rT); row("delta_AP_tmismatch_block", "value on P", std::fabs(P) * std::fabs(rTB - 1.0));
+    row("delta_AP_tmismatch", "CE recon rows", mAC.n); rowE("delta_AP_tmismatch", "A_eff analysis", mAC.mean, mAC.sem); rowE("delta_AP_tmismatch", "A_eff model (LastAP)", mAM.mean, mAM.sem);
+    row("delta_AP_tmismatch", "mean t model", mTM.mean); row("delta_AP_tmismatch", "mean t analysis", mTC.mean); row("delta_AP_tmismatch", "ratio A_model / A_analysis", rT); row("delta_AP_tmismatch", "value on P", dTmis);
+    row("delta_AP_tmismatch", "error on the ratio", sigRatio); row("delta_AP_tmismatch", "error on the ratio on P", std::fabs(P) * sigRatio);
+    row("delta_phi", "P at -h", pPhiLo.p); row("delta_phi", "P at +h", pPhiHi.p); row("delta_phi", "value on P", dPhi); row("delta_phi", "sigma_phi on P", sigPhi); rowE("delta_phi", "D_block", d2.mean, d2.sem); row("delta_phi", "N", d2.n);
+    rowE("D_block", "D", Dblk, d2.sem, "block grid phi range dilution; not applied"); row("D_block", "shift of P", u.biasPhi2);
+    if (haveTrk){
+        rowE("D_track", "D CE protons", Dtrk, sigTrk, "binomial; pure track over CE protons with 2+ tracker hits"); row("D_track", "CE protons with a pure track", nPureTrueCE); row("D_track", "CE protons with 2+ tracker hits", nTrueTrCE);
+        row("D_track", "D all particles", nTrueTr > 0 ? nPureTrue / nTrueTr : 0.0); row("D_track", "particles with a pure track", nPureTrue); row("D_track", "particles with 2+ tracker hits", nTrueTr);
+    } else rowNote("D_track", "not computed: no plots/8_trackerfits/track_purity.csv");
+    row("delta_CEXS", "beam KE MeV", beamKE); row("delta_CEXS", "s GeV^2", sBeam); row("delta_CEXS", "sigma_min / sigma", rMin); row("delta_CEXS", "sigma_max / sigma", rMax);
+    row("delta_CEXS", "CE only N", nCls[0]); row("delta_CEXS", "N at sigma_min", nCls[0] * rMin); row("delta_CEXS", "N at sigma_max", nCls[0] * rMax); row("delta_CEXS", "N error", dNCE);
+    row("delta_CEXS", "f0", f0); row("delta_CEXS", "f0 at sigma_min", f0At(rMin)); row("delta_CEXS", "f0 at sigma_max", f0At(rMax)); row("delta_CEXS", "value (half the f0 span)", dCEXS);
+    const char* cexsName[6] = {"A", "alpha", "g0", "g1", "c0", "c1"};
+    for (int i = 0; i < 6; i++){row("delta_CEXS", std::string("param at sigma_min ") + cexsName[i], pLo[i]); row("delta_CEXS", std::string("param at sigma_max ") + cexsName[i], pHi[i]);}
+    row("Dcon", "f0", f0, "CE only fraction"); row("Dcon", "f1", f1, "CE + CE mix fraction"); row("Dcon", "Dsigma_con", sigCon, "binomial error of f0"); row("Dcon", "Ddelta_con", dCEXS);
+    row("Dphi", "Ddelta_phi D_block", Dblk, "not applied"); row("Dphi", "Ddelta_phi shift of P", u.biasPhi2); rowE("Dphi", "Ddelta_nphi D_actual", Dact, mCos.sem, "not applied"); row("Dphi", "total applied D", u.dil);
+    row("Dtheta", "smearBias", sm0.mean, "A_eff shift of the recon theta smear; not applied"); row("Dtheta", "would shift P by", P * (A / (A - sm0.mean) - 1.0));
+    { std::ofstream o(dir + "/P_result.csv"); o << "item,quantity,value,error,note\n" << csvRows << earlyRows; }
     printf("%s", sum.c_str());
     printf(">>> wrote %s/*.txt and P_table.md\n", dir.c_str());
 }

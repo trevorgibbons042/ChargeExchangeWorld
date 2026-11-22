@@ -8,6 +8,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <fstream>
 #include <map>
 #include <numeric>
 #include <set>
@@ -59,6 +60,8 @@ void F8_TrackerFits(){
     std::stable_sort(order.begin(), order.end(), [&](size_t a, size_t b){return c[0][a] < c[0][b];});
 
     // per event: pure tracks (all, CE), mixed tracks (with a CE hit, without), missing tracks (all, CE)
+    long long nPureTrue = 0; // the true tracks (2+ hits) that sit in a pure reconstructed track, over all events: a particle split into 2 pure tracks counts once; with nTrueTracks it gives Dtrack (PErrorBudget.cpp)
+    long long nPureTrueCE = 0, nTrueTracksCE = 0; // the same two counts for the CE child protons only (a CE particle with a pure track, pureCEIDs, over the CE particles with 2+ hits): Dtrack of PErrorBudget.cpp
     long long nTrueTracks = 0; // the true tracks with 2 or more tracker hits, over all events
     std::vector<int> nPure, nPureCE, nMixedCE, nMixedNoCE, nMissing, nMissingCE, nTrue, nTrueCE; // nTrue: the reconstructable tracks, true tracks with 2+ hits (all, CE)
     std::vector<double> hx, hy, hz; std::vector<int> hid; std::vector<char> hce;
@@ -99,7 +102,7 @@ void F8_TrackerFits(){
         for (double zz : hz) planesAll.push_back(std::lround(zz * 1000.0));
         std::sort(planesAll.begin(), planesAll.end()); planesAll.erase(std::unique(planesAll.begin(), planesAll.end()), planesAll.end());
         std::set<int> mixedCEIDs; // the CE particles with a hit in a mixed track
-        std::set<int> usedIDs, pureCEIDs; // the track IDs with a hit in any reconstructed track, and the CE ones with a pure track
+        std::set<int> usedIDs, pureCEIDs, pureIDs; // the track IDs with a hit in any reconstructed track, and the CE ones with a pure track
         int pure = 0, pureCE = 0, mixedCE = 0, mixedNoCE = 0;
         for (;;){
             std::vector<double> rx, ry, rz; std::vector<size_t> at;
@@ -109,7 +112,7 @@ void F8_TrackerFits(){
             std::set<int> ids; bool anyCE = false;
             for (size_t f : found){taken[at[f]] = 1; ids.insert(hid[at[f]]); anyCE = anyCE || hce[at[f]];}
             usedIDs.insert(ids.begin(), ids.end());
-            if (ids.size() == 1){pure++; if (anyCE) pureCEIDs.insert(*ids.begin());}
+            if (ids.size() == 1){pure++; pureIDs.insert(*ids.begin()); if (anyCE) pureCEIDs.insert(*ids.begin());}
             else if (anyCE){for (size_t f : found) if (hce[at[f]]) mixedCEIDs.insert(hid[at[f]]);}
             else mixedNoCE++;
         }
@@ -141,11 +144,13 @@ void F8_TrackerFits(){
         }
         if (lastPlane.size() > lastBefore){nEvLast++; if (lastPlaneCE.size() > ceBefore) nEvLastCE++; if (lastPlaneMix.size() > mixBefore) nEvLastMix++;} // mix = CE + CE mix, so nEvLastMix >= nEvLastCE
         for (const auto& [id, t] : trueTrack) if (t.first >= 2 && !usedIDs.count(id)){missing++; if (t.second) missingCE++;}
+        nPureTrue += (long long)pureIDs.size(); nPureTrueCE += (long long)pureCEIDs.size(); nTrueTracksCE += recoCE;
         nPure.push_back(pure); nPureCE.push_back(pureCE); nMixedCE.push_back(mixedCE); nMixedNoCE.push_back(mixedNoCE);
         nMissing.push_back(missing); nMissingCE.push_back(missingCE);
     }
 
     gSystem->mkdir("plots/8_trackerfits", true);
+    { std::ofstream o("plots/8_trackerfits/track_purity.csv"); o << "nPureTrue,nTrueTracks,nPureTrueCE,nTrueTracksCE\n" << nPureTrue << "," << nTrueTracks << "," << nPureTrueCE << "," << nTrueTracksCE << "\n"; } // read by PErrorBudget.cpp: Dtrack = nPureTrueCE / nTrueTracksCE, the all particle ratio is shown in D_track.txt
     std::set<std::string> numberFiles;
     const long long nEvents = (long long)nPure.size();
     // a plot: two counts per event drawn over each other, in the colours of F9_PlotReconNew.cpp (ClassColor): all and no CE green, CE vermillion, CE mix (a CE hit among others) blue

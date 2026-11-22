@@ -93,11 +93,18 @@ void F9_PlotReconNew(){
     }
     std::vector<std::string> colNames = {"outTheta", "outDTheta", "outPhi", "outDPhi", "thetaRelND", "phiRelND", "impactD", "r2D", "resDRms", "zdcKEAllD", "nHits", "nPlanesUsed", "evClass", "nCEUsed", "nOtherUsed", "nProtonUsed", "nPionUsed", "nKaonUsed", "nNucleusUsed", "nMaxChargedPerPlaneEv", "nTrackerHitsEv", "nPlanesHitEv", "thetaRelNDMin", "thetaRelNDMax", "phiRelNDHalf", "thetaRelNDBMin", "thetaRelNDBMax", "phiRelNDBHalf", "fEvent", "tubeX0", "tubeY0", "tubeZ0", "tubeX1", "tubeY1", "tubeZ1"};
     if (haveBdt) colNames.push_back("entryNo"); // the entry number of the row in AnglesRaw, the key of bdtByEntry
-    auto cols = ColumnsUnordered(t, colNames);
-    // the columns go into rows on all the threads (MapRows): each range fills its own rows [a, z) and only reads the columns
-    MapRows(n, [&](Long64_t a, Long64_t z){
+    // The tree is read in chunks of entries (the filter on entryNo): the 35 double columns of every row at once (280 bytes a row) plus the rows (240 bytes a row) ran a 230 GB tree out of memory on a node,
+    // F9 was killed with no message and wrote no scan_stats.csv. Now only one chunk of columns is in memory next to the rows.
+    constexpr Long64_t kChunk = 40000000;
+    Long64_t filled = 0;
+    for (Long64_t c0 = 0; c0 < n; c0 += kChunk){
+    auto cols = ColumnsUnordered(t, colNames, Form("entryNo >= %lld && entryNo < %lld", (long long)c0, (long long)std::min(n, c0 + kChunk)));
+    const Long64_t nc = (Long64_t)cols[0].size();
+    if (filled + nc > n){Error("F9_PlotReconNew", "chunk at entry %lld returned %lld rows, more than the %lld of the tree", (long long)c0, (long long)nc, (long long)n); return;}
+    // the columns go into rows on all the threads (MapRows): each range fills its own rows [a, z) of this chunk and only reads the columns
+    MapRows(nc, [&](Long64_t a, Long64_t z){
     for (Long64_t i = a; i < z; i++){
-        NewRow& x = rows[i]; size_t k = 0;
+        NewRow& x = rows[filled + i]; size_t k = 0;
         x.outTheta = cols[k++][i]; x.outDTheta = cols[k++][i]; x.outPhi = cols[k++][i]; x.outDPhi = cols[k++][i]; x.thetaRelND = cols[k++][i]; x.phiRelND = cols[k++][i]; x.impactD = cols[k++][i]; x.r2D = cols[k++][i]; x.resDRms = cols[k++][i]; x.zdcKEAllD = cols[k++][i];
         x.nHits = (int)cols[k++][i]; x.nPlanesUsed = (int)cols[k++][i]; x.evClass = (int)cols[k++][i]; x.nCEUsed = (int)cols[k++][i]; x.nOtherUsed = (int)cols[k++][i]; x.nProtonUsed = (int)cols[k++][i]; x.nPionUsed = (int)cols[k++][i]; x.nKaonUsed = (int)cols[k++][i]; x.nNucleusUsed = (int)cols[k++][i]; x.nMaxPlane = (int)cols[k++][i]; x.nTrackerHits = (int)cols[k++][i]; x.nPlanesHit = (int)cols[k++][i];
         x.thMin = cols[k++][i] * rad; x.thMax = cols[k++][i] * rad; x.phHalf = cols[k++][i]; x.th2Min = cols[k++][i] * rad; x.th2Max = cols[k++][i] * rad; x.ph2Half = cols[k++][i]; x.eventID = (int)cols[k++][i];
@@ -106,13 +113,16 @@ void F9_PlotReconNew(){
     }
     return 0;
     });
-    std::vector<std::vector<double>>().swap(cols); // 35 columns of every row (36 GB at 128M rows) are not needed once rows is filled
+    filled += nc;
+    } // the columns of the chunk are freed here, before the next chunk is read
+    if (filled != n){Error("F9_PlotReconNew", "read %lld of the %lld rows of AnglesRaw", (long long)filled, (long long)n); return;}
     const auto settings = ReadSettings(); // settings.csv of the sim, read once
     const double apScale = settings.at("APScale");
     const double keCut = kKeCutPercent / 100.0 * settings.at("BeamKE"); // whole events whose smeared total ZDC KE (zdcKEAllD, all particles) is not above kKeCutPercent of the beam KE are not drawn or counted
     const std::string kePct = Form("%.0f", kKeCutPercent);
     int made = 0;
-    const bool scanOnly = gSystem->Getenv("SCAN_ONLY") != nullptr; // SCAN_ONLY set: write only cuts.txt and scan_stats.csv of every folder, no pdf (SubmitPlotNew.sh)
+    const char* scanEnv = gSystem->Getenv("SCAN_ONLY");
+    const bool scanOnly = scanEnv && *scanEnv && std::string(scanEnv) != "0"; // SCAN_ONLY set (not 0 or empty): write only cuts.txt and scan_stats.csv of every folder, no pdf (SubmitPlotNew.sh); SCAN_ONLY=0 SubmitPlotNew.sh makes the pdfs and the 100 subsample csv too
     // plots/6_ReconNew_1/1_noCuts (every event; its KE plot alone shows the events above the KE cut) and plots/6_ReconNew_1/2_KECUT80 (every plot with the 80% KE cut).
     const int maxPlanes = MaxTrackerHits(); // 2 * nBlocks, the most planes a track can cross
     // Every folder after 2_ has one cut of its own, 6_megaCut has them all:
@@ -280,7 +290,7 @@ void F9_PlotReconNew(){
         gROOT->cd();
         std::vector<std::vector<double>> ce;
         std::map<long long, size_t> byEvent;
-        double smearBias = 0; // the signed A_eff bias of the recon theta: the CE recon events of this folder, mean AP at the recon block theta minus mean AP at the true CE theta; it is corrected in A_eff and P of the two recon fits and quoted apart from the uncertainty (the CE fit uses the true angle)
+        double smearBias = 0; // the signed A_eff bias of the recon theta: the CE recon events of this folder, mean AP at the recon block theta minus mean AP at the true CE theta; it is measured and shown but not applied to A_eff and P (kApplySmearBias in FitCore.h is false; the CE fit uses the true angle)
         if (ceT){
             ce = Columns(ceT, {"fEvent", "CEPhiNeu(LastTheta, LastPhiLab, CENDirX, CENDirY, CENDirZ) * 180 / TMath::Pi()", "CEThetaNeu(LastTheta, LastPhiLab, CENDirX, CENDirY, CENDirZ) * 180 / TMath::Pi()", "LastAP", "CENDirX", "CENDirY", "CENDirZ"});
             for (size_t i = 0; i < ce[0].size(); i++) byEvent.emplace((long long)ce[0][i], i);
@@ -442,6 +452,20 @@ void F9_PlotReconNew(){
             if (best >= 0) modes.push_back(42 + best);
         }
         if (scanOnly || (bdtMode && !bdtFull)) continue; // the plots below are not wanted
+        std::string budgetText; // P +- stat +- syst of the total recon fit of 6_megaCut, from PErrorBudget.cpp (plots/11_errorBudget, run before F9 by plot.sh); empty without it, the plot keeps the P of its own fit
+        if (mega){
+            std::ifstream bin("plots/11_errorBudget/P_result.csv");
+            std::string bl; double bp = 0, bs = 0, bd = 0; int got = 0; // the rows item P, quantity P / sigma_stat / delta_syst (item,quantity,value,error,note)
+            while (std::getline(bin, bl)){
+                const size_t k1 = bl.find(','), k2 = k1 == std::string::npos ? k1 : bl.find(',', k1 + 1), k3 = k2 == std::string::npos ? k2 : bl.find(',', k2 + 1);
+                if (k3 == std::string::npos || bl.substr(0, k1) != "P") continue;
+                const std::string q = bl.substr(k1 + 1, k2 - k1 - 1);
+                const double v = atof(bl.substr(k2 + 1, k3 - k2 - 1).c_str());
+                if (q == "P"){bp = v; got |= 1;} else if (q == "sigma_stat"){bs = v; got |= 2;} else if (q == "delta_syst"){bd = v; got |= 4;}
+            }
+            if (got == 7) budgetText = Form("P = %.3f #pm %.3f (stat) #pm %.3f (syst)", bp, bs, bd);
+            else Warning("F9_PlotReconNew", "no plots/11_errorBudget/P_result.csv (run PErrorBudget.cpp first): the total recon fit plot keeps its own P error");
+        }
         for (int k = 0; k < (mega || bdtFull ? 3 : 2); k++){
             number++;
             const std::string phiHist = Form("hPhiNew_%d_%d", mode, k), phiPdf = Form("%s/2_phi_cosfit/%d_phiBlock_cosfit_%s.pdf", dir.c_str(), k + 1, sampleFile[k]);
@@ -500,20 +524,25 @@ void F9_PlotReconNew(){
             if (tp){
                 PhiCosFit(&c, tp, "phiRelNDdeg", "thetaDeg", "", phiHist,
                           std::string(sampleName[k]) + ", RECONPHIBL_ESTNEU Distribution, A_{eff} at the recon block #theta" + cutText, phiPdf,
-                          {}, "", {"rThMin", "rThMax", "rPhHalf"}, {"r2ThMin", "r2ThMax", "r2PhHalf"}, ClassColor(k), smearBias, 33);
+                          {}, "", {"rThMin", "rThMax", "rPhHalf"}, {"r2ThMin", "r2ThMax", "r2PhHalf"}, ClassColor(k), smearBias, 33, mega && k == 2 ? budgetText : std::string());
                 ff->Close();
             }
             gSystem->Unlink(fitFile.c_str());
             made++;
             if (k == 2 && !bdtMode){ // the all recon fit again for 10 random 50% subsamples (no replacement, fixed seeds), one page each, then a page of the 10 P values, to see the effect of the statistics
-                struct SubIn {double ph, a, a1lo, a1hi, a2lo, a2hi, h1, h2;};
+                struct SubIn {double ph, a, a1lo, a1hi, a2lo, a2hi, h1, h2; bool ce;}; // ce: a CE recon event (evClass 0), for the purity of a subsample
                 std::vector<SubIn> all;
                 const double pTrue = settings.at("PPValue");
                 for (const NewRow& x : rows){
                     if (!inFit(x, 2)) continue;
                     const AEffIn e = aeffOf(x);
-                    all.push_back({x.phiRelND * rad, e.a, e.a1lo, e.a1hi, e.a2lo, e.a2hi, e.r1 ? x.phHalf : NAN, e.r2 ? x.ph2Half : NAN});
+                    all.push_back({x.phiRelND * rad, e.a, e.a1lo, e.a1hi, e.a2lo, e.a2hi, e.r1 ? x.phHalf : NAN, e.r2 ? x.ph2Half : NAN, x.evClass == 0});
                 }
+                // subsamples.csv beside the pdf: P, its error and the purity (CE recon events / all recon events of the sample) of every one of the 100 subsamples, row "full" is the whole sample
+                std::ofstream subCsv(dir + "/2_phi_cosfit/subsamples.csv");
+                subCsv.precision(10);
+                subCsv << "subsample,nAll,nCE,purity,P,err\n";
+                {double nCEall = 0; for (const SubIn& e : all) nCEall += e.ce; subCsv << "full," << all.size() << "," << nCEall << "," << (all.empty() ? 0.0 : nCEall / all.size()) << "," << pFitV[2] << "," << eFitV[2] << "\n";}
                 const int nSub = 100, nShow = 5, nb = 33; const double frac = 0.5; // 100 subsamples are fitted, the phi plots of the first 5 are drawn, the P page has all 100
                 const std::string path = dir + "/2_phi_cosfit/4_phiBlock_cosfit_all_50pct_subsamples.pdf";
                 std::vector<double> pSub, eSub; double pFull = 0, eFull = 0;
@@ -526,10 +555,11 @@ void F9_PlotReconNew(){
                         for (size_t i = idx.size() - 1; i > 0; i--) std::swap(idx[i], idx[rng.Integer(i + 1)]);
                         const size_t m = size_t(std::lround(frac * idx.size()));
                         std::vector<double> phS; AMean aM; PhiRange r1, r2;
+                        double nCEs = 0;
                         TH1D hS(Form("hPhiSubNew_%d", s), "", nb, 0, 360);
                         for (size_t q = 0; q < m; q++){
                             const SubIn& e = all[idx[q]];
-                            phS.push_back(e.ph); hS.Fill(e.ph);
+                            phS.push_back(e.ph); hS.Fill(e.ph); nCEs += e.ce;
                             aM.Add(e.a, e.a1lo, e.a1hi, e.a2lo, e.a2hi);
                             if (std::isfinite(e.h1)) r1.Add(e.h1);
                             if (std::isfinite(e.h2)) r2.Add(e.h2);
@@ -537,6 +567,7 @@ void F9_PlotReconNew(){
                         aM.smearBias = smearBias;
                         const PFit uf = UnbinnedP(phS, aM, kBlockPhiLo, kBlockPhiHi, nullptr, true, &r1, &r2);
                         pSub.push_back(uf.p); eSub.push_back(uf.err);
+                        subCsv << s + 1 << "," << m << "," << nCEs << "," << (m ? nCEs / m : 0.0) << "," << uf.p << "," << uf.err << "\n";
                         if (s >= nShow) continue;
                         c.Clear(); c.cd();
                         c.SetLeftMargin(0.16); c.SetRightMargin(0.25); c.SetTopMargin(0.17); c.SetBottomMargin(0.13);
