@@ -155,7 +155,8 @@ static void ReconAngleAllFit(){
 
     // Carbon block centres (z, mm, ascending) and half thickness: the vertex tube of a track is its fitted line across the block just upstream of its first tracker hit.
     const auto settings = ReadSettings();
-    const std::vector<double> blockZ = StackZ(settings).blockZ;
+    const StackLayout stackLay = StackZ(settings);
+    const std::vector<double> blockZ = stackLay.blockZ;
     const double halfBlockMm = settings.at("CarbonThickness") * 1000.0 / 2.0;
     // Position error of one tracker hit (mm): the tracker is 400 mm over nCols_blocks cells (2construction.cc), a hit sits at a cell centre, so the error is pitch / sqrt(12).
     const double hitSigmaMm = 400.0 / settings.at("nCols_blocks") / std::sqrt(12.0);
@@ -163,7 +164,7 @@ static void ReconAngleAllFit(){
 
     // CE neutrons (the selection of CutPlots.cpp (events)): event -> CE track IDs (CeTracks.h)
     std::map<int, std::set<int>> ceTracks;
-    if (!CarbonCeTracks(blockZ, halfBlockMm, ceTracks, "ReconAngleAll")) return;
+    if (!CarbonCeTracks(blockZ, halfBlockMm, stackLay.zdcFront, ceTracks, "ReconAngleAll")) return;
 
     // Per-event counts of the sim (EventSummary: every event, no reconstruction needed): event -> charged particles at the ZDC, tracker entries of all charged particles, charged tracks that hit 2+ tracker planes.
     // -1 for an event without a row, a sim without the tree or without that column.

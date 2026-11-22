@@ -60,7 +60,7 @@ inline void PlainFonts(){
 
 // Beam of the run: the mean momentum and kinetic energy the generator (5generator.cc) wrote to settings.csv (BeamMomentum, BeamKE, MeV), set by /randGun/Energy
 // and /randGun/EnergySD. Without settings.csv or the keys (an older run) the old beam of 25 GeV/c, which is a KE of sqrt(p^2 + m^2) - m = 24078 MeV, not 25 GeV.
-inline std::map<std::string, double> ReadSettings(const std::string& path); // defined below, its default path is added there
+inline const std::map<std::string, double>& ReadSettings(const std::string& path); // defined below, its default path is added there
 static const double kNeutronMass = 939.565;   // MeV
 inline double BeamSetting(const char* name, double fallback){
     try {
@@ -130,10 +130,18 @@ inline double AEffOfTheta(double thetaDeg, double apScale){
     return APFromT(kBeamMomentum, TFromAngle(kBeamMomentum, thetaDeg * TMath::Pi() / 180), apScale);
 }
 
+// A_eff at a recon theta (deg) and at the ends of its two est neutron theta ranges (deg; the centre value where a range is missing); r1, r2 say a range exists. One row of F9_PlotReconNew.cpp and PErrorBudget.cpp.
+struct AEffIn {double a, a1lo, a1hi, a2lo, a2hi; bool r1, r2;};
+inline AEffIn AEffInOf(double thDeg, double th1Min, double th1Max, double th2Min, double th2Max, double apScale){
+    const double a = AEffOfTheta(thDeg, apScale);
+    const bool r1 = std::isfinite(th1Min) && std::isfinite(th1Max), r2 = std::isfinite(th2Min) && std::isfinite(th2Max);
+    return AEffIn{a, r1 ? AEffOfTheta(th1Min, apScale) : a, r1 ? AEffOfTheta(th1Max, apScale) : a, r2 ? AEffOfTheta(th2Min, apScale) : a, r2 ? AEffOfTheta(th2Max, apScale) : a, r1, r2};
+}
+
 // Run settings the sim wrote to settings.csv (a row of names, a row of values), as name -> value (.at("APScale"), ...).
 // Throws if the file is missing or the two rows do not match.
-inline std::map<std::string, double> ReadSettings(const std::string& path = "settings.csv"){
-    // memoised by path and mtime+size (called per plot): returns a copy, so callers see no difference
+inline const std::map<std::string, double>& ReadSettings(const std::string& path = "settings.csv"){
+    // memoised by path and mtime+size (called per plot): returns a reference to the memo entry, valid until the same path is read again after settings.csv changed (map nodes never move)
     static std::map<std::string, std::pair<std::pair<long long, long long>, std::map<std::string, double>>> memo;
     struct stat st;
     const bool haveStat = (::stat(path.c_str(), &st) == 0);
@@ -154,13 +162,48 @@ inline std::map<std::string, double> ReadSettings(const std::string& path = "set
         settings[name] = std::stod(value);
     }
     if (settings.empty()) throw std::runtime_error(path + " has no settings");
-    if (haveStat) memo[path] = {stamp, settings};
-    return settings;
+    auto& entry = memo[path]; // also without a stat (stamp -1: never a hit), so there is always an entry to refer to
+    entry = {stamp, std::move(settings)};
+    return entry.second;
 }
+
+// One row of a scan_stats.csv (F9_PlotReconNew.cpp writes it, F10_BDTCuts.cpp plots it, F9 picks the best BDT cut from it).
+struct CutRow {double totN = 0, meanA = 0, cut = 0, ppv = 0, sAll = 0, bAll = 0, nS = 0, nB = 0, nFitMix = 0, pMix = 0, eMix = 0, nFitAll = 0, pAll = 0, eAll = 0, nFitCE = 0, pCE = 0, eCE = 0;};
+
+// the columns of scan_stats.csv (F9_PlotReconNew.cpp): nBlocks,TotalNeutrons,PPValue,nCETrue,sAll,bAll,nS,nB,meanA,nFitCEMix,pCEMix,errCEMix,nFitAll,pAll,errAll,nFitCE,pCE,errCE
+inline bool ReadCutRow(const std::string& file, CutRow& r){
+    std::ifstream in(file);
+    std::string head, line;
+    if (!in || !std::getline(in, head) || !std::getline(in, line)) return false;
+    std::vector<double> v;
+    std::stringstream ss(line);
+    std::string tok;
+    while (std::getline(ss, tok, ',')) v.push_back(std::atof(tok.c_str()));
+    if (v.size() < 15) return false;
+    r.totN = v[1]; r.meanA = v[8]; r.ppv = v[2]; r.sAll = v[4]; r.bAll = v[5]; r.nS = v[6]; r.nB = v[7];
+    r.nFitMix = v[9]; r.pMix = v[10]; r.eMix = v[11]; r.nFitAll = v[12]; r.pAll = v[13]; r.eAll = v[14];
+    if (v.size() >= 18){r.nFitCE = v[15]; r.pCE = v[16]; r.eCE = v[17];}
+    if (v.size() >= 21){r.sAll = v[18]; r.nS = v[19]; r.meanA = v[20];} // the signal of these plots is the CE only tracks (evClass 0): sAll, nS and meanA hold their values, not those of CE + CE mix
+    else return false; // csv of an older F9_PlotReconNew.cpp
+    return true;
+}
+
 
 // EvenHits: an even tracker hit count from 2 up to maxHits. MaxTrackerHits (defined after StackZ) is the number of tracker planes of the run, nBlocks * (2 + nAdditionalTrackers).
 // MaxTrackerHits reads settings.csv, so call it once outside an event loop and pass the value to EvenHits.
 inline bool EvenHits(int n, int maxHits){return n >= 2 && n <= maxHits && n % 2 == 0;}
+
+// The whole-event cuts of the F9_PlotReconNew.cpp folders (KE, even planes, theta, avg hits per plane, megaCut track count), shared with PErrorBudget.cpp so the error budget refits the same rows.
+// ke: MeV, below 0 = no KE cut; theta: cut thetaDeg to [thLo, thHi] (a NAN theta fails); firstTrack: at least 3 planes in the fit and exactly 1 recon track in the event.
+struct EventCut {double ke = -1, thLo = 0, thHi = 1; bool even = false, theta = false, avgOne = false, firstTrack = false; int maxPlanes = 0;};
+inline bool PassEventCut(const EventCut& c, double zdcKEAllD, int nPlanesUsed, int nRecoEv, double thetaDeg, int nPlanesHit, int nTrackerHits){
+    if (c.ke >= 0 && !(std::isfinite(zdcKEAllD) && zdcKEAllD > c.ke)) return false;
+    if (c.even && !EvenHits(nPlanesUsed, c.maxPlanes)) return false;
+    if (c.theta && !(thetaDeg >= c.thLo && thetaDeg <= c.thHi)) return false;
+    if (c.avgOne && !(nPlanesHit > 0 && nTrackerHits == nPlanesHit)) return false;
+    if (c.firstTrack && (nPlanesUsed < 3 || nRecoEv != 1)) return false; // no 2 plane tracks (two points always fit a line), only events with 1 recon track
+    return true;
+}
 
 // Threads for ROOT::EnableImplicitMT: env ANA_NTHREADS, else the hardware thread count (plot.sh splits the cores between its lanes).
 inline unsigned NThreads(){
@@ -173,16 +216,16 @@ inline unsigned NThreads(){
     return h ? h : 1;
 }
 
-// Runs f(lo, hi) on contiguous row ranges of [0, n) on NThreads() threads (8 ranges per thread) and returns the results in range order. The row loops that follow a Columns or
+// Runs f(lo, hi) on contiguous row ranges of [0, n) on NThreads() threads (256 fixed ranges, so a sum of the partial results does not depend on the thread count) and returns the results in range order. The row loops that follow a Columns or
 // DrawPlan read use it, so they run on all the cores instead of one. f only reads shared data; each range builds and returns its own partial result.
 #include <ROOT/TThreadExecutor.hxx>
 template <class F>
 inline auto MapRows(Long64_t n, F f) -> std::vector<decltype(f(Long64_t(0), Long64_t(0)))>
 {
-    const unsigned nChunk = 8 * NThreads();
+    const unsigned nChunk = 256;
     std::vector<unsigned> ids(nChunk);
     std::iota(ids.begin(), ids.end(), 0u);
-    ROOT::TThreadExecutor ex(NThreads());
+    static ROOT::TThreadExecutor ex(NThreads()); // one pool for the whole macro: UnbinnedPFromCos calls MapRows once per Newton step
     return ex.Map([&](unsigned c){return f(n * c / nChunk, n * (c + 1) / nChunk);}, ids);
 }
 
@@ -288,6 +331,11 @@ inline double CEAngleNeu(double th, double ph, double nx, double ny, double nz, 
     const double p[3] = {std::sin(th) * std::cos(ph), std::sin(th) * std::sin(ph), std::cos(th)}, n[3] = {nx, ny, nz};
     double t = 0, f = 0; RelToDir(p, n, t, f);
     return wantPhi ? f : t;
+}
+// Both angles from one RelToDir call, for C++ code that needs theta and phi together (CalcAPandT.cpp).
+inline void CEAnglesNeu(double th, double ph, double nx, double ny, double nz, double& theta, double& phi){
+    const double p[3] = {std::sin(th) * std::cos(ph), std::sin(th) * std::sin(ph), std::cos(th)}, n[3] = {nx, ny, nz};
+    RelToDir(p, n, theta, phi);
 }
 inline double CEThetaNeu(double th, double ph, double nx, double ny, double nz){return CEAngleNeu(th, ph, nx, ny, nz, false);}
 inline double CEPhiNeu(double th, double ph, double nx, double ny, double nz){return CEAngleNeu(th, ph, nx, ny, nz, true);}
@@ -463,9 +511,6 @@ struct PhiRange {
     PhiRange& operator+=(const PhiRange& o){n += o.n; sum += o.sum; sum2 += o.sum2; return *this;}
     double D() const {return n > 0 ? sum / n : 1.0;}
     double RelErr() const {const double d = D(); return d > 1e-6 ? 1 / d - 1 : 0.0;}
-    // sigma_phi of PErrorBudget.cpp: the statistical error of D over the protons, std(D) / sqrt(N), and relative to D
-    double Sem() const {if (n < 2) return 0.0; const double d = D(); return std::sqrt(std::max(0.0, sum2 / n - d * d) / n);}
-    double SemRel() const {const double d = D(); return d > 1e-6 ? Sem() / d : 0.0;}
 };
 // The error bar of every bin of a phi histogram: sqrt(N), the statistics of the count, with delta_phi, the relative size of the est neutron frame phi range dilution (PhiRange::RelErr, 1 / D - 1, the errPhi of AddAErrToP),
 // added in quadrature: sqrt(N + (N delta_phi)^2). The unbinned fits do not use the bins, so this is the drawn error only.
@@ -498,30 +543,6 @@ inline void AddAErrToP(PFit& r, const AMean& a, const PhiRange* ph = nullptr, bo
     r.p = p; r.errFit *= f; r.errA *= f; r.errAStat *= f; r.errABeam *= f; r.errAModel *= f; r.errARange *= f;
     r.errPhi = std::fabs(p) * (1.0 / d1 - 1.0); // the est neutron phi range as an error as well as the correction above: the size of the dilution the range model says is there
     r.err = std::sqrt(r.errFit * r.errFit + r.errA * r.errA + r.errPhi * r.errPhi);
-}
-// The side box "Error by source" of every phi fit plot: the errors of A_eff and of P split by source, in quadrature in the totals the plot quotes (AMean, PFit). hasRange false: the fit has no
-// est neutron frame (true CE phi, lab phi), so the est neutron range terms are 0 and the box says so. NDC corners of the box (the right margin under the stats box).
-inline TPaveText* DrawErrorBySource(const AMean& a, const PFit& uf, bool hasRange, double x1 = 0.755, double y1 = 0.06, double x2 = 0.995, double y2 = 0.545, const char* title = "Error by source", double textSize = 0.024){
-    TPaveText* eb = new TPaveText(x1, y1, x2, y2, "NDC");
-    eb->SetTextAlign(12); eb->SetTextSize(textSize); eb->SetFillColor(kWhite); eb->SetBorderSize(1);
-    eb->AddText(Form("#bf{%s}", title));
-    eb->AddText(Form("#bf{A_{eff}} %.4f #pm %.4f", a.Corrected(), a.Err()));
-    const bool hasBlock = uf.biasPhi2 != 0; // the block grid range: only the block fits have one
-    const auto line = [&](const char* name, bool has, double v, const char* fmt){eb->AddText(has ? Form(fmt, name, v) : Form(" %s  n/a (exact angle)", name));};
-    line(" est n #theta range", hasRange, a.RangeErr(), "%s  %.4f");
-    eb->AddText(Form(" statistics (#theta spread)  %.4f", a.StatErr()));
-    eb->AddText(Form(" energy range (beam)  %.4f", a.BeamErr()));
-    eb->AddText(Form(" model coeff. (A, k fit)  %.4f", a.ModelErr()));
-    eb->AddText(Form("#bf{P} #pm %.3f", uf.err));
-    eb->AddText(Form(" A_{eff} error (all of it)  %.3f", uf.errA)); // the A terms above (theta ranges, spread, energy) carried into P, in quadrature
-    eb->AddText(Form(" statistics (likelihood)  %.3f", uf.errFit));
-    eb->AddText("#bf{Bias (applied, not in #pm)}"); // known one-sided shifts, already taken out of A_eff and P
-    if (a.smearBias != 0) eb->AddText(Form(kApplySmearBias ? " recon #theta smear, A_{eff}  %+.4f" : " recon #theta smear (not applied), A_{eff}  %+.4f", a.smearBias)); // only the recon theta fits that have it
-    line(" est n #phi dilution, P", hasRange, uf.biasPhi, "%s  %+.3f");
-    line(kApplyBlockPhiDilution ? " block grid #phi dilution, P" : " block grid #phi dilution (not applied), P", hasBlock, uf.biasPhi2, "%s  %+.3f");
-    eb->AddText(Form(" P before correction  %.3f", uf.pRaw));
-    eb->Draw();
-    return eb;
 }
 // P of an unbinned fit by Newton's method from 0, limited to -1 to 1: derivs(p, d1, d2) gives dlnL/dP and d2lnL/dP2. Stops when P moves less than tol, or when d2 is not negative.
 template <class D>
@@ -632,18 +653,27 @@ inline double UGaussNll(const std::vector<double>& x, const UGaussModel& m, cons
     const double z2 = m.nGaus == 2 ? GausCdf((m.hi - mu2) / s2) - GausCdf((m.lo - mu2) / s2) : 1.0;
     if (!(z1 > 1e-12) || !(z2 > 1e-12)) return 1e300;
     const double inv = 1.0 / std::sqrt(2.0 * TMath::Pi()), flatDens = fb / (m.hi - m.lo);
-    double nll = 0;
-    for (double v : x){
-        double pdf;
-        if (m.cell > 0) pdf = (GausCdf((v + 0.5 * m.cell - mu) / s) - GausCdf((v - 0.5 * m.cell - mu) / s)) / z1;
-        else {
-            const double a = (v - mu) / s;
-            pdf = inv * std::exp(-0.5 * a * a) / (s * z1);
-            if (m.nGaus == 2){const double b = (v - mu2) / s2; pdf = (1 - f2) * pdf + f2 * inv * std::exp(-0.5 * b * b) / (s2 * z2);}
-            pdf = (1 - fb) * pdf + flatDens;
+    // the sum over the values for the range [a, z) of x
+    const auto sumRange = [&](Long64_t a, Long64_t z){
+        double part = 0;
+        for (Long64_t i = a; i < z; i++){
+            const double v = x[(size_t)i];
+            double pdf;
+            if (m.cell > 0) pdf = (GausCdf((v + 0.5 * m.cell - mu) / s) - GausCdf((v - 0.5 * m.cell - mu) / s)) / z1;
+            else {
+                const double a2 = (v - mu) / s;
+                pdf = inv * std::exp(-0.5 * a2 * a2) / (s * z1);
+                if (m.nGaus == 2){const double b = (v - mu2) / s2; pdf = (1 - f2) * pdf + f2 * inv * std::exp(-0.5 * b * b) / (s2 * z2);}
+                pdf = (1 - fb) * pdf + flatDens;
+            }
+            part -= std::log(std::max(pdf, 1e-300));
         }
-        nll -= std::log(std::max(pdf, 1e-300));
-    }
+        return part;
+    };
+    // the minimiser calls this thousands of times: a long x is summed on all the threads (the range sums are added in range order; the last digits can differ from the serial sum)
+    if (x.size() < 200000) return sumRange(0, (Long64_t)x.size());
+    double nll = 0;
+    for (double part : MapRows((Long64_t)x.size(), sumRange)) nll += part;
     return nll;
 }
 
@@ -965,7 +995,7 @@ inline std::string PhiAxisName(const std::string& phiBranch){
 // theta range error (A at the two ends, AMean) and P the phi range error (PhiRange), and the side box splits the errors of A_eff and P by source.
 // range2: the same three branches for the block grid range alone (the slope error of the block position fit, a range of its own in quadrature), only on the block fits.
 inline double gPTrue = -99; // the true P of the sim (PPValue), set by F9_PlotReconNew.cpp, for the pull on the phi fit pages; -99 = not set
-inline void PhiCosFit(TCanvas* canvas, TTree* t, const std::string& phiBranch, const std::string& thetaBranch, const std::string& cut, const std::string& name, const std::string& title, const std::string& path, const std::vector<std::string>& notes = {}, const std::string& aBranch = "", const std::vector<std::string>& range = {}, const std::vector<std::string>& range2 = {}, int color = -1, double aSmearBias = 0, int nBins = 50, const std::string& pText = ""){ // pText: the P part of the second line when not empty (P with its stat and syst errors from the error budget), else P +- err of this fit // aSmearBias: the signed A_eff bias of the smeared recon theta, corrected in A_eff and P (0 none) // color: the histogram line, -1 the CE color // nBins: phi bins of the plot
+inline void PhiCosFit(TCanvas* canvas, TTree* t, const std::string& phiBranch, const std::string& thetaBranch, const std::string& cut, const std::string& name, const std::string& title, const std::string& path, const std::vector<std::string>& notes = {}, const std::string& aBranch = "", const std::vector<std::string>& range = {}, const std::vector<std::string>& range2 = {}, int color = -1, double aSmearBias = 0, int nBins = 50, const std::string& pText = "", const std::vector<std::vector<double>>* preCols = nullptr){ // pText: the P part of the second line when not empty (P with its stat and syst errors from the error budget), else P +- err of this fit // aSmearBias: the signed A_eff bias of the smeared recon theta, corrected in A_eff and P (0 none) // preCols: the columns already in memory, in the order of the expressions below (phi, theta, A if aBranch, range, range2); t and cut are not read then (t may be nullptr) // color: the histogram line, -1 the CE color // nBins: phi bins of the plot
     canvas->Clear(); canvas->SetRightMargin(0.25); canvas->SetTopMargin(0.17);
     TH1* h = MakeHist(name + "(" + std::to_string(nBins) + ",0,360)");
     std::vector<double> phiAll;
@@ -979,7 +1009,9 @@ inline void PhiCosFit(TCanvas* canvas, TTree* t, const std::string& phiBranch, c
         if (range.size() == 3) for (const auto& r : range) exprs.push_back(r); // est neutron range: thetaMin, thetaMax (degrees), phi half width (rad)
         const size_t iRange2 = exprs.size();
         if (range2.size() == 3) for (const auto& r : range2) exprs.push_back(r); // block grid range: thetaMin, thetaMax (degrees), phi half width (rad)
-        const auto cols = Columns(t, exprs, cut); // phi, theta (degrees), A (if aBranch), range (if range), range2 (if range2)
+        std::vector<std::vector<double>> colsOwn;
+        if (!preCols) colsOwn = Columns(t, exprs, cut); // phi, theta (degrees), A (if aBranch), range (if range), range2 (if range2)
+        const std::vector<std::vector<double>>& cols = preCols ? *preCols : colsOwn;
         phiAll = cols[0];
         const double apScale = ReadSettings().at("APScale"); // settings.csv from the sim, read once
         for (size_t k = 0; k < phiAll.size(); k++){
@@ -994,7 +1026,7 @@ inline void PhiCosFit(TCanvas* canvas, TTree* t, const std::string& phiBranch, c
         aMean.smearBias = aSmearBias;
         canvas->SetTopMargin(0.17); // room for the three text lines above the plot, the P line included
         if (range.size() == 3){deltaPhiRel = phiRange.RelErr(); AddPhiBinErrors(h, deltaPhiRel);} // delta_phi: the est neutron frame phi range dilution of the protons
-        h->Draw(); h->Draw("E same"); // the histogram with the fit curve, then the error bars on every phi bin: sqrt(N) with sigma_phi / D added in quadrature when the fit has a phi range
+        h->Draw("hist"); h->Draw("E same"); // the histogram with the fit curve, then the error bars on every phi bin: sqrt(N) with sigma_phi / D added in quadrature when the fit has a phi range
     }
     if (!h || h->GetEntries() < 10){canvas->SetRightMargin(0.30); canvas->SetTopMargin(0.1); return;}
     canvas->SetTopMargin(0.17); // room for the three text lines above the plot, the P line included
@@ -1006,7 +1038,8 @@ inline void PhiCosFit(TCanvas* canvas, TTree* t, const std::string& phiBranch, c
     fit.SetParameter(0, nFit / nBins);
     fit.SetLineColor(kBlack);
     {TLine* meanLine = new TLine(0, nFit / nBins, 360, nFit / nBins); meanLine->SetLineStyle(3); meanLine->SetLineWidth(2); meanLine->SetLineColor(kBlack); h->GetListOfFunctions()->Add(meanLine);} // dotted line at the mean bin content (N0), the cosine swings around it
-    h->SetMinimum(0); h->SetMaximum(1.1 * h->GetMaximum());
+    double yTop = 0; for (int b = 1; b <= h->GetNbinsX(); b++) yTop = std::max(yTop, h->GetBinContent(b) + h->GetBinError(b)); // the highest error bar, so none runs past the frame
+    h->SetMinimum(0); h->SetMaximum(1.1 * yTop);
     h->SetName("Fit results"); // the first line of the stats box is the histogram name
     canvas->Update();
     if (auto* st = (TPaveStats*)h->FindObject("stats")){st->SetX1NDC(0.76); st->SetX2NDC(0.995); st->SetY1NDC(0.55); st->SetY2NDC(0.83);}
@@ -1020,7 +1053,6 @@ inline void PhiCosFit(TCanvas* canvas, TTree* t, const std::string& phiBranch, c
     tx.DrawLatex(0.13, 0.855, pLine.c_str());
     tx.SetTextSize(0.026);
     for (size_t i = 0; i < notes.size(); i++) tx.DrawLatex(0.13, 0.80 - 0.034 * i, notes[i].c_str());
-    if (deltaPhiRel >= 0) tx.DrawLatex(0.13, 0.80 - 0.034 * notes.size(), Form("Bin error bars #sqrt{N + (N #delta_{#phi})^{2}}, #delta_{#phi} = %.2f%% (est n frame #phi range)", 100.0 * deltaPhiRel));
     canvas->Modified(); canvas->Update();
     canvas->SaveAs(path.c_str());
     canvas->SetRightMargin(0.30); canvas->SetTopMargin(0.1);
