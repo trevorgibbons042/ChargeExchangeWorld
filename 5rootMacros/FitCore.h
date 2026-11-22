@@ -4,6 +4,7 @@
 #include <TCanvas.h>
 #include <TF1.h>
 #include <TLatex.h>
+#include <TLine.h>
 #include <TTree.h>
 #include <TGraph.h>
 #include <TH1.h>
@@ -121,7 +122,7 @@ inline double APFromT(double pbeam, double t, double apScale){
 }
 
 // The A_eff equation as the plots print it (TLatex), so every plot that quotes an A_eff writes the same definition.
-inline const char* AEffEq(){return "A_{eff} = #Sigma N_{i} AP(#theta_{i}) / N_{0}";}
+inline const char* AEffEq(){return "A_{avg}";}
 
 // AP at the own theta of a proton (thetaDeg, its lab polar angle, no theta bins): the term AP(theta_i) of A_eff = sum_i N_i AP(theta_i) / N0 of the P fits,
 // N(phi) = N0 (1 + P A_eff cos(phi)). Add it per proton to an AMean: Mean() is A_eff over the protons of the fit, N0 = their number.
@@ -157,9 +158,8 @@ inline std::map<std::string, double> ReadSettings(const std::string& path = "set
     return settings;
 }
 
-// EvenHits / MaxTrackerHits: the even tracker hit counts 2, 4, ... 2 * nBlocks (1 block: 2; 3 blocks: 2, 4, 6; 7 blocks: 2 to 14), one pair of hits per block. No plot cuts on them now.
+// EvenHits: an even tracker hit count from 2 up to maxHits. MaxTrackerHits (defined after StackZ) is the number of tracker planes of the run, nBlocks * (2 + nAdditionalTrackers).
 // MaxTrackerHits reads settings.csv, so call it once outside an event loop and pass the value to EvenHits.
-inline int MaxTrackerHits(){return 2 * (int)std::lround(ReadSettings().at("nBlocks"));}
 inline bool EvenHits(int n, int maxHits){return n >= 2 && n <= maxHits && n % 2 == 0;}
 
 // Threads for ROOT::EnableImplicitMT: env ANA_NTHREADS, else the hardware thread count (plot.sh splits the cores between its lanes).
@@ -245,15 +245,25 @@ inline StackLayout StackZ(const std::map<std::string, double>& s){
     const double spacing = nBlocks > 0 ? (zdcFrontMm - firstFaceMm) / nBlocks : 0.0;
     const double offset = s.at("CarbonThickness") * 1000.0 / 2.0 + dzMm + 0.25; // block centre to tracker centre: half block + gap + half tracker (0.5 mm)
     StackLayout sp; sp.zdcFront = zdcFrontMm;
+    // nAdditionalTrackers (2construction.cc): extra planes evenly spaced between the plane behind a block and the next plane (the one in front of the next block, or the one in front of the ZDC).
+    // A settings.csv without the key is a run with none.
+    const int nAdd = s.count("nAdditionalTrackers") ? (int)std::lround(s.at("nAdditionalTrackers")) : 0;
+    const double zdcPlane = zdcFrontMm - dzMm - 0.25;
+    const auto blockCentre = [&](int i){return spread == 3 ? firstFaceMm + i * spacing + s.at("CarbonThickness") * 1000.0 / 2.0 : (i + 1) * pitch;};
     for (int i = 0; i < nBlocks; i++){
-        const double zc = spread == 3 ? firstFaceMm + i * spacing + s.at("CarbonThickness") * 1000.0 / 2.0 : (i + 1) * pitch;
+        const double zc = blockCentre(i);
         sp.blockZ.push_back(zc);
         if (i > 0) sp.planeZ.push_back(zc - offset);
         sp.planeZ.push_back(zc + offset);
+        const double zFrom = zc + offset, zTo = (i + 1 < nBlocks) ? blockCentre(i + 1) - offset : zdcPlane;
+        for (int k = 1; k <= nAdd; k++) sp.planeZ.push_back(zFrom + (zTo - zFrom) * k / (nAdd + 1));
     }
-    sp.planeZ.push_back(zdcFrontMm - dzMm - 0.25);
+    sp.planeZ.push_back(zdcPlane);
     return sp;
 }
+
+// The tracker planes of the run, nBlocks * (2 + nAdditionalTrackers) (the longest possible track in planes; 1 block, no extras: 2).
+inline int MaxTrackerHits(){return (int)StackZ(ReadSettings()).planeZ.size();}
 
 // theta and phi (rad, phi in [0, 2 pi)) of the direction p in the frame where the direction n points along z: the minimal rotation about n x z.
 // p and n need no unit length. ReconAngleAll.cpp (the estimated neutron) uses it.
@@ -448,12 +458,20 @@ struct AMean {
 // The est neutron phi range: a proton whose est phi is only known within +-h (rad) has its cos(phi) modulation diluted by sin(h) / h, D is the mean of that over the protons of a fit, and P is
 // too small by the factor D: the error is |P| (1 / D - 1). h >= pi (the tube covers the axis) counts as D = 0 for that proton. Add per proton, or add the sums of parts (+=).
 struct PhiRange {
-    double n = 0, sum = 0;
-    void Add(double h){n++; sum += h > 1e-9 ? (h < TMath::Pi() ? std::sin(h) / h : 0.0) : 1.0;}
-    PhiRange& operator+=(const PhiRange& o){n += o.n; sum += o.sum; return *this;}
+    double n = 0, sum = 0, sum2 = 0;
+    void Add(double h){const double d = h > 1e-9 ? (h < TMath::Pi() ? std::sin(h) / h : 0.0) : 1.0; n++; sum += d; sum2 += d * d;}
+    PhiRange& operator+=(const PhiRange& o){n += o.n; sum += o.sum; sum2 += o.sum2; return *this;}
     double D() const {return n > 0 ? sum / n : 1.0;}
     double RelErr() const {const double d = D(); return d > 1e-6 ? 1 / d - 1 : 0.0;}
+    // sigma_phi of PErrorBudget.cpp: the statistical error of D over the protons, std(D) / sqrt(N), and relative to D
+    double Sem() const {if (n < 2) return 0.0; const double d = D(); return std::sqrt(std::max(0.0, sum2 / n - d * d) / n);}
+    double SemRel() const {const double d = D(); return d > 1e-6 ? Sem() / d : 0.0;}
 };
+// The error bar of every bin of a phi histogram: sqrt(N), the statistics of the count, with delta_phi, the relative size of the est neutron frame phi range dilution (PhiRange::RelErr, 1 / D - 1, the errPhi of AddAErrToP),
+// added in quadrature: sqrt(N + (N delta_phi)^2). The unbinned fits do not use the bins, so this is the drawn error only.
+inline void AddPhiBinErrors(TH1* h, double deltaRel){
+    for (int b = 1; b <= h->GetNbinsX(); b++){const double c = h->GetBinContent(b); h->SetBinError(b, std::sqrt(c + c * c * deltaRel * deltaRel));}
+}
 // P carries the errors of A, and with ph the phi range. aEachBeamOnly: A of each proton, so the beam spread only (the range of A is of the mean).
 inline void AddAErrToP(PFit& r, const AMean& a, const PhiRange* ph = nullptr, bool aEachBeamOnly = false, const PhiRange* ph2 = nullptr){
     r.pRaw = r.p;
@@ -946,12 +964,14 @@ inline std::string PhiAxisName(const std::string& phiBranch){
 // range: {thetaMin, thetaMax, phiHalf} branches (degrees, degrees, rad) of the est neutron range of each proton (CalcAPandT.cpp), none for a fit with no est neutron frame. With them A_eff gets the
 // theta range error (A at the two ends, AMean) and P the phi range error (PhiRange), and the side box splits the errors of A_eff and P by source.
 // range2: the same three branches for the block grid range alone (the slope error of the block position fit, a range of its own in quadrature), only on the block fits.
+inline double gPTrue = -99; // the true P of the sim (PPValue), set by F9_PlotReconNew.cpp, for the pull on the phi fit pages; -99 = not set
 inline void PhiCosFit(TCanvas* canvas, TTree* t, const std::string& phiBranch, const std::string& thetaBranch, const std::string& cut, const std::string& name, const std::string& title, const std::string& path, const std::vector<std::string>& notes = {}, const std::string& aBranch = "", const std::vector<std::string>& range = {}, const std::vector<std::string>& range2 = {}, int color = -1, double aSmearBias = 0, int nBins = 50, const std::string& pText = ""){ // pText: the P part of the second line when not empty (P with its stat and syst errors from the error budget), else P +- err of this fit // aSmearBias: the signed A_eff bias of the smeared recon theta, corrected in A_eff and P (0 none) // color: the histogram line, -1 the CE color // nBins: phi bins of the plot
     canvas->Clear(); canvas->SetRightMargin(0.25); canvas->SetTopMargin(0.17);
     TH1* h = MakeHist(name + "(" + std::to_string(nBins) + ",0,360)");
     std::vector<double> phiAll;
     AMean aMean; // A_eff of the protons of the fit, with its error
     PhiRange phiRange, phiRange2; // the est neutron phi range of those protons, and the block grid one
+    double deltaPhiRel = -1; // delta_phi in the bin error bars (AddPhiBinErrors), -1 for a fit with no est neutron phi range: sqrt(N) only
     if (h){
         std::vector<std::string> exprs = {phiBranch, thetaBranch};
         if (!aBranch.empty()) exprs.push_back(aBranch); // the A the model weighted each event with (LastAP), used as it is
@@ -972,9 +992,12 @@ inline void PhiCosFit(TCanvas* canvas, TTree* t, const std::string& phiBranch, c
             if (r2 && std::isfinite(cols[iRange2 + 2][k])) phiRange2.Add(cols[iRange2 + 2][k]);
         }
         aMean.smearBias = aSmearBias;
-        h->Draw();
+        canvas->SetTopMargin(0.17); // room for the three text lines above the plot, the P line included
+        if (range.size() == 3){deltaPhiRel = phiRange.RelErr(); AddPhiBinErrors(h, deltaPhiRel);} // delta_phi: the est neutron frame phi range dilution of the protons
+        h->Draw(); h->Draw("E same"); // the histogram with the fit curve, then the error bars on every phi bin: sqrt(N) with sigma_phi / D added in quadrature when the fit has a phi range
     }
     if (!h || h->GetEntries() < 10){canvas->SetRightMargin(0.30); canvas->SetTopMargin(0.1); return;}
+    canvas->SetTopMargin(0.17); // room for the three text lines above the plot, the P line included
     const double nFit = h->GetEntries();
     h->SetTitle((title + Form(", %d phi bins of %.1f deg", nBins, 360.0 / nBins) + ";" + PhiAxisName(phiBranch) + " (degrees);Count").c_str());
     h->SetLineColor(color >= 0 ? color : CbCE()); // CE protons are vermillion
@@ -982,17 +1005,22 @@ inline void PhiCosFit(TCanvas* canvas, TTree* t, const std::string& phiBranch, c
     TF1& fit = *AddUnbinnedFit(h, "fPhiCos", uf, aMean.Corrected(), aMean.Err(), true);
     fit.SetParameter(0, nFit / nBins);
     fit.SetLineColor(kBlack);
+    {TLine* meanLine = new TLine(0, nFit / nBins, 360, nFit / nBins); meanLine->SetLineStyle(3); meanLine->SetLineWidth(2); meanLine->SetLineColor(kBlack); h->GetListOfFunctions()->Add(meanLine);} // dotted line at the mean bin content (N0), the cosine swings around it
     h->SetMinimum(0); h->SetMaximum(1.1 * h->GetMaximum());
     h->SetName("Fit results"); // the first line of the stats box is the histogram name
     canvas->Update();
     if (auto* st = (TPaveStats*)h->FindObject("stats")){st->SetX1NDC(0.76); st->SetX2NDC(0.995); st->SetY1NDC(0.55); st->SetY2NDC(0.83);}
     TLatex tx; tx.SetNDC(); tx.SetTextSize(0.028);
-    tx.DrawLatex(0.13, 0.90, "Unbinned fit  N(#phi) #propto N_{0} (1 + P #upoint A_{eff} cos#phi) (every proton, no bins), N_{0} = protons / bins, fixed");
-    const std::string pStr = pText.empty() ? std::string(Form("P = %.2f #pm %.2f", uf.p, uf.err)) : pText;
-    tx.DrawLatex(0.13, 0.865, Form(aBranch.empty() ? "%s = %.4f #pm %.4f (fixed, per-proton #theta),   %s" : "%s = %.4f #pm %.4f (fixed, AP = LastAP of each CE),   %s", AEffEq(), aMean.Corrected(), aMean.Err(), pStr.c_str()));
+    tx.DrawLatex(0.13, 0.925, "Unbinned fit  N(#phi) #propto N_{0} (1 + P #upoint A_{eff} cos#phi) (every proton, no bins), N_{0} = protons / bins, fixed");
+    const double pStat = uf.errFit; // statistics: the likelihood (the spread of AP over the tracks is not a random error, A_eff is exact for these tracks)
+    const double pSyst = std::sqrt(uf.errABeam * uf.errABeam + uf.errARange * uf.errARange + uf.errARange2 * uf.errARange2 + uf.errAModel * uf.errAModel + uf.biasPhi * uf.biasPhi); // beam, theta ranges, model coefficients, and the full size of the phi dilution correction
+    const double pTot = std::sqrt(pStat * pStat + pSyst * pSyst);
+    tx.DrawLatex(0.13, 0.89, Form("%s = %.4f #pm %.4f", AEffEq(), aMean.Corrected(), aMean.Err()));
+    const std::string pLine = !pText.empty() ? "#bf{" + pText + "}" : std::string(gPTrue > -90 ? Form("#bf{P = %.3f #pm %.3f (stat) #pm %.3f (syst)}, pull %+.1f (total error %.3f)", uf.p, pStat, pSyst, (uf.p - gPTrue) / pTot, pTot) : Form("#bf{P = %.3f #pm %.3f (stat) #pm %.3f (syst)} (total error %.3f)", uf.p, pStat, pSyst, pTot)); // pText: the P with the error budget stat and syst from F9
+    tx.DrawLatex(0.13, 0.855, pLine.c_str());
     tx.SetTextSize(0.026);
-    DrawErrorBySource(aMean, uf, range.size() == 3); // side box (under the stats box): the errors of A_eff and P by source
-    for (size_t i = 0; i < notes.size(); i++) tx.DrawLatex(0.13, 0.83 - 0.034 * i, notes[i].c_str());
+    for (size_t i = 0; i < notes.size(); i++) tx.DrawLatex(0.13, 0.80 - 0.034 * i, notes[i].c_str());
+    if (deltaPhiRel >= 0) tx.DrawLatex(0.13, 0.80 - 0.034 * notes.size(), Form("Bin error bars #sqrt{N + (N #delta_{#phi})^{2}}, #delta_{#phi} = %.2f%% (est n frame #phi range)", 100.0 * deltaPhiRel));
     canvas->Modified(); canvas->Update();
     canvas->SaveAs(path.c_str());
     canvas->SetRightMargin(0.30); canvas->SetTopMargin(0.1);

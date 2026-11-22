@@ -26,8 +26,7 @@ void F5_FomCalc(){
     ROOT::EnableImplicitMT(NThreads());
     gStyle->SetOptStat(0);
 
-    TFile* f = TFile::Open("cuts/cut_angles_all.root", "READ");
-    TTree* t = f && !f->IsZombie() ? (TTree*)f->Get(kAngleTree) : nullptr;
+    TTree* t = OpenCut("cuts/cut_angles_all.root", kAngleTree); // with the Events tree as a friend
     if (!t){Error("F5_FomCalc", "no AnglesRaw in cuts/cut_angles_all.root (run ReconAngleAll.cpp)"); return;}
 
     const auto settings = ReadSettings();

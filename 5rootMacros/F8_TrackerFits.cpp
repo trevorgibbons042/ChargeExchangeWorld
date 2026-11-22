@@ -17,9 +17,9 @@
 
 #include "FitCore.h"
 #include "TreeColumns.h"
-#include "SeedExtend.h"
-#include "CeTracks.h"
+#include "CutFiles.h"
 
+// The numbers are the Events tree of cuts/cut_events.root (ReconAngleAll.cpp runs the finder below on TrackerHitsAll once and writes the per event tally); this macro does not read the sim output any more.
 // plots/8_trackerfits: how well the seed and extend track finding (SeedExtend.h) rebuilds the tracks of an event, from TrackerHitsAll (every charged track that entered a tracker), no cuts.
 // Every event with a tracker hit: SeedExtend runs on the tracker hits (block positions, no track ID) and its hits are taken off, then it runs again on the rest, until it finds no track.
 // A reconstructed track is pure when all its hits carry one track ID, mixed when they carry 2 or more. A true track (a track ID with 2 or more tracker hits) is missing when none of its hits is in any
@@ -40,117 +40,69 @@ void F8_TrackerFits(){
     ROOT::EnableImplicitMT(NThreads());
     gStyle->SetOptStat(0);
 
-    TChain th("TrackerHitsAll");
-    th.Add("output0_t*.root");
-    if (th.LoadTree(0) < 0){Error("F8_TrackerFits", "no TrackerHitsAll in output0_t*.root"); return;}
+    // The tally of every event is a row of the Events tree (cuts/cut_events.root, ReconAngleAll.cpp runs the finder on the raw hits once and writes it): this macro only draws it.
+    TTree* ev = EventsTree();
+    if (!ev){Error("F8_TrackerFits", "no Events tree in cuts/cut_events.root (run ReconAngleAll.cpp)"); return;}
     const auto settings = ReadSettings();
-    const double hitSigmaMm = 400.0 / settings.at("nCols_blocks") / std::sqrt(12.0); // the same as ReconAngleAll.cpp
-    const int trackerSkip = (settings.count("trackerEfficiency") && settings.at("trackerEfficiency") < 1.0) ? 1 : 0; // trackers that miss hits (sim /detector/trackerEfficiency below 1): a track may pass one plane with no hit
-    const std::vector<double> blockZ = StackZ(settings).blockZ;
-    std::map<int, std::set<int>> ceTracks; // event -> CE neutron track IDs
-    if (!CarbonCeTracks(blockZ, settings.at("CarbonThickness") * 1000.0 / 2.0, ceTracks, "F8_TrackerFits")) return;
-    // the hits on a tracker plane (fDz is the plane z, 0 for none), in entry order
-    const auto c = Columns(&th, {"fEvent", "TrackID", "fDx", "fDy", "fDz", "ParentID"}, "fDz != 0 && fZ < fDz"); // tracker hits that entered through the front face, back face entries are left out as in ReconAngleAll.cpp
-    const size_t nRows = c[0].size();
-    if (nRows == 0){Error("F8_TrackerFits", "no tracker hits"); return;}
+    // the tracker planes of the run (z in um), the plane before the ZDC last: planeAll all of them; below `planes` keeps the planes some event hits, as F8 always did, and the plane numbers of ReconAngleAll are renumbered to it
+    std::vector<long> planeAll;
+    for (double z : StackZ(settings).planeZ) planeAll.push_back(std::lround(z * 1000.0));
+    const size_t nAll = planeAll.size();
+    if (ev->GetEntries() == 0 || nAll == 0){Error("F8_TrackerFits", "no events or no tracker planes"); return;}
 
-    // the rows of each event together, in entry order within the event
-    std::vector<size_t> order(nRows);
-    std::iota(order.begin(), order.end(), size_t(0));
-    std::stable_sort(order.begin(), order.end(), [&](size_t a, size_t b){return c[0][a] < c[0][b];});
-
-    // per event: pure tracks (all, CE), mixed tracks (with a CE hit, without), missing tracks (all, CE)
-    long long nPureTrue = 0; // the true tracks (2+ hits) that sit in a pure reconstructed track, over all events: a particle split into 2 pure tracks counts once; with nTrueTracks it gives Dtrack (PErrorBudget.cpp)
-    long long nPureTrueCE = 0, nTrueTracksCE = 0; // the same two counts for the CE child protons only (a CE particle with a pure track, pureCEIDs, over the CE particles with 2+ hits): Dtrack of PErrorBudget.cpp
     long long nTrueTracks = 0; // the true tracks with 2 or more tracker hits, over all events
-    std::vector<int> nPure, nPureCE, nMixedCE, nMixedNoCE, nMissing, nMissingCE, nTrue, nTrueCE; // nTrue: the reconstructable tracks, true tracks with 2+ hits (all, CE)
-    std::vector<double> hx, hy, hz; std::vector<int> hid; std::vector<char> hce;
-    // the tracker planes (z in um) that have a hit, and per plane the charged hits (all, CE child protons) of each event, in the order of the events above
-    std::vector<long> planes;
-    for (size_t r = 0; r < nRows; r++) planes.push_back(std::lround(c[4][r] * 1000.0));
-    std::sort(planes.begin(), planes.end()); planes.erase(std::unique(planes.begin(), planes.end()), planes.end());
-    const size_t nPl = planes.size();
-    std::vector<std::vector<int>> nHit(nPl), nHitCE(nPl);
-    std::vector<int> lastPlane, lastPlaneCE, lastPlaneMix; // per true track with 2+ hits (all events), the number of its last (highest z) tracker plane, 1 = the first tracker: all tracks, and the tracks of the events of class CE (tracker hits all CE child protons) and CE mix (a CE child proton and other hits)
+    std::vector<int> nPure, nPureCE, nMixedCE, nMixedNoCE, nMissing, nMissingCE, nTrue, nTrueCE; // per event, as the Events columns nPureEv, nPureCEEv, nMixedCEEv, nMixedNoCEEv, nMissingEv, nMissingCEEv, nTrueEv, nTrueCEEv
+    std::vector<std::vector<int>> nHitAll(nAll); // per plane of the run, the front face tracker hits of each event (nHitPlane<i>)
+    std::vector<int> lastPlane, lastPlaneCE, lastPlaneMix; // per true track with 2+ hits (all events), the number of its last (highest z) tracker plane, 1 = the first tracker: all tracks, and the tracks of the events of class CE (a CE particle with a pure track) and CE mix (a CE child proton, pure track or only inside mixed tracks)
     long long nEvLast = 0, nEvLastCE = 0, nEvLastMix = 0; // the events that gave at least 1 track to lastPlane, lastPlaneCE, lastPlaneMix (the events of the 6_last_tracker_of_track legend)
-    std::vector<int> chainLen; // per event, the chain length: the longest run of trackers in a row with exactly 1 charged hit, any start (2,1,1,1 gives 3, 1,1,2,1 gives 2, 0 when no tracker has exactly 1)
-    std::vector<int> maxHitLast; // per event, the last tracker (1 = first) of its longest track, 0 when no track has 2+ hits; the highest one when several tracks tie
-    std::vector<int> maxHit, evClass; // per event, the most tracker hits of any one track ID, and the class of the event: 0 no CE particle with 2+ hits, 1 CE a CE particle has a pure reconstructed track, 2 CE mix its hits sit only in mixed reconstructed tracks
-    for (size_t i = 0, j; i < nRows; i = j){
-        for (j = i + 1; j < nRows && c[0][order[j]] == c[0][order[i]]; j++) {}
-        const auto ce = ceTracks.find((int)std::lround(c[0][order[i]]));
-        hx.clear(); hy.clear(); hz.clear(); hid.clear(); hce.clear();
-        std::map<int, std::pair<int, bool>> trueTrack; // track ID -> its tracker hits in the event, and whether it is a CE child
-        for (size_t k = i; k < j; k++){
-            const size_t r = order[k];
-            hid.push_back((int)std::lround(c[1][r])); hx.push_back(c[2][r]); hy.push_back(c[3][r]); hz.push_back(c[4][r]);
-            hce.push_back(ce != ceTracks.end() && ce->second.count((int)std::lround(c[5][r])));
-            auto& t = trueTrack[hid.back()];
-            t.first++; t.second = t.second || hce.back();
-        }
-        std::vector<int> cnt(nPl, 0), cntCE(nPl, 0);
-        for (size_t k = 0; k < hz.size(); k++){
-            const size_t p = std::lower_bound(planes.begin(), planes.end(), std::lround(hz[k] * 1000.0)) - planes.begin();
-            cnt[p]++; if (hce[k]) cntCE[p]++;
-        }
-        for (size_t p = 0; p < nPl; p++){nHit[p].push_back(cnt[p]); nHitCE[p].push_back(cntCE[p]);}
-        size_t chain = 0, run = 0; // the longest run of trackers in a row with exactly 1 charged hit, any start
-        for (size_t p = 0; p < nPl; p++){run = cnt[p] == 1 ? run + 1 : 0; chain = std::max(chain, run);}
-        chainLen.push_back((int)chain);
-        std::vector<int> taken(hz.size(), 0);
-        std::vector<long> planesAll; // every plane the event has a hit on, the hits of the tracks taken off too
-        for (double zz : hz) planesAll.push_back(std::lround(zz * 1000.0));
-        std::sort(planesAll.begin(), planesAll.end()); planesAll.erase(std::unique(planesAll.begin(), planesAll.end()), planesAll.end());
-        std::set<int> mixedCEIDs; // the CE particles with a hit in a mixed track
-        std::set<int> usedIDs, pureCEIDs, pureIDs; // the track IDs with a hit in any reconstructed track, and the CE ones with a pure track
-        int pure = 0, pureCE = 0, mixedCE = 0, mixedNoCE = 0;
-        for (;;){
-            std::vector<double> rx, ry, rz; std::vector<size_t> at;
-            for (size_t k = 0; k < hz.size(); k++) if (!taken[k]){rx.push_back(hx[k]); ry.push_back(hy[k]); rz.push_back(hz[k]); at.push_back(k);}
-            const auto found = SeedExtend(rx, ry, rz, planesAll, hitSigmaMm, trackerSkip);
-            if (found.empty()) break;
-            std::set<int> ids; bool anyCE = false;
-            for (size_t f : found){taken[at[f]] = 1; ids.insert(hid[at[f]]); anyCE = anyCE || hce[at[f]];}
-            usedIDs.insert(ids.begin(), ids.end());
-            if (ids.size() == 1){pure++; pureIDs.insert(*ids.begin()); if (anyCE) pureCEIDs.insert(*ids.begin());}
-            else if (anyCE){for (size_t f : found) if (hce[at[f]]) mixedCEIDs.insert(hid[at[f]]);}
-            else mixedNoCE++;
-        }
-        for (int id : mixedCEIDs) if (!pureCEIDs.count(id) && trueTrack[id].first >= 2) mixedCE++; // only the particles with 2+ hits, the reconstructable ones // CE particles only in mixed tracks: with the pure ones and the missing ones they make all the CE particles
-        pureCE = (int)pureCEIDs.size(); // CE particles with a pure track, a CE particle split into 2 pure tracks counts once
-        int missing = 0, missingCE = 0;
-        int reco = 0, recoCE = 0;
-        for (const auto& [id, t] : trueTrack) if (t.first >= 2){nTrueTracks++; reco++; if (t.second) recoCE++;}
-        nTrue.push_back(reco); nTrueCE.push_back(recoCE);
-        int mh = 0;
-        for (const auto& [id, t] : trueTrack) mh = std::max(mh, t.first);
-        maxHit.push_back(mh); evClass.push_back(pureCE > 0 ? 1 : (mixedCE > 0 ? 2 : 0)); // the same CE and CE mix as 1_pure_tracks and 2_mixed_tracks: a CE particle rebuilt as a pure track, or only inside mixed tracks
-        std::map<int, int> lastOf; // track ID -> its highest tracker plane index
-        for (size_t k = 0; k < hz.size(); k++){
-            const int p = (int)(std::lower_bound(planes.begin(), planes.end(), std::lround(hz[k] * 1000.0)) - planes.begin());
-            auto it = lastOf.find(hid[k]);
-            if (it == lastOf.end()) lastOf[hid[k]] = p; else it->second = std::max(it->second, p);
-        }
-        int mhLast = 0;
-        if (mh >= 2) for (const auto& [id, p] : lastOf) if (trueTrack[id].first == mh) mhLast = std::max(mhLast, p + 1);
-        maxHitLast.push_back(mhLast);
-        const size_t lastBefore = lastPlane.size(), ceBefore = lastPlaneCE.size(), mixBefore = lastPlaneMix.size();
-        for (const auto& [id, p] : lastOf) if (trueTrack[id].first >= 2){
-            lastPlane.push_back(p + 1);
-            if (trueTrack[id].second){ // a CE particle: CE = the ones with a pure reconstructed track, CE + CE mix = all of them (pure track, or only inside mixed tracks), as in 1_indivtrackers
-                lastPlaneMix.push_back(p + 1);
-                if (pureCEIDs.count(id)) lastPlaneCE.push_back(p + 1);
+    std::vector<int> chainLen, maxHitLast, maxHit, evClass; // per event: the longest run of trackers in a row with exactly 1 charged hit; the last tracker of its longest track; the most tracker hits of any one track ID; its class (trkClassEv): 0 no CE particle with 2+ hits, 1 CE, 2 CE mix
+    {
+        // the scalar columns of every event in entry order, one event loop on all the threads (Columns, TreeColumns.h), the hits of every plane of the run with them
+        std::vector<std::string> names = {"trkClassEv", "nPureEv", "nPureCEEv", "nMixedCEEv", "nMixedNoCEEv", "nMissingEv", "nMissingCEEv", "nTrueEv", "nTrueCEEv", "maxHitEv", "maxHitLastEv", "chainLenEv"};
+        for (size_t p = 0; p < nAll; p++) names.push_back(Form("nHitPlane%zu", p));
+        const auto cols = Columns(ev, names);
+        const auto asInts = [](const std::vector<double>& v){std::vector<int> r(v.size()); for (size_t i = 0; i < v.size(); i++) r[i] = (int)std::lround(v[i]); return r;};
+        evClass = asInts(cols[0]); nPure = asInts(cols[1]); nPureCE = asInts(cols[2]); nMixedCE = asInts(cols[3]); nMixedNoCE = asInts(cols[4]); nMissing = asInts(cols[5]); nMissingCE = asInts(cols[6]);
+        nTrue = asInts(cols[7]); nTrueCE = asInts(cols[8]); maxHit = asInts(cols[9]); maxHitLast = asInts(cols[10]); chainLen = asInts(cols[11]);
+        for (size_t p = 0; p < nAll; p++) nHitAll[p] = asInts(cols[12 + p]);
+        for (int t : nTrue) nTrueTracks += t;
+
+        // the true tracks of every event (trueLastPlane, trueKind: one entry per true track with 2+ hits) only go into histograms, so the order of the events does not matter: each thread fills its own tally, the tallies are added up
+        // kind 0 not CE, 1 CE with no pure track, 2 CE with a pure track
+        struct LastTally {std::vector<int> all, ce, mix; long long nEv = 0, nEvCE = 0, nEvMix = 0;};
+        ROOT::RDataFrame dfEv(*ev);
+        std::vector<LastTally> tally(dfEv.GetNSlots());
+        dfEv.ForeachSlot([&](unsigned slot, const ROOT::RVec<int>& trueLast, const ROOT::RVec<int>& trueKind){
+            LastTally& t = tally[slot];
+            bool anyCE = false, anyMix = false;
+            for (size_t k = 0; k < trueLast.size(); k++){
+                t.all.push_back(trueLast[k]);
+                if (trueKind[k] >= 1){t.mix.push_back(trueLast[k]); anyMix = true;}
+                if (trueKind[k] == 2){t.ce.push_back(trueLast[k]); anyCE = true;}
             }
+            if (!trueLast.empty()){t.nEv++; if (anyCE) t.nEvCE++; if (anyMix) t.nEvMix++;} // mix = CE + CE mix, so nEvLastMix >= nEvLastCE
+        }, {"trueLastPlane", "trueKind"});
+        for (const LastTally& t : tally){
+            lastPlane.insert(lastPlane.end(), t.all.begin(), t.all.end()); lastPlaneCE.insert(lastPlaneCE.end(), t.ce.begin(), t.ce.end()); lastPlaneMix.insert(lastPlaneMix.end(), t.mix.begin(), t.mix.end());
+            nEvLast += t.nEv; nEvLastCE += t.nEvCE; nEvLastMix += t.nEvMix;
         }
-        if (lastPlane.size() > lastBefore){nEvLast++; if (lastPlaneCE.size() > ceBefore) nEvLastCE++; if (lastPlaneMix.size() > mixBefore) nEvLastMix++;} // mix = CE + CE mix, so nEvLastMix >= nEvLastCE
-        for (const auto& [id, t] : trueTrack) if (t.first >= 2 && !usedIDs.count(id)){missing++; if (t.second) missingCE++;}
-        nPureTrue += (long long)pureIDs.size(); nPureTrueCE += (long long)pureCEIDs.size(); nTrueTracksCE += recoCE;
-        nPure.push_back(pure); nPureCE.push_back(pureCE); nMixedCE.push_back(mixedCE); nMixedNoCE.push_back(mixedNoCE);
-        nMissing.push_back(missing); nMissingCE.push_back(missingCE);
+    }
+    // the planes some event hits, in z order: the numbers of the last tracker (1 = first) and the chain are over these, as before the tally moved into ReconAngleAll.cpp
+    std::vector<long> planes; std::vector<int> planeNo(nAll + 1, 0); // planeNo[old number] = the new number, 0 for a plane no event hits
+    std::vector<std::vector<int>> nHit;
+    for (size_t p = 0; p < nAll; p++) if (std::any_of(nHitAll[p].begin(), nHitAll[p].end(), [](int n){return n > 0;})){
+        planes.push_back(planeAll[p]); planeNo[p + 1] = (int)planes.size(); nHit.push_back(std::move(nHitAll[p]));
+    }
+    const size_t nPl = planes.size();
+    if (nPl == 0){Error("F8_TrackerFits", "no tracker hits"); return;}
+    for (auto* v : {&lastPlane, &lastPlaneCE, &lastPlaneMix, &maxHitLast}) for (int& n : *v) if (n > 0) n = planeNo[n];
+    for (size_t e = 0; e < chainLen.size(); e++){ // the longest run of the planes some event hits in a row with exactly 1 charged hit
+        int run = 0, best = 0;
+        for (size_t p = 0; p < nPl; p++){run = nHit[p][e] == 1 ? run + 1 : 0; best = std::max(best, run);}
+        chainLen[e] = best;
     }
 
     gSystem->mkdir("plots/8_trackerfits", true);
-    { std::ofstream o("plots/8_trackerfits/track_purity.csv"); o << "nPureTrue,nTrueTracks,nPureTrueCE,nTrueTracksCE\n" << nPureTrue << "," << nTrueTracks << "," << nPureTrueCE << "," << nTrueTracksCE << "\n"; } // read by PErrorBudget.cpp: Dtrack = nPureTrueCE / nTrueTracksCE, the all particle ratio is shown in D_track.txt
     std::set<std::string> numberFiles;
     const long long nEvents = (long long)nPure.size();
     // a plot: two counts per event drawn over each other, in the colours of F9_PlotReconNew.cpp (ClassColor): all and no CE green, CE vermillion, CE mix (a CE hit among others) blue

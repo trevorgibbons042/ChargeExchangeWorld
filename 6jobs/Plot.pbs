@@ -29,13 +29,12 @@ echo Run folder: $RUN, step: $STEP
 # The same lanes as plot.sh: a lane holds the macros that write into the same plots/ folders or read another's csv files
 case $STEP in
     cutevents) macros=('CutPlots.cpp("events")') ;; # SubmitEvents.sh: the analysis chain of run_all.sh
-    analysis) macros=('CutPlots.cpp("events")' 'ReconAngleAll.cpp' 'CalcAPandT.cpp' 'CutPlots.cpp("count")' 'CutPlots.cpp("zdc")') ;; # SubmitEvents.sh: the five analysis steps in one job, one after the other, all the cores each
+    analysis) macros=('CutPlots.cpp("events")' 'ReconAngleAll.cpp' 'CalcAPandT.cpp' 'CutPlots.cpp("count")') ;; # SubmitEvents.sh: the four analysis steps in one job, one after the other, all the cores each (F1_2_Plot3D.cpp reads AnglesRaw itself, CutPlots zdc writes nothing)
     recon)    macros=('ReconAngleAll.cpp') ;; # the event recon (cuts/cut_angles_all.root, needs TrackerHitsAll from the sim)
     reconnew) macros=('CutPlots.cpp("events")' 'ReconAngleAll.cpp' 'F9_PlotReconNew.cpp') ;; # only plots/6_ReconNew_1: CutPlots events first (cut_CE.root, which PlotReconNew opens), then the event recon (cuts/cut_angles_all.root), then its plots; nothing else of the chain
     plotnew)  macros=('F9_PlotReconNew.cpp' 'F10_BDTCuts.cpp') ;; # only the plots of plots/6_ReconNew_1, cuts/cut_angles_all.root is there from reconnew
     calc)     macros=('CalcAPandT.cpp') ;; # the detector KE trees of cut_APandT.root
     countce)  macros=('CutPlots.cpp("count")') ;;
-    cutzdc)   macros=('CutPlots.cpp("zdc")') ;; # cut_Plot3DCE.root, cut_Plot3DAllEv.root and cut_Plot3DAllPart.root that Plot3D reads
     plot3d)   macros=('F1_2_Plot3D.cpp') ;; # 1_position, 2_energy; Plot3D runs its three groups as three processes (below)
     ceblock)  macros=('F4_CEBlock.cpp(50, 180, "fDEnergy")') ;; # 4_CEblock
     calcplots) macros=('F3_ReconCalcVals.cpp("fDEnergy")' 'F5_FomCalc.cpp') ;; # 3_ReconCalcVals (needs cut_APandT.root) and 5_fomCalc (needs cut_angles_all.root)

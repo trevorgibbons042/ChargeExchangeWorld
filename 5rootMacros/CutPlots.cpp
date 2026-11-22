@@ -8,7 +8,6 @@
 #include <string>
 #include <vector>
 #include "FitCore.h"
-#include "Plot3DCols.h"
 #include <TChain.h>
 #include <TString.h>
 #include <cstdio>
@@ -25,32 +24,8 @@
 // Every cut file the plot macros read, in one macro, as a part (CutPlots("<part>")):
 //   events   cuts/cut_*.root from the sim output (CutEvents), run_all.sh runs it after ReconAngleAll
 //   count    the CE counts per block and tracker plane (CountCE), after events
-//   zdc      cuts/cut_Plot3DCE.root, cut_Plot3DAllEv.root and cut_Plot3DAllPart.root, the rows of AnglesRaw by evClass with the Plot3D columns (ZdcColumns, Plot3DCols.h)
+//   zdc      nothing to write any more: F1_2_Plot3D.cpp reads AnglesRaw with the Events friend and a row filter per set (the cut_Plot3D*.root copies are gone)
 
-// Writes the cut files F1_2_Plot3D.cpp draws from: cut_Plot3DCE.root (AnglesRaw rows with evClass 0), cut_Plot3DAllEv.root (evClass 0 or 1) and cut_Plot3DAllPart.root (all rows),
-// each row with the Plot3D columns of its recon fit (isReco, raw_0..26, ok_0..26, Plot3DCols.h).
-// Run after ReconAngleAll.cpp, with all the threads: the maps of AnglesRaw are read once (serial), then the files are written in one parallel pass.
-static void ZdcColumns(){
-    ROOT::EnableImplicitMT(NThreads());
-    ROOT::RDF::RSnapshotOptions lazy;
-    lazy.fLazy = true;
-
-    const time_t t0 = time(nullptr);
-    const ColumnAdder addColumns = Plot3DColumns(); // loads the maps on its first call
-    // the three sets of F1_2_Plot3D.cpp are rows of AnglesRaw (one recon fit per track the finder finds) split by evClass: 0 the fit used CE child hits only (CE recon protons), 0 or 1 CE child and other hits
-    // (CE + CE mix), any (all recon). The position of a row is the last tracker hit (lastX, lastY, lastXD, lastYD), the KE the ZDC sum of its event (zdcKEAll, zdcKEAllD).
-    const char* angFile = "cuts/cut_angles_all.root";
-    ROOT::RDataFrame dfCE(kAngleTree, angFile), dfAllEv(kAngleTree, angFile), dfAllPart(kAngleTree, angFile);
-    std::vector<ROOT::RDF::RResultHandle> handles;
-    handles.emplace_back(addColumns(dfCE.Filter([](int c){return c == 0;}, {"evClass"})).Snapshot(kAngleTree, "cuts/cut_Plot3DCE.root", "", lazy));
-    const time_t t1 = time(nullptr); // the first addColumns call has loaded the maps
-    printf(">>> CutPlots zdc maps took %.0f s\n", difftime(t1, t0)); fflush(stdout);
-    handles.emplace_back(addColumns(dfAllEv.Filter([](int c){return c == 0 || c == 1;}, {"evClass"})).Snapshot(kAngleTree, "cuts/cut_Plot3DAllEv.root", "", lazy));
-    handles.emplace_back(addColumns(dfAllPart).Snapshot(kAngleTree, "cuts/cut_Plot3DAllPart.root", "", lazy));
-    ROOT::RDF::RunGraphs(handles);
-    printf(">>> CutPlots zdc write took %.0f s\n", difftime(time(nullptr), t1)); fflush(stdout);
-
-}
 
 // ===== CutEvents (part "events", run after ReconAngleAll) =====
 void CutEvents(){
@@ -94,7 +69,7 @@ void CutEvents(){
     //   stage 3 (cut_CEall):   the carbon CE rows, added as the second tree (UPDATE) of cut_CE
     // Each stage is lazy: all the cuts of a stage are written in one pass over their input. The result handles own the open output files, so they are cleared (files closed)
     // before the next stage reads those files; left open, cut_CE.root came out without ChargeExchange_values.
-    ROOT::RDF::RSnapshotOptions lazy;
+    ROOT::RDF::RSnapshotOptions lazy; lazy.fCompressionAlgorithm = ROOT::RCompressionSetting::EAlgorithm::kZLIB; lazy.fCompressionLevel = 6; // zlib level 6 like the sim output (7run.cc), ROOT default is level 1
     lazy.fLazy = true;
     const std::string pInfo = events->GetName(), ceTree = ChargeExchange->GetName();
 
@@ -111,7 +86,7 @@ void CutEvents(){
         handles.emplace_back(children.Filter("boundaryType == 0 && pdg == 2212").Snapshot(pInfo, "cuts/cut_ParentTracker.root", "", lazy));
         ROOT::RDF::RunGraphs(handles);
     }
-    ROOT::RDF::RSnapshotOptions update;
+    ROOT::RDF::RSnapshotOptions update; update.fCompressionAlgorithm = ROOT::RCompressionSetting::EAlgorithm::kZLIB; update.fCompressionLevel = 6; // zlib level 6 like the sim output (7run.cc), ROOT default is level 1
     update.fMode = "UPDATE";
     ROOT::RDataFrame dfCEallRows(ceTree, "cuts/cut_CEall.root");
     dfCEallRows.Filter(CarbonCeCut()).Snapshot(ceTree, "cuts/cut_CE.root", "", update); // the carbon-block CE rows, beside ParticleInfo
@@ -143,7 +118,7 @@ void CountCE(){
     if (ceKeys.empty()) return;
 
     // The block and tracker z come from the geometry in settings.csv (2construction.cc): carbon blocks evenly spread from z = 0 to the ZDC face, a tracker plane either side of each block (none in front of the first) and one in front of the ZDC, each a gap dz from the block or ZDC edge
-    // (an old run: nBlocksTracking planes per block, dz apart around z = 4 m). A carbon block is CarbonThickness thick, a tracker plane detectorThickness (500 um).
+    // plus nAdditionalTrackers extra planes in each gap behind a block (StackZ, FitCore.h). A carbon block is CarbonThickness thick, a tracker plane detectorThickness (500 um).
     const auto st = ReadSettings();
     const double carbonMm = st.at("CarbonThickness") * 1000.0, detectorMm = 0.5;
     const StackLayout stack = StackZ(st);
@@ -222,7 +197,7 @@ void CountCE(){
         addCol("trackerX", 1); addCol("trackerY", 2); addCol("trackerDX", 3); addCol("trackerDY", 4);
         addCol("detectorDX", 8); addCol("detectorDY", 9); addCol("detectorX", 6); addCol("detectorY", 7);
         cols.push_back("reachedDetector");
-        ROOT::RDF::RSnapshotOptions opts;
+        ROOT::RDF::RSnapshotOptions opts; opts.fCompressionAlgorithm = ROOT::RCompressionSetting::EAlgorithm::kZLIB; opts.fCompressionLevel = 6; // zlib level 6 like the sim output (7run.cc), ROOT default is level 1
         opts.fMode = b == 0 ? "RECREATE" : "UPDATE";
         df.Snapshot(Form("Block%zu", b + 1), outname.Data(), cols, opts);
         {
@@ -240,7 +215,5 @@ void CutPlots(const char* partArg = "zdc"){ // a const char*: calling a macro wi
     if (part == "events"){CutEvents(); return;} // the cut files of the sim output, after ReconAngleAll in run_all.sh
     if (part == "count"){CountCE(); return;} // the CE counts per block, after CutEvents
     if (part != "zdc"){Error("CutPlots", "part must be events, count or zdc"); return;}
-    const time_t t0 = time(nullptr);
-    ZdcColumns();
-    printf(">>> CutPlots zdc took %.0f s\n", difftime(time(nullptr), t0)); fflush(stdout);
+    printf(">>> CutPlots zdc: nothing to write, F1_2_Plot3D.cpp reads cuts/cut_angles_all.root and cuts/cut_events.root\n"); fflush(stdout); // kept so the zdc step of plot.sh, Plot.pbs and SubmitPlots.sh still runs
 }

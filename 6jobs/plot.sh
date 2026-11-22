@@ -22,7 +22,6 @@ if [ "${ACLIC-+O}" != "" ]; then
     wait
     echo ">>> compile step took $((SECONDS - total)) s"
 fi
-[ -n "${ALL_PLOTS:-}" ] && run 'CutPlots.cpp("zdc")' # cut_Plot3DCE.root, cut_Plot3DAllEv.root and cut_Plot3DAllPart.root that Plot3D reads, with all the threads
 
 # The error budget first, with all the cores: F8_TrackerFits.cpp gives plots/8_trackerfits/track_purity.csv (Dtrack), PErrorBudget.cpp plots/11_errorBudget (P_table.md, P_result.csv that F9_PlotReconNew.cpp prints on the total recon fit of 6_megaCut). PErrorBudget skips itself when cuts/cut_angles_all.root is missing.
 run 'F8_TrackerFits.cpp'

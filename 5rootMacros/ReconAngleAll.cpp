@@ -169,42 +169,29 @@ static void ReconAngleAllFit(){
     // -1 for an event without a row, a sim without the tree or without that column.
     // zdcKEAll: the true KE summed over every particle (charged and neutral) at the ZDC entry, MeV
     struct EvCounts {int zdcCharged = -1, trackerHits = -1, trackerTracks = -1; double zdcKEAll = -1;};
-    std::vector<EvCounts> evCountsOf;
-    {
-        TChain es("EventSummary");
-        es.Add("output0_t*.root");
-        if (es.LoadTree(0) >= 0){
-            ROOT::RDataFrame dfEsAll(es);
-            ROOT::RDF::RNode dfEs = dfEsAll;
-            for (const char* col : {"nZdcCharged", "nTrackerHitsEv", "nTrackerTracksEv"}){
-                if (!es.GetBranch(col)) dfEs = dfEs.Define(col, []{return (int)-1;}); // a sim run before that column
-            }
-            if (!es.GetBranch("zdcKEAll")) dfEs = dfEs.Define("zdcKEAll", []{return -1.0;}); // a sim run before that column
-            std::vector<std::vector<std::pair<int, EvCounts>>> slotRows(dfEsAll.GetNSlots());
-            dfEs.ForeachSlot([&](unsigned slot, int eventID, int nZ, int nH, int nT, double keAll){slotRows[slot].push_back({eventID, EvCounts{nZ, nH, nT, keAll}});},
-                             {"fEvent", "nZdcCharged", "nTrackerHitsEv", "nTrackerTracksEv", "zdcKEAll"});
-            int maxEvent = -1;
-            for (const auto& rows : slotRows) for (const auto& r : rows) maxEvent = std::max(maxEvent, r.first);
-            evCountsOf.assign(maxEvent + 1, EvCounts());
-            for (const auto& rows : slotRows) for (const auto& r : rows) evCountsOf[r.first] = r.second;
-        }
-    }
+    std::vector<EvCounts> evCountsOf; // filled with evHitsOf below, in one pass over EventSummary
 
     // Per event the tracker planes (z in um) that were hit, sorted, and perPlane the number of charged hits on each tracker plane of the run (z mm of planeZ, ascending, the plane in front of the ZDC last).
     const std::vector<double> planeZ = StackZ(settings).planeZ;
-    constexpr int kMaxPlanes = 32; // Row::nChargedPlane, 2 planes per block
+    constexpr int kMaxPlanes = 32; // Row::nChargedPlane, nBlocks * (2 + nAdditionalTrackers) planes (6 blocks with 3 extra: 30)
     if ((int)planeZ.size() > kMaxPlanes){Error("ReconAngleAll", "%d tracker planes, at most %d have a nChargedPlane column", (int)planeZ.size(), kMaxPlanes); return;}
     struct EvHits {std::vector<long> planes; std::vector<int> perPlane;};
     // ZDC energy smearing of the sim (9stepping.cc), applied to the all-particle ZDC total zdcKEAll (zdcKEAllD): Gaussian of sigma KE * sqrt(a^2 / KE[GeV] + b^2), floored at 0, a = resStochastic, b = resConstant
     const double zdcResA = settings.count("resStochastic") ? settings.at("resStochastic") : 0.0, zdcResB = settings.count("resConstant") ? settings.at("resConstant") : 0.0;
     std::vector<EvHits> evHitsOf;
-    {
+    { // the one pass over EventSummary: the event counts (evCountsOf) and the planes hit (evHitsOf) of every event
         TChain es("EventSummary");
         es.Add("output0_t*.root");
         if (es.LoadTree(0) < 0 || !es.GetBranch("hitTrackerZ")){Error("ReconAngleAll", "no EventSummary hitTrackerZ (run a sim built after the per-tracker hit columns)"); return;}
-        ROOT::RDataFrame dfEs(es);
-        std::vector<std::vector<std::pair<int, EvHits>>> slotRows(dfEs.GetNSlots());
-        dfEs.ForeachSlot([&](unsigned slot, int eventID, const ROOT::RVec<double>& hz){
+        ROOT::RDataFrame dfEsAll(es);
+        ROOT::RDF::RNode dfEs = dfEsAll;
+        for (const char* col : {"nZdcCharged", "nTrackerHitsEv", "nTrackerTracksEv"}){
+            if (!es.GetBranch(col)) dfEs = dfEs.Define(col, []{return (int)-1;}); // a sim run before that column
+        }
+        if (!es.GetBranch("zdcKEAll")) dfEs = dfEs.Define("zdcKEAll", []{return -1.0;}); // a sim run before that column
+        struct EvRow {int eventID; EvCounts counts; EvHits hits;};
+        std::vector<std::vector<EvRow>> slotRows(dfEsAll.GetNSlots());
+        dfEs.ForeachSlot([&](unsigned slot, int eventID, int nZ, int nH, int nT, double keAll, const ROOT::RVec<double>& hz){
             EvHits h;
             std::vector<long> zl(hz.size());
             for (std::size_t i = 0; i < hz.size(); i++) zl[i] = std::lround(hz[i] * 1000.0);
@@ -222,12 +209,13 @@ static void ReconAngleAllFit(){
                 if (k > 0 && (k == planeZ.size() || hz[i] - planeZ[k - 1] < planeZ[k] - hz[i])) k--;
                 if (k < planeZ.size() && std::fabs(planeZ[k] - hz[i]) < 1.0) h.perPlane[k]++;
             }
-            slotRows[slot].push_back({eventID, std::move(h)});
-        }, {"fEvent", "hitTrackerZ"});
+            slotRows[slot].push_back(EvRow{eventID, EvCounts{nZ, nH, nT, keAll}, std::move(h)});
+        }, {"fEvent", "nZdcCharged", "nTrackerHitsEv", "nTrackerTracksEv", "zdcKEAll", "hitTrackerZ"});
         int maxEvent = -1;
-        for (const auto& rows : slotRows) for (const auto& r : rows) maxEvent = std::max(maxEvent, r.first);
+        for (const auto& rows : slotRows) for (const auto& r : rows) maxEvent = std::max(maxEvent, r.eventID);
+        evCountsOf.assign(maxEvent + 1, EvCounts());
         evHitsOf.assign(maxEvent + 1, EvHits());
-        for (auto& rows : slotRows) for (auto& r : rows) evHitsOf[r.first] = std::move(r.second);
+        for (auto& rows : slotRows) for (auto& r : rows){evCountsOf[r.eventID] = r.counts; evHitsOf[r.eventID] = std::move(r.hits);}
     }
 
     // One tree of every recon track, before any cut. The views Angles and AnglesCE (and their _DE copies) are views of it
@@ -235,7 +223,10 @@ static void ReconAngleAllFit(){
     // The file is written through a TBufferMerger: the shards fill their own trees on all the threads (see the write below).
     // ROOT starts a new file (cut_angles_all_1.root) once a tree passes 100 GB, and the merger then deletes its output file ("Fatal in <TFileMerger::RecursiveRemove>"). The 0.7 m 25 GeV grids pass it, so the limit is raised to 4 TB.
     TTree::SetMaxTreeSize(4000000000000LL);
-    ROOT::TBufferMerger merger("cuts/cut_angles_all.root", "RECREATE");
+    ROOT::TBufferMerger merger("cuts/cut_angles_all.root", "RECREATE", 106); // zlib level 6 like the sim output (7run.cc), ROOT default is level 1
+    // Events: one row per event (fEvent), every event level value and the tracker purity tally (the F8_TrackerFits.cpp logic, run here on the same hits and finder). A file of its own, cut_angles_all.root is dropped after the chain (Full.pbs).
+    // ReconAngleAll() indexes it on fEvent once the merger is closed, and OpenCut (CutFiles.h) attaches it to every tree with fEvent as a friend.
+    ROOT::TBufferMerger evMerger("cuts/cut_events.root", "RECREATE", 106);
 
     // A group of raw files at a time (ANA_FILES_PER_PASS, default 8): an event, and so every track, lives in a single output0_t<thread>.root, so the tracks of a group are complete
     // and only that group's tracker points are held in memory (all files at once does not fit at 100M events). One file alone cannot keep all the threads busy.
@@ -280,9 +271,8 @@ static void ReconAngleAllFit(){
         }, {"fEvent", "TrackID", "pdg", "fX", "fY", "fZ", "fDx", "fDy", "fDz", "ParentID", "entryNo"});
         // The fits run on every thread: each shard builds its events, fits them and keeps the results as rows. Only the TTree fills below are serial.
         struct Row {
-            int eventID, isFromCE, inCE, nChargedParticle, nZdcCharged, nTrackerHitsEv, nTrackerTracksEv, nHits, nMaxChargedPerPlaneEv, nPlanesHitEv;
-            int nChargedPlane[kMaxPlanes] = {}; // charged hits of the event on tracker plane i (EvHits::perPlane)
-            double theta, phi, dTheta, dPhi, x0D, y0D, bxD, byD, zdcKEAll, zdcKEAllD;
+            int eventID, isFromCE, nHits; // the event level values (inCE, zdcKEAll, nChargedPlane<i>, ...) are in the Events tree, not on the rows
+            double theta, phi, dTheta, dPhi, x0D, y0D, bxD, byD;
             double xVertex, yVertex, zVertex, zBxRecon;
             double resRms, resDRms, impact, impactD, r2, r2D, firstXD, firstYD, lastX, lastY, lastXD, lastYD, resHalfRatioD;
             int tubeBlock;
@@ -292,6 +282,20 @@ static void ReconAngleAllFit(){
             double thetaRelN, thetaRelNMin, thetaRelNMax, phiRelN, phiRelNHalf, thetaRelND, thetaRelNDMin, thetaRelNDMax, phiRelND, phiRelNDHalf; // proton angles in the frame of the estimated neutron
             double thetaRelNDBMin, thetaRelNDBMax, phiRelNDBHalf, thetaLabDBMin, thetaLabDBMax, phiLabDBHalf; // the range of the block direction from the hit grid alone (the slope error of the block fit): in the est neutron frame, and about the lab z axis (outDTheta, outDPhi)
         };
+        // One row of the Events tree: an event, whatever its number of tracks. The tally columns are the per event values F8_TrackerFits.cpp used to make from the raw hits (front face tracker hits, the finder of the fits, any particle).
+        struct EvRow {
+            int eventID = 0, inCE = 0, nChargedParticle = 0, nZdcCharged = -1, nTrackerHitsEv = -1, nTrackerTracksEv = -1, nMaxChargedPerPlaneEv = 0, nPlanesHitEv = 0;
+            int nChargedPlane[kMaxPlanes] = {}; // charged hits of the event on tracker plane i (EvHits::perPlane)
+            int nHitPlane[kMaxPlanes] = {}; // the front face tracker hits of the event on plane i (the hits of the finder, F8_TrackerFits.cpp)
+            double zdcKEAll = -1.0, zdcKEAllD = NAN; // true / smeared KE sum of every particle at the ZDC
+            int nCEPartEv = 0, nOtherPartEv = 0, nCERecoEv = 0, nOtherRecoEv = 0; // particles (distinct trackIDs) that entered a tracker, CE children and every other one, and those with a hit in a fit of the event
+            int nRecoEv = 0; // the fits (AnglesRaw rows) of the event
+            int trkClassEv = 0, nPureEv = 0, nPureCEEv = 0, nMixedCEEv = 0, nMixedNoCEEv = 0, nMissingEv = 0, nMissingCEEv = 0, nTrueEv = 0, nTrueCEEv = 0, nPureTrueEv = 0, maxHitEv = 0, maxHitLastEv = 0, chainLenEv = 0;
+            // trkClassEv 0 no CE particle with 2+ hits, 1 CE (a CE particle has a pure track), 2 CE mix (its hits sit only in mixed tracks); nPureEv pure tracks, nPureCEEv CE particles with a pure track (the Dtrack numerator), nPureTrueEv true tracks in a pure track,
+            // nTrueEv / nTrueCEEv true tracks with 2+ hits (all, CE: the Dtrack denominator), maxHitEv most hits of one track ID, maxHitLastEv last tracker (1 = first) of that track, chainLenEv longest run of trackers in a row with exactly 1 charged hit
+            std::vector<int> trueLastPlane, trueKind; // per true track with 2+ hits: its last tracker (1 = first), 0 non-CE / 1 CE in a mixed track only / 2 CE with a pure track
+        };
+        std::vector<std::vector<EvRow>> shardEv(nShards);
         std::vector<std::vector<Row>> shardRows(nShards);
         const auto tFit0 = Clock::now(); // the event loop above is the read
         ROOT::TThreadExecutor pool;
@@ -357,18 +361,47 @@ static void ReconAngleAllFit(){
                 const std::size_t run = evGroups[job].first; // the first track of the event, for the per-event counts
                 const int ev = at(runs[run].first).eventID;
                 // Seed and extend (SeedExtend.h): every charged tracker hit of the event is a candidate, any particle. The hits of the track found are taken off and it runs again on the rest, until it finds no track (as F8_TrackerFits.cpp); each track with 2 or more planes is fitted below and is a row of its own, one hit per plane.
-                if (ev < 0 || (std::size_t)ev >= evHitsOf.size() || evHitsOf[ev].planes.size() < 2) continue;
+                if (ev < 0) continue;
+                const auto ce = ceTracks.find(ev);
+                // The Events row: the event level values, for every event with a tracker point, also one the finder skips (the tally columns stay 0)
+                EvRow er;
+                er.eventID = ev; er.inCE = (ce != ceTracks.end()) ? 1 : 0;
+                er.nChargedParticle = nChargedInEvent[run]; er.nMaxChargedPerPlaneEv = nMaxPerPlaneInEvent[run]; er.nPlanesHitEv = nPlanesHitInEvent[run];
+                if ((std::size_t)ev < evHitsOf.size()) for (std::size_t i = 0; i < evHitsOf[ev].perPlane.size(); i++) er.nChargedPlane[i] = evHitsOf[ev].perPlane[i];
+                if ((std::size_t)ev < evCountsOf.size()) {const EvCounts& ec = evCountsOf[ev]; er.nZdcCharged = ec.zdcCharged; er.nTrackerHitsEv = ec.trackerHits; er.nTrackerTracksEv = ec.trackerTracks; er.zdcKEAll = ec.zdcKEAll;}
+                // zdcKEAllD: the all-particle ZDC total (charged and neutral) smeared once like the ZDC, seeded by the event so a rerun gives the same numbers; NAN without a ZDC total (zdcKEAll < 0). The KE cut of F9_PlotReconNew.cpp uses it.
+                if (er.zdcKEAll >= 0.0) {
+                    TRandom3 rngZdc(2000003u + (unsigned)ev);
+                    const double keAll = er.zdcKEAll;
+                    er.zdcKEAllD = keAll > 0.0 ? std::max(0.0, rngZdc.Gaus(keAll, keAll * std::sqrt(zdcResA * zdcResA / (keAll / 1000.0) + zdcResB * zdcResB))) : 0.0;
+                }
+                if ((std::size_t)ev >= evHitsOf.size() || evHitsOf[ev].planes.size() < 2) {shardEv[shard].push_back(er); continue;}
                 std::vector<std::size_t> evPts; // the points of the event on a tracker plane, in sorted order
+                std::vector<std::size_t> evRunOf; // the run (track) of the event of each point of evPts
                 std::vector<double> hx, hy, hz;
                 for (std::size_t k = evGroups[job].first; k < evGroups[job].second; k++) for (std::size_t p = runs[k].first; p < runs[k].second; p++) {
                     if (at(p).zD == 0.0 || at(p).z > at(p).zD) continue; // a hit that entered the plane through its back face (z above the plane centre) is not a track hit
-                    evPts.push_back(p); hx.push_back(at(p).xD); hy.push_back(at(p).yD); hz.push_back(at(p).zD);
+                    evPts.push_back(p); evRunOf.push_back(k - evGroups[job].first); hx.push_back(at(p).xD); hy.push_back(at(p).yD); hz.push_back(at(p).zD);
                 }
                 std::vector<long> evPlanes; // the planes with a kept (front face) hit, back face hits do not make a plane
                 for (double zz : hz) evPlanes.push_back(std::lround(zz * 1000.0));
                 std::sort(evPlanes.begin(), evPlanes.end()); evPlanes.erase(std::unique(evPlanes.begin(), evPlanes.end()), evPlanes.end());
-                const auto ce = ceTracks.find(ev);
                 std::vector<char> taken(hx.size(), 0); // the hits already in a track found
+                // the purity tally (F8_TrackerFits.cpp): per track ID its front face tracker hits and whether it is a CE child; the finder below says which IDs sit in a pure, a mixed or no reconstructed track
+                auto ceHit = [&](std::size_t c){return ce != ceTracks.end() && ce->second.count(at(evPts[c]).parentID) > 0;};
+                std::map<int, std::pair<int, bool>> trueTrack;
+                for (std::size_t c = 0; c < evPts.size(); c++) {auto& tt = trueTrack[at(evPts[c]).trackID]; tt.first++; tt.second = tt.second || ceHit(c);}
+                std::set<int> usedIDs, pureIDs, pureCEIDs, mixedCEIDs; // IDs with a hit in any track found, with a pure track (all, CE), CE IDs with a hit in a mixed track
+                int nPureTr = 0, nMixedNoCETr = 0;
+                // particles that entered a tracker: a run with a hit off the plane-less (zD 0) points, CE if its parent is a CE carbon child; usedRun: a run with a hit in a fit that became a row
+                const std::size_t nRunsEv = evGroups[job].second - evGroups[job].first;
+                std::vector<char> enteredRun(nRunsEv, 0), usedRun(nRunsEv, 0), ceRun(nRunsEv, 0);
+                for (std::size_t k = 0; k < nRunsEv; k++) {
+                    const auto &rn = runs[evGroups[job].first + k];
+                    for (std::size_t p = rn.first; p < rn.second; p++) if (at(p).zD != 0.0) {enteredRun[k] = 1; break;}
+                    ceRun[k] = (ce != ceTracks.end() && ce->second.count(at(rn.first).parentID)) ? 1 : 0;
+                }
+                const std::size_t rowStart = rows.size();
                 for (int trackNo = 0; ; trackNo++) {
                     std::vector<double> rx, ry, rz; std::vector<std::size_t> hitOf; // index in the hit vectors of each hit still free
                     for (std::size_t k = 0; k < hx.size(); k++) if (!taken[k]) {rx.push_back(hx[k]); ry.push_back(hy[k]); rz.push_back(hz[k]); hitOf.push_back(k);}
@@ -376,6 +409,14 @@ static void ReconAngleAllFit(){
                     if (found.empty()) break;
                     std::vector<std::size_t> best; // the hits of the track, as indices of evPts
                     for (const std::size_t f : found) {taken[hitOf[f]] = 1; best.push_back(hitOf[f]);}
+                    { // the tally takes every track the finder makes, before the fit can drop it, as F8_TrackerFits.cpp did
+                        std::set<int> ids; bool anyCE = false;
+                        for (const std::size_t c : best) {ids.insert(at(evPts[c]).trackID); anyCE = anyCE || ceHit(c);}
+                        usedIDs.insert(ids.begin(), ids.end());
+                        if (ids.size() == 1) {nPureTr++; pureIDs.insert(*ids.begin()); if (anyCE) pureCEIDs.insert(*ids.begin());}
+                        else if (anyCE) {for (const std::size_t c : best) if (ceHit(c)) mixedCEIDs.insert(at(evPts[c]).trackID);}
+                        else nMixedNoCETr++;
+                    }
                     if (best.size() < 2) continue;
                     t.clear();
                     int nCEUsed = 0, nOtherUsed = 0, nProtonUsed = 0, nPionUsed = 0, nKaonUsed = 0, nNucleusUsed = 0;
@@ -412,7 +453,6 @@ static void ReconAngleAllFit(){
 
                     r.zBxRecon = (fit.bxD != 0) ? -fit.x0D/fit.bxD : 0;
 
-                    r.inCE = (ce != ceTracks.end()) ? 1 : 0;
                     r.nPlanesUsed = int(t.size()); r.nCEUsed = nCEUsed; r.nOtherUsed = nOtherUsed; r.nProtonUsed = nProtonUsed; r.nPionUsed = nPionUsed; r.nKaonUsed = nKaonUsed; r.nNucleusUsed = nNucleusUsed;
                     r.evClass = nCEUsed == 0 ? 2 : (nOtherUsed == 0 ? 0 : 1);
                     r.isFromCE = r.evClass <= 1 ? 1 : 0; // the fit used a CE child hit
@@ -421,19 +461,6 @@ static void ReconAngleAllFit(){
                     r.impact  = ImpactToAxis(fit.x0, fit.y0, fit.bx, fit.by);
                     r.impactD = ImpactToAxis(fit.x0D, fit.y0D, fit.bxD, fit.byD);
 
-                    r.nChargedParticle = nChargedInEvent[run];
-                    r.nMaxChargedPerPlaneEv = nMaxPerPlaneInEvent[run];
-                    r.nPlanesHitEv = nPlanesHitInEvent[run];
-                    if (ev >= 0 && (std::size_t)ev < evHitsOf.size()) for (std::size_t i = 0; i < evHitsOf[ev].perPlane.size(); i++) r.nChargedPlane[i] = evHitsOf[ev].perPlane[i];
-                    const EvCounts ec = (r.eventID >= 0 && (size_t)r.eventID < evCountsOf.size()) ? evCountsOf[r.eventID] : EvCounts();
-                    r.nZdcCharged = ec.zdcCharged; r.nTrackerHitsEv = ec.trackerHits; r.nTrackerTracksEv = ec.trackerTracks; r.zdcKEAll = ec.zdcKEAll;
-                    // zdcKEAllD: the all-particle ZDC total (charged and neutral) smeared once like the ZDC, seeded by the event so a rerun gives the same numbers; NAN without a ZDC total (zdcKEAll < 0). The KE cut of F9_PlotReconNew.cpp uses it.
-                    r.zdcKEAllD = NAN;
-                    if (r.zdcKEAll >= 0.0) {
-                        TRandom3 rngZdc(2000003u + (unsigned)r.eventID);
-                        const double keAll = r.zdcKEAll;
-                        r.zdcKEAllD = keAll > 0.0 ? std::max(0.0, rngZdc.Gaus(keAll, keAll * std::sqrt(zdcResA * zdcResA / (keAll / 1000.0) + zdcResB * zdcResB))) : 0.0;
-                    }
                     {
                         blockHits.clear();
                         for (std::size_t i = 0; i < t.size(); i++) {if (t.zD[i] != 0.0) {blockHits.push_back(i);}}
@@ -547,8 +574,48 @@ static void ReconAngleAllFit(){
                             }
                         }
                     }
+                    for (const std::size_t c : best) usedRun[evRunOf[c]] = 1;
                     rows.push_back(r);
                 } // the tracks of the event
+                for (std::size_t k = 0; k < nRunsEv; k++) if (enteredRun[k]) {
+                    (ceRun[k] ? er.nCEPartEv : er.nOtherPartEv)++;
+                    if (usedRun[k]) (ceRun[k] ? er.nCERecoEv : er.nOtherRecoEv)++;
+                }
+                er.nRecoEv = int(rows.size() - rowStart);
+                // the rest of the tally (F8_TrackerFits.cpp). The plane of a hit is the plane of planeZ nearest to its z, as nChargedPlane; a plane no event hits still counts for the chain and the last tracker.
+                const auto planeOf = [&](double z){
+                    const auto it = std::lower_bound(planeZ.begin(), planeZ.end(), z);
+                    std::size_t k = it - planeZ.begin();
+                    if (k > 0 && (k == planeZ.size() || z - planeZ[k - 1] < planeZ[k] - z)) k--;
+                    return (int)std::min(k, planeZ.size() - 1);
+                };
+                for (const int id : mixedCEIDs) if (!pureCEIDs.count(id) && trueTrack[id].first >= 2) er.nMixedCEEv++; // only the particles with 2+ hits, the reconstructable ones
+                er.nPureEv = nPureTr; er.nMixedNoCEEv = nMixedNoCETr; er.nPureCEEv = (int)pureCEIDs.size(); er.nPureTrueEv = (int)pureIDs.size();
+                er.trkClassEv = er.nPureCEEv > 0 ? 1 : (er.nMixedCEEv > 0 ? 2 : 0);
+                for (const auto& [id, tt] : trueTrack) {
+                    er.maxHitEv = std::max(er.maxHitEv, tt.first);
+                    if (tt.first < 2) continue;
+                    er.nTrueEv++; if (tt.second) er.nTrueCEEv++;
+                    if (!usedIDs.count(id)) {er.nMissingEv++; if (tt.second) er.nMissingCEEv++;}
+                }
+                std::map<int, int> lastOf; // track ID -> its highest tracker plane index
+                std::vector<int> cntPlane(planeZ.size(), 0);
+                for (std::size_t c = 0; c < evPts.size(); c++) {
+                    const int p = planeOf(hz[c]);
+                    cntPlane[p]++;
+                    auto it = lastOf.find(at(evPts[c]).trackID);
+                    if (it == lastOf.end()) lastOf[at(evPts[c]).trackID] = p; else it->second = std::max(it->second, p);
+                }
+                int run1 = 0; // the longest run of trackers in a row with exactly 1 charged hit, any start
+                for (const int n : cntPlane) {run1 = n == 1 ? run1 + 1 : 0; er.chainLenEv = std::max(er.chainLenEv, run1);}
+                for (std::size_t p = 0; p < cntPlane.size(); p++) er.nHitPlane[p] = cntPlane[p];
+                for (const auto& [id, p] : lastOf) {
+                    const auto& tt = trueTrack[id];
+                    if (tt.first < 2) continue;
+                    er.trueLastPlane.push_back(p + 1); er.trueKind.push_back(!tt.second ? 0 : (pureCEIDs.count(id) ? 2 : 1));
+                    if (er.maxHitEv >= 2 && tt.first == er.maxHitEv) er.maxHitLastEv = std::max(er.maxHitLastEv, p + 1);
+                }
+                shardEv[shard].push_back(er);
             }
         }, ROOT::TSeqU(nShards));
 
@@ -576,7 +643,6 @@ static void ReconAngleAllFit(){
             tree->Branch("y0DOut", &cur.y0D);
             tree->Branch("bxDOut", &cur.bxD);
             tree->Branch("byDOut", &cur.byD);
-            tree->Branch("inCE", &cur.inCE);
             tree->Branch("xVertexOut", &cur.xVertex);
             tree->Branch("yVertexOut", &cur.yVertex);
             tree->Branch("zVertexOut", &cur.zVertex);
@@ -588,16 +654,7 @@ static void ReconAngleAllFit(){
             tree->Branch("impactD", &cur.impactD);
             tree->Branch("r2", &cur.r2);
             tree->Branch("r2D", &cur.r2D);
-            tree->Branch("nChargedParticle", &cur.nChargedParticle);
-            tree->Branch("nZdcCharged", &cur.nZdcCharged);
-            tree->Branch("zdcKEAll", &cur.zdcKEAll); // true KE sum of every particle (charged and neutral) at the ZDC entry (MeV), -1 without the sim column
-            tree->Branch("zdcKEAllD", &cur.zdcKEAllD); // zdcKEAll smeared once with the ZDC resolution (MeV), NAN without it; the KE cut of F9_PlotReconNew.cpp
-            tree->Branch("nTrackerHitsEv", &cur.nTrackerHitsEv);
-            tree->Branch("nTrackerTracksEv", &cur.nTrackerTracksEv);
             tree->Branch("nHits", &cur.nHits);
-            tree->Branch("nMaxChargedPerPlaneEv", &cur.nMaxChargedPerPlaneEv);
-            tree->Branch("nPlanesHitEv", &cur.nPlanesHitEv);
-            for (std::size_t i = 0; i < planeZ.size(); i++) tree->Branch(Form("nChargedPlane%d", (int)i), &cur.nChargedPlane[i]); // charged hits of the event on tracker plane i (z order, the last is the plane in front of the ZDC), one entry per hit
             tree->Branch("firstXD", &cur.firstXD);
             tree->Branch("firstYD", &cur.firstYD);
             tree->Branch("lastX", &cur.lastX);
@@ -654,6 +711,48 @@ static void ReconAngleAllFit(){
             }
             outFile->Write();
             shardRows[shard].clear(); shardRows[shard].shrink_to_fit();
+            // the Events tree: a row per event, every event level value (the columns the rows of AnglesRaw used to repeat) and the tally; OpenCut (CutFiles.h) attaches it to a tree with fEvent as a friend
+            auto evFile = evMerger.GetFile();
+            TTree *evTree = new TTree("Events", "One row per event: event level values and the tracker purity tally");
+            EvRow ec;
+            evTree->Branch("fEvent", &ec.eventID);
+            evTree->Branch("inCE", &ec.inCE); // the event has a carbon CE (truth)
+            evTree->Branch("nChargedParticle", &ec.nChargedParticle); // the tracks of the event that entered a tracker (any pdg)
+            evTree->Branch("nZdcCharged", &ec.nZdcCharged); // nZdcCharged, nTrackerHitsEv, nTrackerTracksEv from the sim EventSummary (all charged particles), -1 without the sim column
+            evTree->Branch("nTrackerHitsEv", &ec.nTrackerHitsEv);
+            evTree->Branch("nTrackerTracksEv", &ec.nTrackerTracksEv);
+            evTree->Branch("nMaxChargedPerPlaneEv", &ec.nMaxChargedPerPlaneEv); // the most charged tracks (TrackerHitsAll) that entered one tracker plane
+            evTree->Branch("nPlanesHitEv", &ec.nPlanesHitEv); // the distinct tracker planes those tracks entered (the 5_avgTrackerHitsPerPlane denominator)
+            for (std::size_t i = 0; i < planeZ.size(); i++) evTree->Branch(Form("nChargedPlane%d", (int)i), &ec.nChargedPlane[i]); // charged hits of the event on tracker plane i (z order, the last is the plane in front of the ZDC)
+            for (std::size_t i = 0; i < planeZ.size(); i++) evTree->Branch(Form("nHitPlane%d", (int)i), &ec.nHitPlane[i]); // front face tracker hits (the finder's) of the event on plane i, F8_TrackerFits.cpp
+            evTree->Branch("zdcKEAll", &ec.zdcKEAll); // true KE sum of every particle (charged and neutral) at the ZDC entry (MeV), -1 without the sim column
+            evTree->Branch("zdcKEAllD", &ec.zdcKEAllD); // zdcKEAll smeared once with the ZDC resolution (MeV), NAN without it; the KE cut of F9_PlotReconNew.cpp
+            evTree->Branch("nCEPartEv", &ec.nCEPartEv); // particles that entered a tracker, CE children / every other one
+            evTree->Branch("nOtherPartEv", &ec.nOtherPartEv);
+            evTree->Branch("nCERecoEv", &ec.nCERecoEv); // those with a hit in a fit of the event
+            evTree->Branch("nOtherRecoEv", &ec.nOtherRecoEv);
+            evTree->Branch("nRecoEv", &ec.nRecoEv); // the fits (AnglesRaw rows) of the event
+            evTree->Branch("trkClassEv", &ec.trkClassEv);
+            evTree->Branch("nPureEv", &ec.nPureEv);
+            evTree->Branch("nPureCEEv", &ec.nPureCEEv);
+            evTree->Branch("nMixedCEEv", &ec.nMixedCEEv);
+            evTree->Branch("nMixedNoCEEv", &ec.nMixedNoCEEv);
+            evTree->Branch("nMissingEv", &ec.nMissingEv);
+            evTree->Branch("nMissingCEEv", &ec.nMissingCEEv);
+            evTree->Branch("nTrueEv", &ec.nTrueEv);
+            evTree->Branch("nTrueCEEv", &ec.nTrueCEEv);
+            evTree->Branch("nPureTrueEv", &ec.nPureTrueEv);
+            evTree->Branch("maxHitEv", &ec.maxHitEv);
+            evTree->Branch("maxHitLastEv", &ec.maxHitLastEv);
+            evTree->Branch("chainLenEv", &ec.chainLenEv);
+            evTree->Branch("trueLastPlane", &ec.trueLastPlane);
+            evTree->Branch("trueKind", &ec.trueKind);
+            for (const EvRow &e : shardEv[shard]) {
+                ec = e;
+                evTree->Fill();
+            }
+            evFile->Write();
+            shardEv[shard].clear(); shardEv[shard].shrink_to_fit();
         }, ROOT::TSeqU(nShards));
         printf(">>> ReconAngleAll group %zu: read %.1f s, sort and fit %.1f s, write %.1f s\n", first, secs(tRead0, tFit0), secs(tFit0, tWrite0), secs(tWrite0, Clock::now())); fflush(stdout);
         if (prefetch.joinable()) prefetch.join();
@@ -662,5 +761,12 @@ static void ReconAngleAllFit(){
 }
 
 void ReconAngleAll(){
-    ReconAngleAllFit();
+    ReconAngleAllFit(); // the mergers are closed when it returns
+    // Events is indexed on fEvent so a tree with fEvent can have it as a friend (AttachEvents, CutFiles.h) and cut on its columns by name
+    TFile f("cuts/cut_events.root", "UPDATE");
+    TTree* ev = f.IsZombie() ? nullptr : (TTree*)f.Get("Events");
+    if (!ev){Error("ReconAngleAll", "no Events tree in cuts/cut_events.root"); return;}
+    ev->BuildIndex("fEvent");
+    ev->Write("", TObject::kOverwrite);
+    printf(">>> ReconAngleAll Events: %lld events, indexed on fEvent\n", (long long)ev->GetEntries());
 }

@@ -15,6 +15,7 @@
 #include "ROOT/RDataFrame.hxx"
 
 #include "TmvaVars.h"
+#include "CutFiles.h"
 
 void TmvaSplit(const char* input = "cuts/cut_angles_all.root", int prescale = 2){
     if (gSystem->AccessPathName(input)){Error("TmvaSplit", "no %s", input); return;}
@@ -33,14 +34,20 @@ void TmvaSplit(const char* input = "cuts/cut_angles_all.root", int prescale = 2)
     }
 
     ROOT::EnableImplicitMT(NThreads());
-    ROOT::RDataFrame df("AnglesRaw", input);
+    TFile* fin = TFile::Open(input, "READ");
+    TTree* rawTree = fin ? (TTree*)fin->Get("AnglesRaw") : nullptr;
+    if (!rawTree){Error("TmvaSplit", "no AnglesRaw in %s", input); return;}
+    AttachEvents(rawTree); // zdcKEAllD and nChargedParticle are columns of the Events tree (cuts/cut_events.root), a friend of AnglesRaw
+    ROOT::RDataFrame df(*rawTree);
     ROOT::RDF::RNode kept = df.Filter(Form("fEvent %% %d == 0", prescale));
     for (const auto& x : vars) if (x.type == 'D') kept = kept.Redefine(x.name, Form("TMath::Finite(%s) ? %s : %g", x.name.c_str(), x.name.c_str(), kTmvaMissing)); // NaN becomes kTmvaMissing, no row is dropped
     auto signal = kept.Filter("isFromCE == 1");
     auto background = kept.Filter("isFromCE == 0");
-    // one pass over AnglesRaw per file (a Snapshot runs when it is booked); the row count is read back from the file it wrote
-    auto signalFile = signal.Snapshot("TmvaSignal", "cuts/cut_tmva_signal.root", columns);
-    auto backgroundFile = background.Snapshot("TmvaBackground", "cuts/cut_tmva_background.root", columns);
+    // both Snapshots are lazy and RunGraphs runs them in one pass over AnglesRaw (an eager Snapshot runs when it is booked, one pass each); the row count is read back from the file it wrote
+    ROOT::RDF::RSnapshotOptions lazy; lazy.fLazy = true;
+    auto signalFile = signal.Snapshot("TmvaSignal", "cuts/cut_tmva_signal.root", columns, lazy);
+    auto backgroundFile = background.Snapshot("TmvaBackground", "cuts/cut_tmva_background.root", columns, lazy);
+    ROOT::RDF::RunGraphs({signalFile, backgroundFile});
     const ULong64_t nSig = *signalFile->Count(), nBkg = *backgroundFile->Count();
     std::cout << "==> cuts/cut_tmva_signal.root " << nSig << " rows, cuts/cut_tmva_background.root " << nBkg << " rows (prescale " << prescale << ")" << std::endl;
     {std::ofstream out("cuts/tmva_prescale.txt"); out << prescale << "\n";} // the events with fEvent % prescale == 0 trained the BDT, F9_PlotReconNew.cpp leaves them out of the BDT cut fits

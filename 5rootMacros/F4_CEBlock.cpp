@@ -50,8 +50,7 @@ void PlotDiffPhiCuts(double absLo = 50, double absHi = 180, std::string energy =
     auto cDiff = plan.C(diff, {"fEvent"}, Form("fabs(phiReD) >= %g && fabs(phiReD) <= %g", absLo, absHi));
     // Every recon event (the rows of AnglesRaw in cut_angles_all.root): fEvent for the positions,
     // the KE of the energy (zdcKEAll / zdcKEAllD), isFromCE and the block line fit quality (ReconAngleAll.cpp)
-    TFile* fAng = TFile::Open("cuts/cut_angles_all.root", "READ");
-    TTree* ang = fAng ? (TTree*)fAng->Get(kAngleTree) : nullptr;
+    TTree* ang = OpenCut("cuts/cut_angles_all.root", kAngleTree); // with the Events tree as a friend: zdcKEAll, zdcKEAllD, inCE, nChargedParticle by name
     if (!ang){Error("PlotDiffPhiCuts", "no AnglesRaw in cuts/cut_angles_all.root (rerun ReconAngleAll.cpp)"); return;}
     const std::string angSel = AngleSelection("Angles"); // the same rows for both column sets, so they line up
     auto cAng = plan.C(ang, {"fEvent", KeVar(suffix), "isFromCE", "resDRms", "phiRelN", "phiRelND"}, angSel);
@@ -401,9 +400,8 @@ void GraphBlocks(){
     // then only those that also reached the ZDC.
     std::set<int> reconKeys; // the recon events (fEvent) with a carbon CE
     {
-        TFile *fAng = TFile::Open("cuts/cut_angles_all.root", "READ");
-        TTree *a = fAng ? (TTree*)fAng->Get(kAngleTree) : nullptr; // the AnglesCE view: AnglesRaw rows (events) with inCE set
-        if (!a || !a->GetBranch("inCE")){Error("GraphBlocks", "AnglesRaw with inCE missing in cuts/cut_angles_all.root (rerun ReconAngleAll.cpp)"); return;}
+        TTree *a = OpenCut("cuts/cut_angles_all.root", kAngleTree); // the AnglesCE view: AnglesRaw rows (events) with inCE set (inCE is a column of the Events friend)
+        if (!a || !EventsTree() || !EventsTree()->GetBranch("inCE")){Error("GraphBlocks", "AnglesRaw or the Events tree with inCE missing in cuts/ (rerun ReconAngleAll.cpp)"); return;}
         const auto keys = ColumnsUnordered(a, {"fEvent"}, "inCE != 0"); // multithreaded read in any order (TreeColumns.h), the keys go into a set
         for (size_t i = 0; i < keys[0].size(); i++) reconKeys.insert((int)keys[0][i]);
     }

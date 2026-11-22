@@ -29,6 +29,16 @@
 // The rows come back in entry order, one vector per expression, so a fill or a sum over them runs in the same order as the serial Draw loop did.
 // T is double or std::string (CECreator: "std::string(CECreator.data())"). filter is an optional row selection, a C++ expression like a TTree::Draw cut.
 // Every call JIT compiles its expressions: ask for all the columns of a tree at once.
+// A row selection that goes with a tree object: every Columns, ColumnsUnordered, CountsMT and HistsMT call on that tree object ANDs it into its cut. It lets several TChain objects of one file stand for
+// different sets of rows (F1_2_Plot3D.cpp: the evClass sets of AnglesRaw) with no file of their own. The filter is a cut string over the columns and friends of the tree.
+inline std::map<TTree*, std::string>& RowFilters(){static std::map<TTree*, std::string> m; return m;}
+inline void SetRowFilter(TTree* t, const std::string& rows){RowFilters()[t] = rows;}
+inline std::string WithRows(TTree* t, const std::string& cut){
+    const auto it = RowFilters().find(t);
+    if (it == RowFilters().end() || it->second.empty()) return cut;
+    return (cut.empty() || cut == "1") ? "(" + it->second + ")" : "(" + it->second + ") && (" + cut + ")";
+}
+
 inline std::string ColumnsExpr(TTree* t, std::string expr, std::map<std::string, std::string>& aliases){
     // a friend's branch is the column "Friend.branch" of the RDataFrame, which an expression cannot spell: it goes through the alias Friend__branch
     if (t->GetListOfFriends()) for (auto* o : *t->GetListOfFriends()){
@@ -45,7 +55,8 @@ inline std::string ColumnsExpr(TTree* t, std::string expr, std::map<std::string,
 #include "FitCore.h" // WithEntryNumber: rdfentry_ is wrong under implicit MT on a tree with several clusters
 
 template <class T = double>
-inline std::vector<std::vector<T>> Columns(TTree* t, const std::vector<std::string>& exprs, const std::string& filter = ""){
+inline std::vector<std::vector<T>> Columns(TTree* t, const std::vector<std::string>& exprs, const std::string& filterIn = ""){
+    const std::string filter = WithRows(t, filterIn);
     static_assert(std::is_same<T, double>::value || std::is_same<T, std::string>::value, "Columns: T is double or std::string");
     const std::string type = std::is_same<T, double>::value ? "double" : "std::string";
     using Row = std::pair<ULong64_t, T>; // (entry, value): the entries put the rows of the threads back in order
@@ -76,7 +87,8 @@ inline std::vector<std::vector<T>> Columns(TTree* t, const std::vector<std::stri
 // Like Columns for double expressions, but the rows come back in no particular order, and a tree with several clusters is read on all threads: no entry number, no sort.
 // Row k of every column is one entry (RowsAppend), so a loop over the columns sees the same rows as Columns, only permuted. Use it where the result does not depend on the order (counts,
 // sorts, matching by key); a sum over the rows can differ in the last digits between runs. Expressions, friends and the filter work as in Columns.
-inline std::vector<std::vector<double>> ColumnsUnordered(TTree* t, const std::vector<std::string>& exprs, const std::string& filter = ""){
+inline std::vector<std::vector<double>> ColumnsUnordered(TTree* t, const std::vector<std::string>& exprs, const std::string& filterIn = ""){
+    const std::string filter = WithRows(t, filterIn);
     std::map<std::string, std::string> aliases;
     const std::string cut = filter.empty() ? "" : ColumnsExpr(t, filter, aliases);
     std::string list = "ROOT::RVecD{";
@@ -141,7 +153,9 @@ inline std::string MemoKey(TTree* t, const std::string& s){
 }
 
 // CountMT of several cuts in ONE event loop (the counts come back in the order of cuts). Cuts that were counted before on the same tree come from the memo and are not booked again.
-inline std::vector<Long64_t> CountsMT(TTree* t, const std::vector<std::string>& cuts){
+inline std::vector<Long64_t> CountsMT(TTree* t, const std::vector<std::string>& cutsIn){
+    std::vector<std::string> cuts;
+    for (const auto& c : cutsIn) cuts.push_back(WithRows(t, c));
     static std::map<std::string, Long64_t> memo;
     const auto isAll = [](const std::string& c){return c.empty() || c == "1";};
     std::vector<std::string> keys, todo; // todo: the cuts that are not in the memo, each once
@@ -174,7 +188,9 @@ inline Long64_t CountMT(TTree* t, const std::string& cut = ""){return CountsMT(t
 // Bin contents are the same as the serial Draw; mean and RMS can differ in the last digits (the sums are added up per thread).
 // Several HistMT of one tree in one event loop: reqs are (drawExpr, cut) pairs, the histograms come back in the same order (nullptr for a target without binning). The names in the
 // drawExprs must differ, MakeHist replaces a histogram of the same name.
-inline std::vector<TH1*> HistsMT(TTree* t, const std::vector<std::pair<std::string, std::string>>& reqs){
+inline std::vector<TH1*> HistsMT(TTree* t, const std::vector<std::pair<std::string, std::string>>& reqsIn){
+    std::vector<std::pair<std::string, std::string>> reqs;
+    for (const auto& [drawExpr, cut] : reqsIn) reqs.emplace_back(drawExpr, WithRows(t, cut));
     // memo of the finished histograms: a request with the same tree, draw string and cut as an earlier one gets a clone of that histogram (named as MakeHist would name it), no event loop
     static std::map<std::string, TH1*> memo;
     std::map<std::string, std::string> aliases;

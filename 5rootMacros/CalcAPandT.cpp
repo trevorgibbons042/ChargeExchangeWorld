@@ -36,7 +36,9 @@ static void CalcAPandTBoth(){
     // entryNo: the true entry number of each row (rdfentry_ is wrong under MT on a tree with several clusters), taken before the Filter below
     ROOT::RDataFrame dfCEV0("ChargeExchange_values", "cuts/cut_CE.root");
     auto dfCEV = WithEntryNumber(dfCEV0, dfCEV0.GetNSlots());
-    ROOT::RDataFrame dfAnglesAll0(kAngleTree, "cuts/cut_angles_all.root");
+    TTree* anglesRaw = OpenCut("cuts/cut_angles_all.root", kAngleTree); // with the Events tree as a friend: zdcKEAllD and the other event columns by name
+    if (!anglesRaw){Error("CalcAPandT", "no AnglesRaw in cuts/cut_angles_all.root (run ReconAngleAll.cpp)"); return;}
+    ROOT::RDataFrame dfAnglesAll0(*anglesRaw);
     auto dfAnglesAll = WithEntryNumber(dfAnglesAll0, dfAnglesAll0.GetNSlots());
     auto dfAngles = dfAnglesAll.Filter("isFromCE==1"); // the recon tracks whose fit used a CE child hit (evClass 0 or 1), ReconAngleAll.cpp fits every track the finder finds
     
@@ -115,7 +117,7 @@ static void CalcAPandTBoth(){
     // The five trees are filled in the same loop, so their entries line up (the plots use them as friends). TTree::Fill is not thread-safe: the CE tracks are cut into chunks, every chunk is
     // filled by one thread into five trees of its own in a file the TBufferMerger gives it, and a chunk's five trees reach the output file together, so the entries stay aligned.
     // The rows come in the order the chunks finish; nothing reads them by position.
-    ROOT::TBufferMerger merger("cuts/cut_APandT.root", "RECREATE");
+    ROOT::TBufferMerger merger("cuts/cut_APandT.root", "RECREATE", 106); // zlib level 6 like the sim output (7run.cc)
     std::vector<std::pair<const Key3*, const Track*>> ceTracks;
     for (auto &shardMap : tracksCE) for (auto &kt : shardMap) ceTracks.emplace_back(&kt.first, &kt.second);
     const std::size_t nChunks = std::min<std::size_t>(ceTracks.size(), nShards * 4);

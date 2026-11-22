@@ -22,7 +22,7 @@
 #include "Plot3DCols.h"
 #include "TreeColumns.h"
 
-// The maps (gP3Keys, gP3Flags, gP3Vals), isReco/rawVal/rawOk and the columns (cut_Plot3DCE.root, cut_Plot3DAllEv.root) or aliases (AnglesRaw) that replace them in the Draw cuts (P3) are in Plot3DCols.h.
+// isReco/rawVal/rawOk in the Draw cuts and expressions are rewritten by P3 (Plot3DCols.h) into formulas of the columns of AnglesRaw and Events.
 
 // Plot3D writes 1_position (1_true and 2_block) and 2_energy. P3_SUB=n runs one group only (0: 1_position/1_true, 1: 1_position/2_block, 2: 2_energy), so the three can run as three processes side by side. Without it all three run.
 static bool RunSub(int i){const char* e = std::getenv("P3_SUB"); return !e || !*e || std::atoi(e) == i;}
@@ -36,20 +36,27 @@ void F1_2_Plot3D(){
 
     gSystem->mkdir(folder.c_str(), true);
 
-    // the maps are loaded by CutPlots.cpp (zdc) (Plot3DColumns), not here
 
-
-    // The three sets are rows of AnglesRaw (one recon fit per track the finder finds) split by evClass, with the Plot3D columns (Plot3DCols.h, CutPlots.cpp (zdc)):
-    // events2 CE recon protons (evClass 0, cut_Plot3DCE.root), eventsAllEv CE + CE mix recon (evClass 0 or 1, cut_Plot3DAllEv.root), eventsAllPart all recon (cut_Plot3DAllPart.root).
+    // The three sets are rows of AnglesRaw (one recon fit per track the finder finds) split by evClass, with the Plot3D columns (Plot3DCols.h):
+    // events2 CE recon protons (evClass 0), eventsAllEv CE + CE mix recon (evClass 0 or 1), eventsAllPart all recon.
     // The position of a row is the last tracker hit (lastX, lastY, lastXD, lastYD), its KE the ZDC sum of the event (zdcKEAll, zdcKEAllD); every Draw cut goes through P3() so isReco(fEvent) etc. read the columns
-    TTree *events2 = OpenCut("cuts/cut_Plot3DCE.root", kAngleTree);
+    // There is no file of its own: each set is cuts/cut_angles_all.root opened again (a tree object per set, so the three differ) with Events as a friend and a row filter (SetRowFilter, TreeColumns.h) that every count, histogram and column of the tree ANDs into its cut.
+    const auto openRows = [](const char* rows) -> TTree* {
+        TFile* f = TFile::Open("cuts/cut_angles_all.root", "READ");
+        TTree* t = f && !f->IsZombie() ? (TTree*)f->Get(kAngleTree) : nullptr;
+        if (!t || !EventsTree()) return nullptr; // ReconAngleAll.cpp makes both
+        AttachEvents(t);
+        SetRowFilter(t, rows);
+        return t;
+    };
+    TTree *events2 = openRows("evClass == 0");
 
-    // the position plots (1_position) have no ZDC requirement: the rows of cut_Plot3DAllEv / cut_Plot3DAllPart; the energy plots (2_energy) read the same files and need a ZDC KE through zdcKEAll > 0 in their cut strings
-    TTree* posAllEv = OpenCut("cuts/cut_Plot3DAllEv.root", kAngleTree);
-    TTree* posAllPart = OpenCut("cuts/cut_Plot3DAllPart.root", kAngleTree);
+    // the position plots (1_position) have no ZDC requirement: the rows of eventsAllEv / eventsAllPart; the energy plots (2_energy) read the same rows and need a ZDC KE through zdcKEAll > 0 in their cut strings
+    TTree* posAllEv = openRows("evClass == 0 || evClass == 1");
+    TTree* posAllPart = openRows("");
     TTree* eventsAllEv = posAllEv; // CE + CE mix recon and all recon: the same rows as the position plots, the ZDC KE comes from the cut strings
     TTree* eventsAllPart = posAllPart;
-    if (!events2 || !posAllEv || !posAllPart){Error("Plot3D", "missing cuts/cut_Plot3DCE.root, cut_Plot3DAllEv.root or cut_Plot3DAllPart.root (run CutPlots.cpp first)"); return;}
+    if (!events2 || !posAllEv || !posAllPart){Error("Plot3D", "missing cuts/cut_angles_all.root or cuts/cut_events.root (run ReconAngleAll.cpp first)"); return;}
 
 
     {

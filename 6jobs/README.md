@@ -99,7 +99,7 @@ qsub -v RUN=<run>,SCRIPT=run_tmva.sh Analysis.pbs
 qsub -v RUN=<run>,STEP=<step>,NCPUS=16 Plot.pbs
 ```
 
-Steps: `cutevents`, `analysis`, `recon`, `reconnew`, `plotnew`, `calc`, `countce`, `cutzdc`, `plot3d`, `ceblock`, `calcplots` (3_ReconCalcVals and 5_fomCalc), `secce`, `pdfs`. Copy the macros into the run folder first.
+Steps: `cutevents`, `analysis`, `recon`, `reconnew`, `plotnew`, `calc`, `countce`, `plot3d`, `ceblock`, `calcplots` (3_ReconCalcVals and 5_fomCalc), `secce`, `pdfs`. Copy the macros into the run folder first.
 
 ## Options
 

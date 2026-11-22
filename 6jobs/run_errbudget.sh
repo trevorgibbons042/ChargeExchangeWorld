@@ -1,5 +1,5 @@
 #source ~/.zshrc
-# The error budget chain of one run folder: the recon and the cut files, then PErrorBudget.cpp (plots/11_errorBudget/*.txt). No plots, no pdfs.
+# The error budget chain of one run folder: the recon and the cut files, then PErrorBudget.cpp (plots/11_errorBudget/P_table.md, P_result.csv). No plots, no pdfs.
 # Submit: qsub -v RUN=<run folder in build/root>,SCRIPT=run_errbudget.sh Analysis.pbs
 source ./run_lib.sh
 

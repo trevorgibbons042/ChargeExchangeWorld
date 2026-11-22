@@ -6,7 +6,7 @@
 - **cut_ParentID**: tracks whose parent is a CE track of the same event.
 - **cut_AllEvProtons**: every proton that reaches the ZDC (`boundaryType == 2 && pdg == 2212`), for all events.
 - **cut_ParentZdc, cut_ParentTracker, cut_CEtracker, cut_CEall**: the ZDC and first-tracker protons of the CE children, and the CE outside the carbon blocks.
-- **cut_Plot3DCE, cut_Plot3DAllEv, cut_Plot3DAllPart** (CutPlots.cpp (zdc), ZdcColumns): AnglesRaw rows with evClass 0, 0 or 1, and any, with the Plot3D columns (Plot3DCols.h) added.
+- **Plot3D sets** (no cut files): `F1_2_Plot3D.cpp` opens `AnglesRaw` once per set with a row filter (`SetRowFilter`), evClass 0, 0 or 1, and any, and `P3()` (Plot3DCols.h) adds the Plot3D columns.
 
 ## Quality cut
 
