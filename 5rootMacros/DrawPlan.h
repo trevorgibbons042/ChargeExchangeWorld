@@ -17,6 +17,7 @@
 #include <algorithm>
 #include <cctype>
 #include <cstdlib>
+#include <map>
 #include <memory>
 #include <numeric>
 #include <string>
@@ -141,7 +142,9 @@ inline void DrawPlan::Run(){
     struct Booked {std::shared_ptr<Group> g; std::shared_ptr<ROOT::RDF::RResultPtr<std::vector<std::vector<double>>>> rows; bool ordFree = false;};
     std::vector<Booked> booked;
     std::vector<ROOT::RDF::RResultHandle> handles;
-    std::vector<std::unique_ptr<ROOT::RDataFrame>> dfs;
+    // one RDataFrame (and one entry number node) per TTree: every group of that tree hangs its filter and collector off it, so the tree is read once for all its groups
+    struct TreeNode {std::unique_ptr<ROOT::RDataFrame> df; std::unique_ptr<ROOT::RDF::RNode> base;};
+    std::map<TTree*, TreeNode> treeNodes;
     auto pending = groups;
     for (auto& g : pending){
         if (g->done) continue;
@@ -152,10 +155,17 @@ inline void DrawPlan::Run(){
         const bool ordFree = unordered && MultiCluster(g->tree); // no entry number is read: the rows of the tree are not put back in entry order
         if (ForceFallback()){g->failed = true; continue;}
         try {
-            dfs.emplace_back(new ROOT::RDataFrame(*g->tree)); // the number of slots is fixed when the RDataFrame is built
+            TreeNode& tn = treeNodes[g->tree];
+            if (!tn.df){
+                tn.df.reset(new ROOT::RDataFrame(*g->tree)); // the number of slots is fixed when the RDataFrame is built
+                bool needEntry = false; // some group of this tree reads the entry order
+                for (auto& g2 : pending) if (g2->tree == g->tree && !g2->done && !(unordered && MultiCluster(g2->tree))) needEntry = true;
+                ROOT::RDF::RNode n0 = *tn.df;
+                if (needEntry) n0 = WithEntryNumber(n0, tn.df->GetNSlots()); // exact entry numbers, before any Filter
+                tn.base.reset(new ROOT::RDF::RNode(n0));
+            }
             auto& hv = handles;
-            ROOT::RDF::RNode node = *dfs.back();
-            if (!ordFree) node = WithEntryNumber(node, dfs.back()->GetNSlots()); // exact entry numbers, before any Filter
+            ROOT::RDF::RNode node = *tn.base;
             if (!g->sel.empty()) node = node.Filter(g->sel + " != 0");
             Booked b; b.g = g; b.ordFree = ordFree;
             std::string list = ordFree ? "ROOT::RVecD{0.0" : "ROOT::RVecD{(double)entryNo"; // column 0 is not read when the order is free

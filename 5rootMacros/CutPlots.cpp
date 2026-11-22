@@ -24,7 +24,6 @@
 // Every cut file the plot macros read, in one macro, as a part (CutPlots("<part>")):
 //   events   cuts/cut_*.root from the sim output (CutEvents), run_all.sh runs it after ReconAngleAll
 //   count    the CE counts per block and tracker plane (CountCE), after events
-//   zdc      nothing to write any more: F1_2_Plot3D.cpp reads AnglesRaw with the Events friend and a row filter per set (the cut_Plot3D*.root copies are gone)
 
 
 // ===== CutEvents (part "events", run after ReconAngleAll) =====
@@ -44,6 +43,14 @@ void CutEvents(){
     auto keys = dfCESel.Filter(CarbonCeCut())
         .Define("ceKey", [](int ev, int id){return ((long long)ev << 32) | (unsigned int)id;}, {"fEvent", "TrackID"})
         .Take<long long>("ceKey");
+    // cut_CEall (every CE of the sim) is a Snapshot of the same tree: booked lazily here so one RunGraphs pass over ChargeExchange_values makes the keys and the file (the file is closed again before stage 3 reads it)
+    const std::string ceTreeName = ChargeExchange->GetName();
+    {
+        ROOT::RDF::RSnapshotOptions lazyAll; lazyAll.fCompressionAlgorithm = ROOT::RCompressionSetting::EAlgorithm::kZLIB; lazyAll.fCompressionLevel = 6; lazyAll.fLazy = true; // zlib level 6 like the sim output (7run.cc)
+        auto ceAllSnap = ROOT::RDataFrame(*ChargeExchange).Snapshot(ceTreeName, "cuts/cut_CEall.root", "", lazyAll);
+        std::vector<ROOT::RDF::RResultHandle> handles0{keys, ceAllSnap};
+        ROOT::RDF::RunGraphs(handles0);
+    }
 
     // Lookup tables instead of one huge "a || b || ..." string per cut: those strings were JIT-compiled by cling
     // (serial, slow) and tested term by term for every entry.
@@ -61,10 +68,9 @@ void CutEvents(){
     auto isParent = [&](int ev, int parent){return ceEventParent.count(((long long)ev << 32) | (unsigned int)parent) > 0;};
 
     ROOT::RDataFrame df(*events);
-    ROOT::RDataFrame dfCEAll(*ChargeExchange);
 
     // The cuts chain off each other (see CutFiles.h): the big sim output is read once, in stage 1, for the two base files; the other cut is a filter of the small cut_CE.
-    //   stage 1 (sim output):  cut_CE (events with a carbon CE), cut_CEall (every CE)
+    //   stage 1 (sim output):  cut_CE (events with a carbon CE); cut_CEall (every CE) is written with the CE keys above
     //   stage 2 (cut_CE):      cut_ParentTracker (the protons that are children of a carbon CE track, at the first tracker)
     //   stage 3 (cut_CEall):   the carbon CE rows, added as the second tree (UPDATE) of cut_CE
     // Each stage is lazy: all the cuts of a stage are written in one pass over their input. The result handles own the open output files, so they are cleared (files closed)
@@ -76,7 +82,6 @@ void CutEvents(){
     {
         std::vector<ROOT::RDF::RResultHandle> handles;
         handles.emplace_back(df.Filter(inEvent, {"fEvent"}).Snapshot(pInfo, "cuts/cut_CE.root", "", lazy));
-        handles.emplace_back(dfCEAll.Snapshot(ceTree, "cuts/cut_CEall.root", "", lazy)); // every CE of the sim (the whole ChargeExchange_values tree, one row per CE)
         ROOT::RDF::RunGraphs(handles);
     }
     {
@@ -210,10 +215,9 @@ void CountCE(){
     }
 }
 
-void CutPlots(const char* partArg = "zdc"){ // a const char*: calling a macro with a std::string argument fails on the Mac cling (Failed to materialize symbols)
+void CutPlots(const char* partArg = ""){ // a const char*: calling a macro with a std::string argument fails on the Mac cling (Failed to materialize symbols)
     const std::string part = partArg;
     if (part == "events"){CutEvents(); return;} // the cut files of the sim output, after ReconAngleAll in run_all.sh
     if (part == "count"){CountCE(); return;} // the CE counts per block, after CutEvents
-    if (part != "zdc"){Error("CutPlots", "part must be events, count or zdc"); return;}
-    printf(">>> CutPlots zdc: nothing to write, F1_2_Plot3D.cpp reads cuts/cut_angles_all.root and cuts/cut_events.root\n"); fflush(stdout); // kept so the zdc step of plot.sh, Plot.pbs and SubmitPlots.sh still runs
+    Error("CutPlots", "part must be events or count");
 }

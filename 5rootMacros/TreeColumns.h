@@ -54,6 +54,16 @@ inline std::string ColumnsExpr(TTree* t, std::string expr, std::map<std::string,
 
 #include "FitCore.h" // WithEntryNumber: rdfentry_ is wrong under implicit MT on a tree with several clusters
 
+// The RDataFrame node every reader below starts from: all threads (call ROOT::EnableImplicitMT first), the aliases of the friend columns (ColumnsExpr), the entry number column entryNo only when
+// needEntry (3 extra nodes on every row), and the filter cut when it is not empty. The RDataFrame itself may go out of scope: the nodes keep its loop manager alive.
+inline ROOT::RDF::RNode BaseNode(TTree* t, const std::map<std::string, std::string>& aliases, const std::string& cut, bool needEntry){
+    ROOT::RDataFrame df0(*t);
+    ROOT::RDF::RNode df = needEntry ? WithEntryNumber(df0, df0.GetNSlots()) : ROOT::RDF::RNode(df0); // exact entry numbers, before any Filter
+    for (const auto& [alias, column] : aliases) df = df.Alias(alias, column);
+    if (!cut.empty()) df = df.Filter(cut, "columns filter");
+    return df;
+}
+
 template <class T = double>
 inline std::vector<std::vector<T>> Columns(TTree* t, const std::vector<std::string>& exprs, const std::string& filterIn = ""){
     const std::string filter = WithRows(t, filterIn);
@@ -62,12 +72,32 @@ inline std::vector<std::vector<T>> Columns(TTree* t, const std::vector<std::stri
     using Row = std::pair<ULong64_t, T>; // (entry, value): the entries put the rows of the threads back in order
     std::map<std::string, std::string> aliases;
     const std::string cut = filter.empty() ? "" : ColumnsExpr(t, filter, aliases);
+    if constexpr (std::is_same<T, double>::value){
+        // doubles: one row per entry holding the entry number and every expression (RowsAppend, FitCore.h), then ONE sort of the entry numbers puts every column in entry order.
+        // (a Take of (entry, value) pairs per expression stored the entry k times and sorted k times)
+        std::string list = "ROOT::RVecD{(double)entryNo";
+        for (const auto& e : exprs) list += ", (double)(" + ColumnsExpr(t, e, aliases) + ")";
+        list += "}";
+        ROOT::RDF::RNode d = BaseNode(t, aliases, cut, true).Define("__row", list);
+        auto agg = d.Aggregate([](RowCols& acc, const ROOT::RVecD& v){RowsAppend(acc, v);}, [](std::vector<RowCols>& slots){RowsMerge(slots);}, "__row", RowCols());
+        RowCols all = std::move(const_cast<RowCols&>(*agg));
+        all.resize(exprs.size() + 1);
+        const size_t nr = all[0].size();
+        std::vector<size_t> order(nr);
+        std::iota(order.begin(), order.end(), (size_t)0);
+        std::sort(order.begin(), order.end(), [&](size_t a, size_t b){return all[0][a] < all[0][b];});
+        std::vector<double>().swap(all[0]);
+        std::vector<std::vector<T>> out(exprs.size());
+        for (size_t c = 0; c < exprs.size(); c++){
+            out[c].reserve(nr);
+            for (size_t i : order) out[c].push_back(all[c + 1][i]);
+            std::vector<double>().swap(all[c + 1]); // freed column by column
+        }
+        return out;
+    }
     std::vector<std::string> defs;
     for (const auto& e : exprs) defs.push_back("std::make_pair((ULong64_t)entryNo, (" + type + ")(" + ColumnsExpr(t, e, aliases) + "))");
-    ROOT::RDataFrame df0(*t);
-    ROOT::RDF::RNode df = WithEntryNumber(df0, df0.GetNSlots()); // all threads, exact entry numbers
-    for (const auto& [alias, column] : aliases) df = df.Alias(alias, column);
-    if (!cut.empty()) df = df.Filter(cut, "columns filter");
+    ROOT::RDF::RNode df = BaseNode(t, aliases, cut, true);
     std::vector<ROOT::RDF::RResultPtr<std::vector<Row>>> taken;
     for (size_t i = 0; i < exprs.size(); i++){
         const std::string col = "tcol" + std::to_string(i);
@@ -94,15 +124,26 @@ inline std::vector<std::vector<double>> ColumnsUnordered(TTree* t, const std::ve
     std::string list = "ROOT::RVecD{";
     for (size_t i = 0; i < exprs.size(); i++) list += std::string(i ? ", " : "") + "(double)(" + ColumnsExpr(t, exprs[i], aliases) + ")";
     list += "}";
-    ROOT::RDataFrame df0(*t);
-    ROOT::RDF::RNode df = WithEntryNumber(df0, df0.GetNSlots()); // all threads, exact entry numbers
-    for (const auto& [alias, column] : aliases) df = df.Alias(alias, column);
-    if (!cut.empty()) df = df.Filter(cut, "columns filter");
-    df = df.Define("__row", list);
+    // the entry number only when an expression or the filter names entryNo
+    const bool needEntry = list.find("entryNo") != std::string::npos || cut.find("entryNo") != std::string::npos;
+    ROOT::RDF::RNode df = BaseNode(t, aliases, cut, needEntry).Define("__row", list);
     auto rows = df.Aggregate([](RowCols& acc, const ROOT::RVecD& v){RowsAppend(acc, v);}, [](std::vector<RowCols>& slots){RowsMerge(slots);}, "__row", RowCols());
     RowCols cols = std::move(const_cast<RowCols&>(*rows));
     cols.resize(exprs.size());
     return cols;
+}
+
+// One multithreaded pass that hands every row to fn(entry, values) (entry: the exact entry number of the row, values: the expressions in order), with no column vectors in memory.
+// fn runs on all the threads at once, so it may only write to places that belong to its own entry (rows[entry]) or lock. Expressions, friends and the filter work as in Columns.
+template <class F>
+inline void ForEachRowMT(TTree* t, const std::vector<std::string>& exprs, const std::string& filterIn, F fn){
+    const std::string filter = WithRows(t, filterIn);
+    std::map<std::string, std::string> aliases;
+    const std::string cut = filter.empty() ? "" : ColumnsExpr(t, filter, aliases);
+    std::string list = "ROOT::RVecD{";
+    for (size_t i = 0; i < exprs.size(); i++) list += std::string(i ? ", " : "") + "(double)(" + ColumnsExpr(t, exprs[i], aliases) + ")";
+    list += "}";
+    BaseNode(t, aliases, cut, true).Define("__row", list).Foreach([fn](ULong64_t entry, const ROOT::RVecD& v){fn(entry, v);}, {"entryNo", "__row"});
 }
 
 // The expressions and the histogram of a TTree::Draw string "y:x>>name(nx,lo,hi[,ny,lo,hi])": exprs in Draw order (y first), target the part after ">>".
@@ -170,9 +211,9 @@ inline std::vector<Long64_t> CountsMT(TTree* t, const std::vector<std::string>& 
             const size_t i = std::find(keys.begin(), keys.end(), k) - keys.begin();
             expr.push_back(isAll(cuts[i]) ? "" : ColumnsExpr(t, cuts[i], aliases));
         }
-        ROOT::RDataFrame df0(*t);
-        ROOT::RDF::RNode df = WithEntryNumber(df0, df0.GetNSlots()); // all threads, exact entry numbers
-        for (const auto& [alias, column] : aliases) df = df.Alias(alias, column);
+        bool needEntry = false;
+        for (const auto& e : expr) needEntry = needEntry || e.find("entryNo") != std::string::npos;
+        ROOT::RDF::RNode df = BaseNode(t, aliases, "", needEntry); // a count does not depend on the entry order
         std::vector<ROOT::RDF::RResultPtr<ULong64_t>> res;
         for (const auto& e : expr) res.push_back((e.empty() ? df : df.Filter(e, "count filter")).Count()); // lazy: the first GetValue runs the loop for all of them
         for (size_t j = 0; j < todo.size(); j++) memo[todo[j]] = (Long64_t)res[j].GetValue();
@@ -219,9 +260,12 @@ inline std::vector<TH1*> HistsMT(TTree* t, const std::vector<std::pair<std::stri
         defs.emplace_back();
         for (const auto& e : specs.back().exprs) defs.back().push_back("(double)(" + ColumnsExpr(t, e, aliases) + ")");
     }
-    ROOT::RDataFrame df0(*t);
-    ROOT::RDF::RNode df = WithEntryNumber(df0, df0.GetNSlots()); // all threads, exact entry numbers
-    for (const auto& [alias, column] : aliases) df = df.Alias(alias, column);
+    bool needEntry = false;
+    for (size_t j = 0; j < reqs.size(); j++) if (!cached[j]){
+        needEntry = needEntry || cuts[j].find("entryNo") != std::string::npos;
+        for (const auto& d : defs[j]) needEntry = needEntry || d.find("entryNo") != std::string::npos;
+    }
+    ROOT::RDF::RNode df = BaseNode(t, aliases, "", needEntry); // bin contents do not depend on the entry order
     std::vector<std::function<TH1*()>> src(reqs.size()); // the first call runs the event loop of every booked histogram
     for (size_t j = 0; j < reqs.size(); j++){
         TH1* h = hs[j];

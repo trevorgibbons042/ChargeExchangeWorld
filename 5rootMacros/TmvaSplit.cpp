@@ -13,6 +13,8 @@
 #include "TSystem.h"
 #include "TTree.h"
 #include "ROOT/RDataFrame.hxx"
+#include "ROOT/RDFHelpers.hxx" // RunGraphs
+#include "ROOT/RSnapshotOptions.hxx"
 
 #include "TmvaVars.h"
 #include "CutFiles.h"
@@ -43,12 +45,13 @@ void TmvaSplit(const char* input = "cuts/cut_angles_all.root", int prescale = 2)
     for (const auto& x : vars) if (x.type == 'D') kept = kept.Redefine(x.name, Form("TMath::Finite(%s) ? %s : %g", x.name.c_str(), x.name.c_str(), kTmvaMissing)); // NaN becomes kTmvaMissing, no row is dropped
     auto signal = kept.Filter("isFromCE == 1");
     auto background = kept.Filter("isFromCE == 0");
-    // both Snapshots are lazy and RunGraphs runs them in one pass over AnglesRaw (an eager Snapshot runs when it is booked, one pass each); the row count is read back from the file it wrote
+    // both Snapshots are lazy and RunGraphs runs them in one pass over AnglesRaw (an eager Snapshot runs when it is booked, one pass each); the row counts are booked in the same pass
     ROOT::RDF::RSnapshotOptions lazy; lazy.fLazy = true;
     auto signalFile = signal.Snapshot("TmvaSignal", "cuts/cut_tmva_signal.root", columns, lazy);
     auto backgroundFile = background.Snapshot("TmvaBackground", "cuts/cut_tmva_background.root", columns, lazy);
-    ROOT::RDF::RunGraphs({signalFile, backgroundFile});
-    const ULong64_t nSig = *signalFile->Count(), nBkg = *backgroundFile->Count();
+    auto nSigRes = signal.Count(), nBkgRes = background.Count(); // booked with the Snapshots: the same pass counts the rows, no read of the files just written
+    ROOT::RDF::RunGraphs({signalFile, backgroundFile, nSigRes, nBkgRes});
+    const ULong64_t nSig = *nSigRes, nBkg = *nBkgRes;
     std::cout << "==> cuts/cut_tmva_signal.root " << nSig << " rows, cuts/cut_tmva_background.root " << nBkg << " rows (prescale " << prescale << ")" << std::endl;
     {std::ofstream out("cuts/tmva_prescale.txt"); out << prescale << "\n";} // the events with fEvent % prescale == 0 trained the BDT, F9_PlotReconNew.cpp leaves them out of the BDT cut fits
 }

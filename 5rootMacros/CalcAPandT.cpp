@@ -77,40 +77,40 @@ static void CalcAPandTBoth(){
     int eventID, int trackID, double LastPhiLab, double LastThetaLab, ULong64_t entry, double dx, double dy, double dz){
         auto &t = slotTracksCE[slot][{eventID, trackID, 0}];
         // the CE angles are the lab angles of the proton (LastPhiLab, same secondary as LastTheta) relative to the TRUE neutron direction (CENDirX/Y/Z): CETHETA_NEUFRAME, CEPHI_NEUFRAME (rad, phi 0 to 2 pi)
-        const double LastTheta = CEThetaNeu(LastThetaLab, LastPhiLab, dx, dy, dz), LastPhi = CEPhiNeu(LastThetaLab, LastPhiLab, dx, dy, dz);
+        double LastTheta = 0, LastPhi = 0; CEAnglesNeu(LastThetaLab, LastPhiLab, dx, dy, dz, LastTheta, LastPhi);
         t.points.push_back({LastPhi, LastTheta, entry});
     },{"fEvent", "TrackID", "LastPhiLab", "LastTheta", "entryNo", "CENDirX", "CENDirY", "CENDirZ"});
     std::vector<TrackMap> tracksCE = mergeSlots(slotTracksCE);
 
 
     // An event can have several recon tracks that used a CE child hit (ReconAngleAll.cpp writes a row per track the finder finds). The CE of the event is paired with the one that used the most CE child hits, the lowest trackNo on a tie.
-    std::map<int, std::pair<int, int>> pickOf; // event -> (CE child hits used, trackNo) of that track
-    {
-        std::vector<std::map<int, std::pair<int, int>>> slotPick(dfAngles.GetNSlots());
-        dfAngles.ForeachSlot([&](unsigned slot, int eventID, int trackNo, int nCEUsed){
-            auto it = slotPick[slot].find(eventID);
-            if (it == slotPick[slot].end() || nCEUsed > it->second.first || (nCEUsed == it->second.first && trackNo < it->second.second)) slotPick[slot][eventID] = {nCEUsed, trackNo};
-        }, {"fEvent", "trackNo", "nCEUsed"});
-        for (const auto &m : slotPick) for (const auto &[ev, p] : m) {
-            auto it = pickOf.find(ev);
-            if (it == pickOf.end() || p.first > it->second.first || (p.first == it->second.first && p.second < it->second.second)) pickOf[ev] = p;
-        }
-    }
-
-    std::vector<TrackMap> slotTracksAngles(dfAngles.GetNSlots());
+    // One pass over the recon tracks: each slot keeps, per event, the best track so far with its two points (est neutron frame and block grid), the slots are then merged by the same rule, so a second pass to find the pick is not needed.
+    struct Pick {int nCEUsed = -1, trackNo = 0; Angles recon, block;};
+    const auto better = [](int nCE, int trackNo, const Pick& cur){return nCE > cur.nCEUsed || (nCE == cur.nCEUsed && trackNo < cur.trackNo);};
+    std::vector<std::map<int, Pick>> slotPick(dfAngles.GetNSlots());
     dfAngles.ForeachSlot([&](unsigned slot,
-    int eventID, double thetaRelN, double phiRelN, double thetaRelND, double phiRelND, ULong64_t entry, double zdcKEAllD, double labPhi, double labTheta, double labPhiD, double labThetaD, double thMin, double thMax, double phHalf, double thMinD, double thMaxD, double phHalfD, double thBMinD, double thBMaxD, double phBHalfD, double thLMinD, double thLMaxD, double phLHalfD, int trackNo){
-        if (trackNo != pickOf.at(eventID).second) return; // the recon track of the event the CE is paired with (pickOf)
-        // the key has no CE track (-1): every CE track of the event gets the recon track picked above
-        auto &tRecon = slotTracksAngles[slot][{eventID, -1, 1}];
-
-
-        tRecon.points.push_back({phiRelN, thetaRelN, entry, zdcKEAllD, labPhi, labTheta, thMin, thMax, phHalf});
-
-        auto &tReconBlock = slotTracksAngles[slot][{eventID, -1, 2}];
-
-        tReconBlock.points.push_back({phiRelND, thetaRelND, entry, zdcKEAllD, labPhiD, labThetaD, thMinD, thMaxD, phHalfD, thBMinD, thBMaxD, phBHalfD, thLMinD, thLMaxD, phLHalfD});
-        },{"fEvent", "thetaRelN", "phiRelN", "thetaRelND", "phiRelND", "entryNo", KeVar("_DE"), "outPhi", "outTheta", "outDPhi", "outDTheta", "thetaRelNMin", "thetaRelNMax", "phiRelNHalf", "thetaRelNDMin", "thetaRelNDMax", "phiRelNDHalf", "thetaRelNDBMin", "thetaRelNDBMax", "phiRelNDBHalf", "thetaLabDBMin", "thetaLabDBMax", "phiLabDBHalf", "trackNo"});
+    int eventID, double thetaRelN, double phiRelN, double thetaRelND, double phiRelND, ULong64_t entry, double zdcKEAllD, double labPhi, double labTheta, double labPhiD, double labThetaD, double thMin, double thMax, double phHalf, double thMinD, double thMaxD, double phHalfD, double thBMinD, double thBMaxD, double phBHalfD, double thLMinD, double thLMaxD, double phLHalfD, int trackNo, int nCEUsed){
+        auto it = slotPick[slot].find(eventID);
+        if (it != slotPick[slot].end() && !better(nCEUsed, trackNo, it->second)) return;
+        Pick& p = it != slotPick[slot].end() ? it->second : slotPick[slot][eventID];
+        p.nCEUsed = nCEUsed; p.trackNo = trackNo;
+        p.recon = {phiRelN, thetaRelN, entry, zdcKEAllD, labPhi, labTheta, thMin, thMax, phHalf};
+        p.block = {phiRelND, thetaRelND, entry, zdcKEAllD, labPhiD, labThetaD, thMinD, thMaxD, phHalfD, thBMinD, thBMaxD, phBHalfD, thLMinD, thLMaxD, phLHalfD};
+    },{"fEvent", "thetaRelN", "phiRelN", "thetaRelND", "phiRelND", "entryNo", KeVar("_DE"), "outPhi", "outTheta", "outDPhi", "outDTheta", "thetaRelNMin", "thetaRelNMax", "phiRelNHalf", "thetaRelNDMin", "thetaRelNDMax", "phiRelNDHalf", "thetaRelNDBMin", "thetaRelNDBMax", "phiRelNDBHalf", "thetaLabDBMin", "thetaLabDBMax", "phiLabDBHalf", "trackNo", "nCEUsed"});
+    std::map<int, Pick> pickOf;
+    for (auto &m : slotPick){
+        for (auto &[ev, p] : m){
+            auto it = pickOf.find(ev);
+            if (it == pickOf.end() || better(p.nCEUsed, p.trackNo, it->second)) pickOf[ev] = p;
+        }
+        m.clear();
+    }
+    // the key has no CE track (-1): every CE track of the event gets the recon track picked above
+    std::vector<TrackMap> slotTracksAngles(1);
+    for (auto &[ev, p] : pickOf){
+        slotTracksAngles[0][{ev, -1, 1}].points.push_back(p.recon);
+        slotTracksAngles[0][{ev, -1, 2}].points.push_back(p.block);
+    }
     std::vector<TrackMap> tracksAngles = mergeSlots(slotTracksAngles);
     
 

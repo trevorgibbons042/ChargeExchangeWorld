@@ -57,14 +57,15 @@ void F8_TrackerFits(){
     long long nEvLast = 0, nEvLastCE = 0, nEvLastMix = 0; // the events that gave at least 1 track to lastPlane, lastPlaneCE, lastPlaneMix (the events of the 6_last_tracker_of_track legend)
     std::vector<int> chainLen, maxHitLast, maxHit, evClass; // per event: the longest run of trackers in a row with exactly 1 charged hit; the last tracker of its longest track; the most tracker hits of any one track ID; its class (trkClassEv): 0 no CE particle with 2+ hits, 1 CE, 2 CE mix
     {
-        // the scalar columns of every event in entry order, one event loop on all the threads (Columns, TreeColumns.h), the hits of every plane of the run with them
-        std::vector<std::string> names = {"trkClassEv", "nPureEv", "nPureCEEv", "nMixedCEEv", "nMixedNoCEEv", "nMissingEv", "nMissingCEEv", "nTrueEv", "nTrueCEEv", "maxHitEv", "maxHitLastEv", "chainLenEv"};
+        // the scalar columns of every event, one event loop on all the threads (ColumnsUnordered, TreeColumns.h: every plot below only counts events, so their order does not matter, only that row k of every column is one event),
+        // the hits of every plane of the run with them. chainLen is recomputed from the plane hits below, so the chainLenEv column is not read.
+        std::vector<std::string> names = {"trkClassEv", "nPureEv", "nPureCEEv", "nMixedCEEv", "nMixedNoCEEv", "nMissingEv", "nMissingCEEv", "nTrueEv", "nTrueCEEv", "maxHitEv", "maxHitLastEv"};
         for (size_t p = 0; p < nAll; p++) names.push_back(Form("nHitPlane%zu", p));
-        const auto cols = Columns(ev, names);
+        const auto cols = ColumnsUnordered(ev, names);
         const auto asInts = [](const std::vector<double>& v){std::vector<int> r(v.size()); for (size_t i = 0; i < v.size(); i++) r[i] = (int)std::lround(v[i]); return r;};
         evClass = asInts(cols[0]); nPure = asInts(cols[1]); nPureCE = asInts(cols[2]); nMixedCE = asInts(cols[3]); nMixedNoCE = asInts(cols[4]); nMissing = asInts(cols[5]); nMissingCE = asInts(cols[6]);
-        nTrue = asInts(cols[7]); nTrueCE = asInts(cols[8]); maxHit = asInts(cols[9]); maxHitLast = asInts(cols[10]); chainLen = asInts(cols[11]);
-        for (size_t p = 0; p < nAll; p++) nHitAll[p] = asInts(cols[12 + p]);
+        nTrue = asInts(cols[7]); nTrueCE = asInts(cols[8]); maxHit = asInts(cols[9]); maxHitLast = asInts(cols[10]); chainLen.assign(cols[0].size(), 0);
+        for (size_t p = 0; p < nAll; p++) nHitAll[p] = asInts(cols[11 + p]);
         for (int t : nTrue) nTrueTracks += t;
 
         // the true tracks of every event (trueLastPlane, trueKind: one entry per true track with 2+ hits) only go into histograms, so the order of the events does not matter: each thread fills its own tally, the tallies are added up
@@ -247,20 +248,19 @@ void F8_TrackerFits(){
         WritePlotNumbers(a, path, numberFiles);
         canvas.SaveAs(path.c_str());
     }
-    // 9 and 10: per event, the tracker hits of the longest track (5_max_hits_per_track) against the last tracker of that track (6_last_tracker_of_track); CE = a CE particle has a pure track, all = every event with a track of 2+ hits
-    {
-        const int topMax = std::max(1, *std::max_element(maxHit.begin(), maxHit.end()));
+    // One pair of plots (CE, then all recon): the events with x[e] >= minX as x[e] against the last tracker of the longest track, colz text, log z for "all". Cuts none; the title names the events.
+    const auto lastTrackerMaps = [&](const char* hName, const std::vector<int>& x, int minX, int topX, const char* what, const char* xTitle, const char* yTitle, const char* pathCE, const char* pathAll){
         const double keepRight = canvas.GetRightMargin();
         gStyle->SetPalette(kViridis);
         canvas.cd(); canvas.SetLogy(0); canvas.SetRightMargin(0.15);
         for (int kind = 0; kind < 2; kind++){ // 0 CE, 1 all
-            TH2D* h = new TH2D(Form("maxVsLast%d", kind), "", topMax, 0.5, topMax + 0.5, (int)nPl, 0.5, nPl + 0.5);
-            for (size_t e = 0; e < maxHit.size(); e++){
-                if (maxHit[e] < 2 || (kind == 0 && evClass[e] != 1)) continue;
-                h->Fill(maxHit[e], maxHitLast[e]);
+            TH2D* h = new TH2D(Form("%s%d", hName, kind), "", topX, 0.5, topX + 0.5, (int)nPl, 0.5, nPl + 0.5);
+            for (size_t e = 0; e < x.size(); e++){
+                if (x[e] < minX || (kind == 0 && evClass[e] != 1)) continue;
+                h->Fill(x[e], maxHitLast[e]);
             }
-            const std::string path = kind == 0 ? "plots/8_trackerfits/9_maxhits_vs_last_tracker_CE.pdf" : "plots/8_trackerfits/10_maxhits_vs_last_tracker_all.pdf";
-            h->SetTitle(PlotTitle(path, Form("Longest track of the event, %s, %.0f events, no cuts;Trackers the longest charged track entered, 1 hit per tracker;Last tracker of that track", kind == 0 ? "CE" : "all recon", h->GetEntries())).c_str());
+            const std::string path = kind == 0 ? pathCE : pathAll;
+            h->SetTitle(PlotTitle(path, Form("%s, %s, %.0f events, no cuts;%s;%s", what, kind == 0 ? "CE" : "all recon", h->GetEntries(), xTitle, yTitle)).c_str());
             canvas.SetLogz(kind);
             h->SetMinimum(kind == 1 ? 0.5 : 0.0);
             h->Draw("colz text");
@@ -269,7 +269,10 @@ void F8_TrackerFits(){
             canvas.SaveAs(path.c_str());
         }
         canvas.SetLogz(0); canvas.SetLogy(1); canvas.SetRightMargin(keepRight);
-    }
+    };
+    // 9 and 10: per event, the tracker hits of the longest track (5_max_hits_per_track) against the last tracker of that track (6_last_tracker_of_track); CE = a CE particle has a pure track, all = every event with a track of 2+ hits
+    lastTrackerMaps("maxVsLast", maxHit, 2, std::max(1, *std::max_element(maxHit.begin(), maxHit.end())), "Longest track of the event", "Trackers the longest charged track entered, 1 hit per tracker", "Last tracker of that track",
+                    "plots/8_trackerfits/9_maxhits_vs_last_tracker_CE.pdf", "plots/8_trackerfits/10_maxhits_vs_last_tracker_all.pdf");
     // 11_max_hits_clean_chain.pdf: the events of 5_max_hits_per_track by chain length, the trackers in a row from tracker 1 with exactly 1 charged hit each (1,1,1,2 gives 3, 2,1,1 gives 0)
     {
         const int topChain = std::max(1, *std::max_element(chainLen.begin(), chainLen.end()));
@@ -303,27 +306,7 @@ void F8_TrackerFits(){
         canvas.SetBottomMargin(keepBottom);
     }
     // 12 and 13: the clean chains of 11_max_hits_clean_chain (1 charged hit on each tracker from tracker 1, one particle) as in 9 and 10: the chain length against the last tracker of the longest track of the event (6_last_tracker_of_track); CE = a CE particle has a pure track, all = every clean chain event
-    {
-        const int topChain = std::max(2, *std::max_element(chainLen.begin(), chainLen.end()));
-        const double keepRight = canvas.GetRightMargin();
-        gStyle->SetPalette(kViridis);
-        canvas.cd(); canvas.SetLogy(0); canvas.SetRightMargin(0.15);
-        for (int kind = 0; kind < 2; kind++){ // 0 CE, 1 all
-            TH2D* h = new TH2D(Form("chainVsLast%d", kind), "", topChain, 0.5, topChain + 0.5, (int)nPl, 0.5, nPl + 0.5);
-            for (size_t e = 0; e < chainLen.size(); e++){
-                if (chainLen[e] < 2 || (kind == 0 && evClass[e] != 1)) continue;
-                h->Fill(chainLen[e], maxHitLast[e]);
-            }
-            const std::string path = kind == 0 ? "plots/8_trackerfits/12_chain_vs_last_tracker_CE.pdf" : "plots/8_trackerfits/13_chain_vs_last_tracker_all.pdf";
-            h->SetTitle(PlotTitle(path, Form("Clean chains, %s, %.0f events, no cuts;Trackers of the clean chain, 1 hit per tracker (the first tracker alone is 1 hit);Last tracker of the longest track", kind == 0 ? "CE" : "all recon", h->GetEntries())).c_str());
-            canvas.SetLogz(kind);
-            h->SetMinimum(kind == 1 ? 0.5 : 0.0);
-            h->Draw("colz text");
-            canvas.Update();
-            WritePlotNumbers(h, path, numberFiles);
-            canvas.SaveAs(path.c_str());
-        }
-        canvas.SetLogz(0); canvas.SetLogy(1); canvas.SetRightMargin(keepRight);
-    }
+    lastTrackerMaps("chainVsLast", chainLen, 2, std::max(2, *std::max_element(chainLen.begin(), chainLen.end())), "Clean chains", "Trackers of the clean chain, 1 hit per tracker (the first tracker alone is 1 hit)", "Last tracker of the longest track",
+                    "plots/8_trackerfits/12_chain_vs_last_tracker_CE.pdf", "plots/8_trackerfits/13_chain_vs_last_tracker_all.pdf");
     BoxAndCropPlots();
 }

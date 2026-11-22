@@ -34,9 +34,25 @@ void F5_FomCalc(){
     const double binW = 0.05, thetaMax = 15.0; // deg
     const int nBins = (int)std::lround(thetaMax / binW);
 
-    // theta of the est neutron frame in degrees for both positions, and the event class, one pass over the tree on all threads
-    const auto cols = ColumnsUnordered(t, {"thetaRelN*180/TMath::Pi()", "thetaRelND*180/TMath::Pi()", "evClass"});
-    const Long64_t nRows = (Long64_t)cols[2].size();
+    // theta of the est neutron frame in degrees for both positions and the event class: one pass over the tree on all threads, each slot counts into its own bins (no column vectors of every row in memory)
+    ROOT::RDataFrame df0(*t);
+    ROOT::RDF::RNode df = df0.Define("thTrue", "thetaRelN*180/TMath::Pi()").Define("thBlock", "thetaRelND*180/TMath::Pi()").Define("cls", "(int)evClass");
+    struct Counts {std::vector<double> ce, part;};
+    std::vector<std::array<Counts, 2>> slotCounts(df0.GetNSlots()); // [slot][set]: set 0 true position, set 1 block position
+    for (auto& sc : slotCounts) for (auto& cn : sc){cn.ce.assign(nBins, 0.0); cn.part.assign(nBins, 0.0);}
+    auto nRowsRes = df0.Count(); // booked with the ForeachSlot below: the same pass counts the rows
+    df.ForeachSlot([&](unsigned slot, double thTrue, double thBlock, int cls){
+        if (cls < 0 || cls > 2) return;
+        const double th2[2] = {thTrue, thBlock};
+        for (int k = 0; k < 2; k++){
+            if (!std::isfinite(th2[k]) || th2[k] < 0) continue;
+            const int b = (int)(th2[k] / binW);
+            if (b >= nBins) continue;
+            slotCounts[slot][k].part[b]++;
+            if (cls <= 1) slotCounts[slot][k].ce[b]++;
+        }
+    }, {"thTrue", "thBlock", "cls"});
+    const Long64_t nRows = (Long64_t)*nRowsRes;
 
     struct Set {const char* dir; const char* axis; const char* name; int col;};
     const Set sets[2] = {{"1_reconTheta_estneu", "RECONTHETA_ESTNEU", "true position", 0}, {"2_reconBlockTheta_estneu", "RECONTHETABL_ESTNEU", "block position", 1}};
@@ -45,23 +61,9 @@ void F5_FomCalc(){
     c.SetLeftMargin(0.14); c.SetRightMargin(0.2);
     int made = 0;
     for (const Set& set : sets){
-        // counts per bin; each row range counts into its own arrays, added after (exact)
-        struct Counts {std::vector<double> ce, part;};
-        const auto parts = MapRows(nRows, [&](Long64_t lo, Long64_t hi){
-            Counts p; p.ce.assign(nBins, 0.0); p.part.assign(nBins, 0.0);
-            for (Long64_t i = lo; i < hi; i++){
-                const double th = cols[set.col][i];
-                const int cls = (int)cols[2][i];
-                if (!std::isfinite(th) || th < 0 || cls < 0 || cls > 2) continue;
-                const int b = (int)(th / binW);
-                if (b >= nBins) continue;
-                p.part[b]++;
-                if (cls <= 1) p.ce[b]++;
-            }
-            return p;
-        });
+        // counts per bin, the slots added (exact: whole numbers)
         std::vector<double> nCE(nBins, 0.0), nPart(nBins, 0.0);
-        for (const auto& p : parts) for (int b = 0; b < nBins; b++){nCE[b] += p.ce[b]; nPart[b] += p.part[b];}
+        for (const auto& sc : slotCounts) for (int b = 0; b < nBins; b++){nCE[b] += sc[set.col].ce[b]; nPart[b] += sc[set.col].part[b];}
         double totCE = 0, totPart = 0;
         for (int b = 0; b < nBins; b++){totCE += nCE[b]; totPart += nPart[b];}
         const double nonCEAll = totPart - totCE;

@@ -1,0 +1,10 @@
+5rootMacros/Plot3D.cpp
+5rootMacros/PlotAngle.cpp
+5rootMacros/PlotPolarization.cpp
+5rootMacros/PlotFomPolarization.cpp
+5rootMacros/PlotDiffPhiCuts.cpp
+5rootMacros/PlotCEFraction.cpp
+5rootMacros/SecondaryCE.cpp
+5rootMacros/QualityStudy.cpp
+5rootMacros/GraphBlocks.cpp
+5rootMacros/CETCompare.cpp

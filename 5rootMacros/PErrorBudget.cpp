@@ -53,15 +53,15 @@ void PErrorBudget(){
     if (!t){Error("PErrorBudget", "no cuts/cut_angles_all.root (run ReconAngleAll.cpp)"); return;}
     if (!EventsTree()){Error("PErrorBudget", "no cuts/cut_events.root (rerun ReconAngleAll.cpp)"); return;}
     ROOT::EnableImplicitMT(NThreads());
-    const auto cols = ColumnsUnordered(t, {"thetaRelNDMin", "thetaRelNDMax", "phiRelNDHalf", "thetaRelNDBMin", "thetaRelNDBMax", "phiRelNDBHalf", "thetaRelND", "phiRelND", "zdcKEAllD", "fEvent", "evClass", "nPlanesUsed", "nPlanesHitEv", "nTrackerHitsEv", "nRecoEv"});
-    std::vector<Row> rows(cols[0].size());
-    for (size_t i = 0; i < rows.size(); i++){
+    // one pass that fills each Row by its entry number (no column vectors next to rows, and the rows in the order of AnglesRaw)
+    std::vector<Row> rows((size_t)t->GetEntries());
+    ForEachRowMT(t, {"thetaRelNDMin", "thetaRelNDMax", "phiRelNDHalf", "thetaRelNDBMin", "thetaRelNDBMax", "phiRelNDBHalf", "thetaRelND", "phiRelND", "zdcKEAllD", "fEvent", "evClass", "nPlanesUsed", "nPlanesHitEv", "nTrackerHitsEv", "nRecoEv"}, "", [&](ULong64_t entry, const ROOT::RVecD& v){
         size_t k = 0;
-        Row& x = rows[i];
-        x.thMin = cols[k++][i] * kRad; x.thMax = cols[k++][i] * kRad; x.phHalf = cols[k++][i]; x.th2Min = cols[k++][i] * kRad; x.th2Max = cols[k++][i] * kRad; x.ph2Half = cols[k++][i];
-        x.thetaRelND = cols[k++][i]; x.phiRelND = cols[k++][i]; x.zdcKEAllD = cols[k++][i];
-        x.eventID = (int)cols[k++][i]; x.evClass = (int)cols[k++][i]; x.nPlanesUsed = (int)cols[k++][i]; x.nPlanesHit = (int)cols[k++][i]; x.nTrackerHits = (int)cols[k++][i]; x.nRecoEv = (int)cols[k++][i]; // nRecoEv: the fits (rows) of the event, from the Events tree
-    }
+        Row& x = rows[(size_t)entry];
+        x.thMin = v[k++] * kRad; x.thMax = v[k++] * kRad; x.phHalf = v[k++]; x.th2Min = v[k++] * kRad; x.th2Max = v[k++] * kRad; x.ph2Half = v[k++];
+        x.thetaRelND = v[k++]; x.phiRelND = v[k++]; x.zdcKEAllD = v[k++];
+        x.eventID = (int)v[k++]; x.evClass = (int)v[k++]; x.nPlanesUsed = (int)v[k++]; x.nPlanesHit = (int)v[k++]; x.nTrackerHits = (int)v[k++]; x.nRecoEv = (int)v[k++]; // nRecoEv: the fits (rows) of the event, from the Events tree
+    });
     const auto settings = ReadSettings();
     const double apScale = settings.at("APScale"), beamKE = settings.at("BeamKE"), pTrue = settings.at("PPValue");
     const int maxPlanes = MaxTrackerHits();
@@ -74,24 +74,29 @@ void PErrorBudget(){
     std::map<long long, size_t> byEvent;
     for (size_t i = 0; i < ce[0].size(); i++) byEvent.emplace((long long)ce[0][i], i);
 
+    // select() runs 8 times (the baseline and 7 variations). The rows that pass the loosest cut set of those (KE 85%, theta to 1.2 degree, no avgOne, phi untrimmed) are listed once in the order of rows,
+    // so each call scans that list and not every row. Keep it at least as loose as every Cuts used below.
+    EventCut looseCut; looseCut.ke = 0.85 * beamKE; looseCut.theta = true; looseCut.thHi = 1.2;
+    std::vector<const Row*> loose;
+    for (const Row& x : rows){
+        if (x.evClass < 0 || x.evClass > 2 || x.nPlanesUsed < 3 || x.nRecoEv != 1) continue;
+        if (!PassEventCut(looseCut, x.zdcKEAllD, x.nPlanesUsed, x.nRecoEv, x.thetaRelND * kRad, x.nPlanesHit, x.nTrackerHits)) continue;
+        loose.push_back(&x);
+    }
     // the rows of a cut set (F9_PlotReconNew.cpp passes + inFit): every recon track, evClass 0 to 2
     const auto select = [&](const Cuts& c){
         std::vector<Sel> s;
-        const double keCut = c.ke * beamKE;
-        for (const Row& x : rows){
+        EventCut ec; ec.ke = c.ke * beamKE; ec.even = c.even; ec.maxPlanes = maxPlanes; ec.theta = true; ec.thLo = c.thLo; ec.thHi = c.thHi; ec.avgOne = c.avgOne; ec.firstTrack = true;
+        for (const Row* xp : loose){
+            const Row& x = *xp;
             if (x.evClass < 0 || x.evClass > 2) continue;
-            if (!(std::isfinite(x.zdcKEAllD) && x.zdcKEAllD > keCut)) continue;
-            if (x.nPlanesUsed < 3 || x.nRecoEv != 1) continue; // F9 megaCut: no 2 plane tracks, only events with 1 recon track
-            if (c.even && !EvenHits(x.nPlanesUsed, maxPlanes)) continue;
-            const double th = x.thetaRelND * kRad, ph = x.phiRelND * kRad;
-            if (!(th >= c.thLo && th <= c.thHi)) continue; // NAN fails too
-            if (c.avgOne && !(x.nPlanesHit > 0 && x.nTrackerHits == x.nPlanesHit)) continue;
+            const double th = x.thetaRelND * kRad;
+            if (!PassEventCut(ec, x.zdcKEAllD, x.nPlanesUsed, x.nRecoEv, th, x.nPlanesHit, x.nTrackerHits)) continue; // F9 megaCut: no 2 plane tracks, only events with 1 recon track
+            const double ph = x.phiRelND * kRad;
             if (!(ph > kBlockPhiLo + c.phiTrim && ph < kBlockPhiHi - c.phiTrim)) continue;
             Sel q;
-            q.ph = ph; q.thDeg = th; q.a = AEffOfTheta(th, apScale);
-            q.r1 = std::isfinite(x.thMin) && std::isfinite(x.thMax); q.r2 = std::isfinite(x.th2Min) && std::isfinite(x.th2Max);
-            q.a1lo = q.r1 ? AEffOfTheta(x.thMin, apScale) : q.a; q.a1hi = q.r1 ? AEffOfTheta(x.thMax, apScale) : q.a;
-            q.a2lo = q.r2 ? AEffOfTheta(x.th2Min, apScale) : q.a; q.a2hi = q.r2 ? AEffOfTheta(x.th2Max, apScale) : q.a;
+            const AEffIn e = AEffInOf(th, x.thMin, x.thMax, x.th2Min, x.th2Max, apScale);
+            q.ph = ph; q.thDeg = th; q.a = e.a; q.r1 = e.r1; q.r2 = e.r2; q.a1lo = e.a1lo; q.a1hi = e.a1hi; q.a2lo = e.a2lo; q.a2hi = e.a2hi;
             q.h1 = x.phHalf; q.h2 = x.ph2Half; q.cls = x.evClass;
             const auto it = byEvent.find((long long)x.eventID);
             q.ceIdx = it == byEvent.end() ? -1 : (long)it->second;
@@ -147,22 +152,25 @@ void PErrorBudget(){
     const int nBoot = 200;
     std::vector<double> bp;
     {
-        TRandom3 rng(20260101);
-        std::vector<const Sel*> pick;
-        for (const Sel& q : s0) pick.push_back(&q);
-        for (int b = 0; b < nBoot; b++){
-            std::vector<double> ph(pick.size());
+        // the 200 resamples are independent (each has its own seed, 20260101 + b) and UnbinnedP(..., parallel = false) is serial, so they run on all the threads; the results come back in b order
+        std::vector<unsigned> ids(nBoot);
+        std::iota(ids.begin(), ids.end(), 0u);
+        ROOT::TThreadExecutor ex(NThreads());
+        const auto boots = ex.Map([&](unsigned b){
+            TRandom3 rng(20260101 + b);
+            const size_t np = s0.size();
+            std::vector<double> ph(np);
             AMean a; PhiRange q1, q2;
-            for (size_t i = 0; i < pick.size(); i++){
-                const Sel& q = *pick[(size_t)(rng.Rndm() * pick.size())];
+            for (size_t i = 0; i < np; i++){
+                const Sel& q = s0[(size_t)(rng.Rndm() * np)];
                 ph[i] = q.ph; a.Add(q.a, q.a1lo, q.a1hi, q.a2lo, q.a2hi);
                 if (q.r1) q1.Add(q.h1);
                 if (q.r2) q2.Add(q.h2);
             }
             a.smearBias = sm0.mean;
-            const PFit v = UnbinnedP(ph, a, kBlockPhiLo, kBlockPhiHi, nullptr, false, &q1, &q2);
-            if (v.ok) bp.push_back(v.p);
-        }
+            return UnbinnedP(ph, a, kBlockPhiLo, kBlockPhiHi, nullptr, false, &q1, &q2);
+        }, ids);
+        for (const PFit& v : boots) if (v.ok) bp.push_back(v.p);
     }
     const MeanErr bs = Stats(bp);
     // purity

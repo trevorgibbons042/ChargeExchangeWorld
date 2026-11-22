@@ -30,26 +30,6 @@
 // 2. The TMVA training plots, drawn from resultTMVAtraining_SigBkg.root (TmvaTrain.cpp) into plots/10_BDTcuts/TMVA/: BDT response with the overtraining check, ROC curve, cut efficiencies, the input variables (input_variables/) and the correlation matrices.
 // Signal = CE only tracks (evClass 0, every fitted hit a CE child), background = no CE child hit (evClass 2); CE mix (evClass 1) is in neither. (The TMVA training itself used isFromCE == 1 rows as signal.) Both read only the csv and root files, no sample is read again.
 namespace {
-struct CutRow {double totN = 0, meanA = 0, cut = 0, ppv = 0, sAll = 0, bAll = 0, nS = 0, nB = 0, nFitMix = 0, pMix = 0, eMix = 0, nFitAll = 0, pAll = 0, eAll = 0, nFitCE = 0, pCE = 0, eCE = 0;};
-
-// the columns of scan_stats.csv (F9_PlotReconNew.cpp): nBlocks,TotalNeutrons,PPValue,nCETrue,sAll,bAll,nS,nB,meanA,nFitCEMix,pCEMix,errCEMix,nFitAll,pAll,errAll,nFitCE,pCE,errCE
-bool ReadCutRow(const std::string& file, CutRow& r){
-    std::ifstream in(file);
-    std::string head, line;
-    if (!in || !std::getline(in, head) || !std::getline(in, line)) return false;
-    std::vector<double> v;
-    std::stringstream ss(line);
-    std::string tok;
-    while (std::getline(ss, tok, ',')) v.push_back(std::atof(tok.c_str()));
-    if (v.size() < 15) return false;
-    r.totN = v[1]; r.meanA = v[8]; r.ppv = v[2]; r.sAll = v[4]; r.bAll = v[5]; r.nS = v[6]; r.nB = v[7];
-    r.nFitMix = v[9]; r.pMix = v[10]; r.eMix = v[11]; r.nFitAll = v[12]; r.pAll = v[13]; r.eAll = v[14];
-    if (v.size() >= 18){r.nFitCE = v[15]; r.pCE = v[16]; r.eCE = v[17];}
-    if (v.size() >= 21){r.sAll = v[18]; r.nS = v[19]; r.meanA = v[20];} // the signal of these plots is the CE only tracks (evClass 0): sAll, nS and meanA hold their values, not those of CE + CE mix
-    else return false; // csv of an older F9_PlotReconNew.cpp
-    return true;
-}
-
 // figure of merit as F5_FomCalc.cpp: N_S / N_neutrons * A_eff^2 (N_S = signal tracks passing the cut, A_eff the mean at the recon block theta of those tracks)
 double Fom(const CutRow& r){return r.totN > 0 ? r.nS / r.totN * r.meanA * r.meanA : 0.0;}
 

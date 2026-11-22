@@ -1,5 +1,5 @@
 // Applies the BDT of TmvaTrain.cpp (dataset/weights/SigBkg_BDT.weights.xml) to every row of AnglesRaw and writes the score to a small tree TMVAScores:
-// fEvent and trackNo (the key of a row), isFromCE and BDT. Every row is scored; a NaN input goes in as kTmvaMissing (-999, TmvaVars.h) like in TmvaSplit.cpp. The AnglesRaw tree itself is not copied. The rows of TMVAScores are in the order of AnglesRaw.
+// BDT only: row r of the tree is row r of AnglesRaw (F9_PlotReconNew.cpp meets them on the entry number). Every row is scored; a NaN input goes in as kTmvaMissing (-999, TmvaVars.h) like in TmvaSplit.cpp. The AnglesRaw tree itself is not copied. The rows of TMVAScores are in the order of AnglesRaw.
 // Run in the run folder (build/root/<run>/): root -l -b -q 'TmvaApply.cpp("cuts/cut_angles_all.root", "cuts/tmva_scores.root")'
 // Multithreaded: NThreads() workers (FitCore.h), each scores its own slice of the rows with its own TMVA::Reader and its own open file (a TTree and a Reader are not shared between threads).
 // Adapted from TMVA_apply_for_Grace.C: no std::filesystem (cling on the cluster), the variables come from TmvaVars.h, no CopyTree of the input.
@@ -46,7 +46,6 @@ void TmvaApply(const char* input = "cuts/cut_angles_all.root", const char* outpu
         Long64_t lo = 0, hi = 0;
         std::vector<Float_t> in;
         TMVA::Reader* reader = nullptr;
-        std::vector<Int_t> fEvent, trackNo, isFromCE;
         std::vector<Double_t> bdt;
     };
     const unsigned nWork = (unsigned)std::max<Long64_t>(1, std::min<Long64_t>((Long64_t)NThreads(), n / 1000 + 1));
@@ -73,23 +72,17 @@ void TmvaApply(const char* input = "cuts/cut_angles_all.root", const char* outpu
             // the branches keep their own type, the reader takes floats
             std::vector<Double_t> asDouble(vars.size(), 0.0);
             std::vector<Int_t> asInt(vars.size(), 0);
-            Int_t fEvent = 0, trackNo = 0, isFromCE = 0;
             raw->SetBranchStatus("*", 0);
             for (std::size_t i = 0; i < vars.size(); i++){
                 raw->SetBranchStatus(vars[i].name.c_str(), 1);
                 if (vars[i].type == 'D') raw->SetBranchAddress(vars[i].name.c_str(), &asDouble[i]);
                 else raw->SetBranchAddress(vars[i].name.c_str(), &asInt[i]);
             }
-            for (const char* b : {"fEvent", "trackNo", "isFromCE"}) raw->SetBranchStatus(b, 1);
-            raw->SetBranchAddress("fEvent", &fEvent);
-            raw->SetBranchAddress("trackNo", &trackNo);
-            raw->SetBranchAddress("isFromCE", &isFromCE);
             const std::size_t rows = (std::size_t)(s.hi - s.lo);
-            s.fEvent.reserve(rows); s.trackNo.reserve(rows); s.isFromCE.reserve(rows); s.bdt.reserve(rows);
+            s.bdt.reserve(rows);
             for (Long64_t e = s.lo; e < s.hi; e++){
                 raw->GetEntry(e);
                 for (std::size_t i = 0; i < vars.size(); i++) s.in[i] = (Float_t)TmvaValue(vars[i].type == 'D' ? asDouble[i] : (double)asInt[i]); // NaN becomes kTmvaMissing like in TmvaSplit.cpp
-                s.fEvent.push_back(fEvent); s.trackNo.push_back(trackNo); s.isFromCE.push_back(isFromCE);
                 s.bdt.push_back(s.reader->EvaluateMVA("BDT"));
             }
         });
@@ -100,15 +93,11 @@ void TmvaApply(const char* input = "cuts/cut_angles_all.root", const char* outpu
     // the small output tree is filled here, one slice after the other, so its rows are in the order of AnglesRaw
     TFile outFile(output, "RECREATE");
     TTree scores("TMVAScores", "BDT score of every row of AnglesRaw");
-    Int_t fEvent = 0, trackNo = 0, isFromCE = 0;
     Double_t bdt = 0;
-    scores.Branch("fEvent", &fEvent);
-    scores.Branch("trackNo", &trackNo);
-    scores.Branch("isFromCE", &isFromCE);
     scores.Branch("BDT", &bdt);
     for (const auto& s : slices){
         for (std::size_t r = 0; r < s.bdt.size(); r++){
-            fEvent = s.fEvent[r]; trackNo = s.trackNo[r]; isFromCE = s.isFromCE[r]; bdt = s.bdt[r];
+            bdt = s.bdt[r];
             scores.Fill();
         }
     }

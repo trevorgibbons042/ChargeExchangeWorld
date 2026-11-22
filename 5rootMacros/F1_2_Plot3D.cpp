@@ -189,10 +189,10 @@ void F1_2_Plot3D(){
             const std::string xySliceP = zdcRecoPartAll + " && fabs(lastY) < 2";
             if (RunSub(0)){ // P3_SUB 0: 1_true
             // ZDC position, true (lastX, lastY)
-            drawXY(eventsAllEv, "lastY:lastX>>h2(100,-200,200,100,-200,200)", zdcReco, "Position at last tracker, CE + CE mix recon;X Position (mm);Y Position (mm)", folder_pos + "2_xy_recon.pdf");
-            drawXY(eventsAllEv, "lastY:lastX>>h2(100,-50,50,100,-50,50)", zdcReco, "Position at last tracker, CE + CE mix recon;X Position (mm);Y Position (mm)", folder_pos + "4_xy_zoom_recon.pdf");
-            drawXY(events2, "lastY:lastX>>h2(100,-200,200,100,-200,200)", zdcReco, "Position at last tracker, CE recon protons;X Position (mm);Y Position (mm)", folder_pos + "1_xy_CE.pdf");
-            drawXY(events2, "lastY:lastX>>h2(100,-50,50,100,-50,50)", zdcReco, "Position at last tracker, CE recon protons;X Position (mm);Y Position (mm)", folder_pos + "3_xy_zoom_CE.pdf");
+            drawXY(eventsAllEv, "lastY:lastX>>h2xyRecon200(100,-200,200,100,-200,200)", zdcReco, "Position at last tracker, CE + CE mix recon;X Position (mm);Y Position (mm)", folder_pos + "2_xy_recon.pdf");
+            drawXY(eventsAllEv, "lastY:lastX>>h2xyRecon50(100,-50,50,100,-50,50)", zdcReco, "Position at last tracker, CE + CE mix recon;X Position (mm);Y Position (mm)", folder_pos + "4_xy_zoom_recon.pdf");
+            drawXY(events2, "lastY:lastX>>h2xyCE200(100,-200,200,100,-200,200)", zdcReco, "Position at last tracker, CE recon protons;X Position (mm);Y Position (mm)", folder_pos + "1_xy_CE.pdf");
+            drawXY(events2, "lastY:lastX>>h2xyCE50(100,-50,50,100,-50,50)", zdcReco, "Position at last tracker, CE recon protons;X Position (mm);Y Position (mm)", folder_pos + "3_xy_zoom_CE.pdf");
 
             gStyle->SetOptFit(11); // fit parameters with errors (the fits are unbinned: no chi2 or probability)
             drawPlot(events2, "lastX>>hSliceX200(100,-200,200)", xySlice, "X Position at last tracker, CE recon protons, |Y| < 2 mm;X Position (mm);Count", folder_pos + "5_x_fit_200_CE.pdf", "", nullptr, kFitCore);
@@ -222,10 +222,10 @@ void F1_2_Plot3D(){
             // the 4 xy plots: one marker per occupied tracker cell (nCols_blocks x nRows_blocks over 400 mm), at the exact cell position (drawXYDots)
             const std::string binsCell = BlockBins(nColsD, 400.0 / nColsD, 200), binsCellY = BlockBins(nRowsD, 400.0 / nRowsD, 200), binsCellZoom = BlockBins(nColsD, 400.0 / nColsD, 53.5), binsCellZoomY = BlockBins(nRowsD, 400.0 / nRowsD, 53.5); // whole cells past +-50: the frame is +-50, the edge cells are clipped
             const std::string cellNote = Form(", 1 square per tracker cell (%d x %d over 400 mm)", nColsD, nRowsD), zoomNote = cellNote + ", edge cells clipped at 50 mm";
-            drawXYDots(eventsAllEv, "lastYD:lastXD>>h2(" + binsCell + "," + binsCellY + ")", zdcReco, "Position at last tracker BLOCK, CE + CE mix recon" + cellNote + ";X Position (mm);Y Position (mm)", folder_posD + "2_xy_recon.pdf");
-            drawXYDots(eventsAllEv, "lastYD:lastXD>>h2(" + binsCellZoom + "," + binsCellZoomY + ")", zdcReco, "Position at last tracker BLOCK, CE + CE mix recon" + zoomNote + ";X Position (mm);Y Position (mm)", folder_posD + "4_xy_zoom_recon.pdf", 50);
-            drawXYDots(events2, "lastYD:lastXD>>h2(" + binsCell + "," + binsCellY + ")", zdcReco, "Position at last tracker BLOCK, CE recon protons" + cellNote + ";X Position (mm);Y Position (mm)", folder_posD + "1_xy_CE.pdf");
-            drawXYDots(events2, "lastYD:lastXD>>h2(" + binsCellZoom + "," + binsCellZoomY + ")", zdcReco, "Position at last tracker BLOCK, CE recon protons" + zoomNote + ";X Position (mm);Y Position (mm)", folder_posD + "3_xy_zoom_CE.pdf", 50);
+            drawXYDots(eventsAllEv, "lastYD:lastXD>>h2xyDRecon(" + binsCell + "," + binsCellY + ")", zdcReco, "Position at last tracker BLOCK, CE + CE mix recon" + cellNote + ";X Position (mm);Y Position (mm)", folder_posD + "2_xy_recon.pdf");
+            drawXYDots(eventsAllEv, "lastYD:lastXD>>h2xyDReconZoom(" + binsCellZoom + "," + binsCellZoomY + ")", zdcReco, "Position at last tracker BLOCK, CE + CE mix recon" + zoomNote + ";X Position (mm);Y Position (mm)", folder_posD + "4_xy_zoom_recon.pdf", 50);
+            drawXYDots(events2, "lastYD:lastXD>>h2xyDCE(" + binsCell + "," + binsCellY + ")", zdcReco, "Position at last tracker BLOCK, CE recon protons" + cellNote + ";X Position (mm);Y Position (mm)", folder_posD + "1_xy_CE.pdf");
+            drawXYDots(events2, "lastYD:lastXD>>h2xyDCEZoom(" + binsCellZoom + "," + binsCellZoomY + ")", zdcReco, "Position at last tracker BLOCK, CE recon protons" + zoomNote + ";X Position (mm);Y Position (mm)", folder_posD + "3_xy_zoom_CE.pdf", 50);
 
             // the six x fits: ZDC hit and a recon track only
             const std::string xySliceB = zdcReco + " && fabs(lastYD) < 2", xySliceBP = zdcRecoPartAll + " && fabs(lastYD) < 2";

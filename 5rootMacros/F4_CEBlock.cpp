@@ -400,9 +400,10 @@ void GraphBlocks(){
     // then only those that also reached the ZDC.
     std::set<int> reconKeys; // the recon events (fEvent) with a carbon CE
     {
-        TTree *a = OpenCut("cuts/cut_angles_all.root", kAngleTree); // the AnglesCE view: AnglesRaw rows (events) with inCE set (inCE is a column of the Events friend)
+        TTree *a = OpenCut("cuts/cut_angles_all.root", kAngleTree); // opening it attaches the Events tree (EventsTree())
         if (!a || !EventsTree() || !EventsTree()->GetBranch("inCE")){Error("GraphBlocks", "AnglesRaw or the Events tree with inCE missing in cuts/ (rerun ReconAngleAll.cpp)"); return;}
-        const auto keys = ColumnsUnordered(a, {"fEvent"}, "inCE != 0"); // multithreaded read in any order (TreeColumns.h), the keys go into a set
+        // the AnglesCE view is the events with inCE set that have a recon fit (nRecoEv > 0, the events of AnglesRaw): read from the Events tree, one row per event, not from every AnglesRaw row
+        const auto keys = ColumnsUnordered(EventsTree(), {"fEvent"}, "inCE != 0 && nRecoEv > 0"); // multithreaded read in any order (TreeColumns.h), the keys go into a set
         for (size_t i = 0; i < keys[0].size(); i++) reconKeys.insert((int)keys[0][i]);
     }
     struct ReconGrid {const char *file, *label; bool zdcOnly;};
@@ -556,7 +557,9 @@ void CETCompare(){
         const StackLayout stack = StackZ(st);
         const double zFirst = std::min(stack.blockZ.front(), stack.planeZ.empty() ? 1e9 : stack.planeZ.front()), zLast = std::max(stack.blockZ.back(), stack.planeZ.empty() ? -1e9 : stack.planeZ.back());
         // the range also covers every CE row (the tracker CE can sit past the stack, e.g. at the ZDC end), so none falls in the overflow
-        const double z0 = std::min(zFirst - 200, tAll->GetMinimum("fZ") - 50), z1 = std::max(zLast + 200, tAll->GetMaximum("fZ") + 50); const int nz = 100;
+        ROOT::RDataFrame dfZ(*tAll); // min and max of fZ in one multithreaded pass (GetMinimum and GetMaximum each read the whole branch on one thread)
+        auto zMin = dfZ.Min<double>("fZ"), zMax = dfZ.Max<double>("fZ");
+        const double z0 = std::min(zFirst - 200, *zMin - 50), z1 = std::max(zLast + 200, *zMax + 50); const int nz = 100;
         TH1D hAll("hZAll", "", nz, z0, z1), hZC("hZCarbon", "", nz, z0, z1), hZT("hZTracker", "", nz, z0, z1);
         plan.H(tAll, "fZ>>hZAll", "", &hAll); plan.H(tCarbon, "fZ>>hZCarbon", "", &hZC); plan.H(tAll, "fZ>>hZTracker", noCarbon, &hZT);
         plan.H(tCarbon, "LastT>>hTCarbon", "", &hC); plan.H(tAll, "LastT>>hTTracker", noCarbon, &hT);

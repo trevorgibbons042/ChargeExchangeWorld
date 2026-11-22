@@ -12,7 +12,6 @@
 #include <string>
 #include <unordered_map>
 
-inline constexpr int kP3Slots = 27;
 
 // The formula of slot k, over the columns of AnglesRaw and Events. TTree::Draw and RDataFrame strings both read it (TMath::QuietNaN() and TMath::RadToDeg() are in both).
 inline std::string P3Formula(int k){
