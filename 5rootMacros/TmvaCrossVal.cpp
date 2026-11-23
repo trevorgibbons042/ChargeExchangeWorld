@@ -31,11 +31,17 @@
 #include "TmvaVars.h"
 
 namespace {
+// zlib level 6 like the sim output (7run.cc), for every Snapshot of this macro
+ROOT::RDF::RSnapshotOptions ZlibOpts(){
+    ROOT::RDF::RSnapshotOptions o;
+    o.fCompressionAlgorithm = ROOT::RCompressionSetting::EAlgorithm::kZLIB; o.fCompressionLevel = 6;
+    return o;
+}
 // a copy of the rows of `tree` with fEvent % every == 0 (every one for every <= 1), single threaded: it is a pass over two columns
 ULong64_t Thin(const char* inFile, const char* treeName, const char* outFile, ULong64_t every, const std::vector<std::string>& columns){
     ROOT::RDataFrame df(treeName, inFile);
     auto kept = every > 1 ? df.Filter(Form("fEvent %% %llu == 0", every)) : df.Filter("true");
-    auto snap = kept.Snapshot(treeName, outFile, columns);
+    auto snap = kept.Snapshot(treeName, outFile, columns, ZlibOpts());
     return *snap->Count();
 }
 }
@@ -75,8 +81,8 @@ void TmvaCrossVal(int folds = 5, ULong64_t maxBackground = 200000, ULong64_t max
         // every k-th row of a class by entry number (no event number in the TMVA file), single threaded
         const ULong64_t kSig = nSig > maxSignal ? nSig / maxSignal : 1, kBkg = nBkg > maxBackground ? nBkg / maxBackground : 1;
         ROOT::RDataFrame df(chain);
-        auto sig = df.Filter(Form("classID == 0 && rdfentry_ %% %llu == 0", kSig)).Snapshot("TmvaSignal", cvSig, columns);
-        auto bkg = df.Filter(Form("classID == 1 && rdfentry_ %% %llu == 0", kBkg)).Snapshot("TmvaBackground", cvBkg, columns);
+        auto sig = df.Filter(Form("classID == 0 && rdfentry_ %% %llu == 0", kSig)).Snapshot("TmvaSignal", cvSig, columns, ZlibOpts());
+        auto bkg = df.Filter(Form("classID == 1 && rdfentry_ %% %llu == 0", kBkg)).Snapshot("TmvaBackground", cvBkg, columns, ZlibOpts());
         nSigUsed = *sig->Count(); nBkgUsed = *bkg->Count();
         std::cout << "==> rows of " << fromTmva << ": " << nSigUsed << " signal (every " << kSig << "th of " << nSig << ") and " << nBkgUsed << " background (every " << kBkg << "th of " << nBkg << "), " << folds << " folds, inputs " << columns.size() << std::endl;
         }

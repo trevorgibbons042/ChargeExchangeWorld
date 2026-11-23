@@ -1,0 +1,64 @@
+#!/bin/bash -l
+#PBS -q backfill
+#PBS -A eic
+#PBS -N FullKeep
+
+#PBS -l select=1:ncpus=128
+#PBS -l walltime=12:00:00
+#PBS -j oe
+
+#PBS -m bea
+#PBS -M tgibbons@anl.gov
+
+# One run, start to finish: the sim (./sim <macro>), then the whole analysis chain of 6jobs/run_all.sh in the run folder.
+# Submit with -v MAC=<macro in build/>,RUN=<run folder in build/root> (ScanBlocks.sh with FULL=1 does it for every block count).
+# BASE can be overridden to try it on another machine.
+BASE=${BASE:-/lcrc/project/eic/tgibbons/G4ChargeExchange}
+
+module load root
+export LD_LIBRARY_PATH=/lcrc/project/eic/tgibbons/xxhash-install/lib:$LD_LIBRARY_PATH
+export LD_LIBRARY_PATH=/lcrc/project/eic/tgibbons/gif-lib:$LD_LIBRARY_PATH
+
+echo Jobid: $PBS_JOBID
+echo Running on host `hostname`
+echo Macro: $MAC
+echo Run folder: $RUN
+
+[ -n "$RUN" ] && { [ -n "$MAC" ] || [ -n "$SKIPSIM" ]; } || { echo "submit with -v MAC=<macro>,RUN=<run folder> (SKIPSIM=1 needs no macro)"; exit 1; }
+
+# the sim; SKIPSIM=1 (-v SKIPSIM=1) reuses the output0_t*.root already in the run folder and starts at the analysis
+if [ -z "$SKIPSIM" ]; then
+    cd $BASE/build || exit 1
+    export G4FORCENUMBEROFTHREADS=128 # all 128 cpus of the node, whatever the macro's /run/numberOfThreads says
+    ./sim $MAC
+    bash $BASE/6jobs/stash_mac.sh "$MAC" $? # a finished run's macro moves into its run folder, so build/ keeps only the templates
+fi
+ls $BASE/build/root/$RUN/output0_t*.root > /dev/null 2>&1 || { echo "no sim output in $RUN, stopping"; exit 1; }
+
+# the analysis chain, as Analysis.pbs
+cd $BASE/build/root/$RUN || exit 1
+rsync -a --exclude __pycache__ --exclude '*_cpp.*' --exclude .DS_Store --exclude CLAUDE.md --exclude debug $BASE/5rootMacros/ $BASE/build/root/$RUN/
+rsync -a $BASE/6jobs/run_all.sh $BASE/6jobs/run_norecon.sh $BASE/6jobs/plot.sh $BASE/6jobs/run_lib.sh $BASE/6jobs/preflight.sh $BASE/6jobs/to_png.sh $BASE/build/root/$RUN/ # the scripts of the chain live in 6jobs/
+[ -n "$SKIPSIM" ] && rm -rf cuts plots # a rerun starts from clean cuts/ and plots/ (run_all.sh remakes them from the sim output)
+
+export NCPUS=128 # the script and plot.sh split these between their steps and lanes (NThreads(), FitCore.h)
+export ACLIC=${ACLIC-+O} # compiled with ACLiC (see Plot.pbs)
+
+zsh run_all.sh
+status=$?
+
+# FullKeep.pbs: unlike Full.pbs the big cut files stay; the sim output goes when the chain succeeded and cuts/cut_angles_all.root exists
+if [ $status -eq 0 ]; then
+    rm -f cuts/cut_Plot3DAllPart.root # only the 3D plots read it (the all-recon-particles curves), not needed once they are drawn
+    [ -s cuts/cut_angles_all.root ] && rm -f output*_t*.root output0.root # FullKeep.pbs keeps the cuts and recon, and drops the sim output instead (a rerun needs the sim again)
+fi
+
+# once the sim output is gone, move the finished run folder to the NPol data area and leave a symlink at the old path (tables and reruns keep working)
+NPOL=${NPOL:-/lcrc/group/eic/data/NPol/0.00000_Trevor}
+if [ $status -eq 0 ] && [ -s cuts/cut_angles_all.root ] && ! ls output*_t*.root > /dev/null 2>&1; then
+    cd $BASE/build/root || exit 1
+    mkdir -p $NPOL/$(dirname $RUN) && rsync -a --remove-source-files $RUN/ $NPOL/$RUN/ \
+        && find $RUN -depth -type d -empty -delete && ln -s $NPOL/$RUN $BASE/build/root/$RUN \
+        && echo "moved $RUN to $NPOL/$RUN" || echo "move of $RUN to $NPOL FAILED, the folder stays in build/root"
+fi
+exit $status

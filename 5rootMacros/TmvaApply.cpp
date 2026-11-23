@@ -91,7 +91,7 @@ void TmvaApply(const char* input = "cuts/cut_angles_all.root", const char* outpu
     for (auto& s : slices){delete s.reader; s.reader = nullptr;}
 
     // the small output tree is filled here, one slice after the other, so its rows are in the order of AnglesRaw
-    TFile outFile(output, "RECREATE");
+    TFile outFile(output, "RECREATE", "", 106); // zlib level 6 like the sim output (7run.cc)
     TTree scores("TMVAScores", "BDT score of every row of AnglesRaw");
     Double_t bdt = 0;
     scores.Branch("BDT", &bdt);
