@@ -26,7 +26,7 @@ void F5_FomCalc(){
     ROOT::EnableImplicitMT(NThreads());
     gStyle->SetOptStat(0);
 
-    TTree* t = OpenCut("cuts/cut_angles_all.root", kAngleTree); // with the Events tree as a friend
+    TTree* t = OpenCut("cuts/cut_angles_all.root", kAngleTree); // the event columns are on its rows
     if (!t){Error("F5_FomCalc", "no AnglesRaw in cuts/cut_angles_all.root (run ReconAngleAll.cpp)"); return;}
 
     const auto settings = ReadSettings();

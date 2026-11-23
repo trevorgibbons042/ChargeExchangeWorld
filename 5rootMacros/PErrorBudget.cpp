@@ -49,56 +49,25 @@ double CEXSShape(const double* p, double s){
 }
 
 void PErrorBudget(){
-    // AnglesRaw and cut_CE are opened without the Events friend: every slot of an RDataFrame opens its own copy of the tree, and the friend's index on fEvent costs about 0.9 GB per copy at 100M events,
-    // so the RAM grew with the threads (killed at 64 and 128). The Events columns used here are read once, serially, into a table sorted by fEvent that every slot shares (CalcAPandT.cpp does the same).
-    TFile* anglesFile = TFile::Open("cuts/cut_angles_all.root", "READ");
-    TTree* t = anglesFile && !anglesFile->IsZombie() ? (TTree*)anglesFile->Get("AnglesRaw") : nullptr;
+    TTree* t = OpenCut("cuts/cut_angles_all.root", "AnglesRaw"); // with the Events tree as a friend: the event columns by name
     if (!t){Error("PErrorBudget", "no cuts/cut_angles_all.root (run ReconAngleAll.cpp)"); return;}
-    struct EvRow {int fEvent; double ke, planesHit, trackerHits, nReco;};
-    std::vector<EvRow> evTable; // sorted by fEvent
-    double tally[4] = {0, 0, 0, 0}; // sums over the events of nPureTrueEv, nTrueEv, nPureCEEv, nTrueCEEv (Dtrack, below), no cuts
-    { // serial, before ROOT::EnableImplicitMT: with it on, every GetEntry of the 38M events farms its decompression out to the pool and the loop does not finish
-        TFile evFile("cuts/cut_events.root", "READ");
-        TTree* ev = evFile.IsZombie() ? nullptr : (TTree*)evFile.Get("Events");
-        if (!ev){Error("PErrorBudget", "no cuts/cut_events.root (rerun ReconAngleAll.cpp)"); return;}
-        const char* names[] = {"fEvent", "zdcKEAllD", "nPlanesHitEv", "nTrackerHitsEv", "nRecoEv", "nPureTrueEv", "nTrueEv", "nPureCEEv", "nTrueCEEv"};
-        TLeaf* leaf[9];
-        ev->SetBranchStatus("*", 0);
-        for (int i = 0; i < 9; i++){
-            ev->SetBranchStatus(names[i], 1); leaf[i] = ev->GetLeaf(names[i]);
-            if (!leaf[i]){Error("PErrorBudget", "no %s in the Events tree (rerun ReconAngleAll.cpp)", names[i]); return;}
-        }
-        const Long64_t nEv = ev->GetEntries();
-        evTable.reserve(nEv);
-        for (Long64_t i = 0; i < nEv; i++){
-            ev->GetEntry(i);
-            evTable.push_back({(int)leaf[0]->GetValue(), leaf[1]->GetValue(), leaf[2]->GetValue(), leaf[3]->GetValue(), leaf[4]->GetValue()});
-            for (int k = 0; k < 4; k++) tally[k] += leaf[5 + k]->GetValue();
-        }
-        std::sort(evTable.begin(), evTable.end(), [](const EvRow& a, const EvRow& b){return a.fEvent < b.fEvent;});
-    }
+    if (!EventsTree()){Error("PErrorBudget", "no cuts/cut_events.root (rerun ReconAngleAll.cpp)"); return;}
     ROOT::EnableImplicitMT(NThreads());
     // one pass that fills each Row by its entry number (no column vectors next to rows, and the rows in the order of AnglesRaw)
     std::vector<Row> rows((size_t)t->GetEntries());
-    ROOT::RDataFrame dfRaw(*t);
-    auto dfRows = WithEntryNumber(dfRaw, dfRaw.GetNSlots()).Define("__ev", [&evTable](int e){ // the Events columns of the row's event: zdcKEAllD, nPlanesHitEv, nTrackerHitsEv, nRecoEv
-        const auto it = std::lower_bound(evTable.begin(), evTable.end(), e, [](const EvRow& r, int ev){return r.fEvent < ev;});
-        return it != evTable.end() && it->fEvent == e ? ROOT::RVecD{it->ke, it->planesHit, it->trackerHits, it->nReco} : ROOT::RVecD{0., 0., 0., 0.};
-    }, {"fEvent"}).Define("__row", "ROOT::RVecD{(double)thetaRelNDMin, (double)thetaRelNDMax, (double)phiRelNDHalf, (double)thetaRelNDBMin, (double)thetaRelNDBMax, (double)phiRelNDBHalf, (double)thetaRelND, (double)phiRelND, __ev[0], (double)fEvent, (double)evClass, (double)nPlanesUsed, __ev[1], __ev[2], __ev[3]}");
-    dfRows.Foreach([&](ULong64_t entry, const ROOT::RVecD& v){
+    ForEachRowMT(t, {"thetaRelNDMin", "thetaRelNDMax", "phiRelNDHalf", "thetaRelNDBMin", "thetaRelNDBMax", "phiRelNDBHalf", "thetaRelND", "phiRelND", "zdcKEAllD", "fEvent", "evClass", "nPlanesUsed", "nPlanesHitEv", "nTrackerHitsEv", "nRecoEv"}, "", [&](ULong64_t entry, const ROOT::RVecD& v){
         size_t k = 0;
         Row& x = rows[(size_t)entry];
         x.thMin = v[k++] * kRad; x.thMax = v[k++] * kRad; x.phHalf = v[k++]; x.th2Min = v[k++] * kRad; x.th2Max = v[k++] * kRad; x.ph2Half = v[k++];
         x.thetaRelND = v[k++]; x.phiRelND = v[k++]; x.zdcKEAllD = v[k++];
         x.eventID = (int)v[k++]; x.evClass = (int)v[k++]; x.nPlanesUsed = (int)v[k++]; x.nPlanesHit = (int)v[k++]; x.nTrackerHits = (int)v[k++]; x.nRecoEv = (int)v[k++]; // nRecoEv: the fits (rows) of the event, from the Events tree
-    }, {"entryNo", "__row"});
+    });
     const auto settings = ReadSettings();
     const double apScale = settings.at("APScale"), beamKE = settings.at("BeamKE"), pTrue = settings.at("PPValue");
     const int maxPlanes = MaxTrackerHits();
 
     // the true CE of each event (ChargeExchange_values, the carbon CE rows): true phi and theta in the true neutron frame (deg), LastAP, LastT (model t), LastTheta (lab theta)
-    TFile* ceFile = TFile::Open("cuts/cut_CE.root", "READ"); // no Events friend, see above
-    TTree* ceT = ceFile && !ceFile->IsZombie() ? (TTree*)ceFile->Get("ChargeExchange_values") : nullptr;
+    TTree* ceT = OpenCut("cuts/cut_CE.root", "ChargeExchange_values");
     gROOT->cd();
     if (!ceT){Error("PErrorBudget", "no cuts/cut_CE.root"); return;}
     const auto ce = Columns(ceT, {"fEvent", "CEPhiNeu(LastTheta, LastPhiLab, CENDirX, CENDirY, CENDirZ) * 180 / TMath::Pi()", "CEThetaNeu(LastTheta, LastPhiLab, CENDirX, CENDirY, CENDirZ) * 180 / TMath::Pi()", "LastAP", "LastT", "LastTheta"});
@@ -281,7 +250,11 @@ void PErrorBudget(){
     // ---------- totals, in the structure of the error list: P fit uncertainty (sigma_P, delta_P), Dilution (D), Bias ----------
     // Dtrack: the true tracks (2+ tracker hits) that sit in a pure reconstructed track over all true tracks with 2+ tracker hits, no cuts (the tally columns of the Events tree, ReconAngleAll.cpp, made from the sim output)
     // Dtrack is the CE child protons only (nPureTrueCE of nTrueTracksCE); the all particle ratio (nPureTrue of nTrueTr) is only in the D_track rows of P_result.csv
-    const double nPureTrue = tally[0], nTrueTr = tally[1], nPureTrueCE = tally[2], nTrueTrCE = tally[3]; // the sums of the tally columns of the Events tree (ReconAngleAll.cpp), no cuts, read with the table above
+    double nPureTrue = 0, nTrueTr = 0, nPureTrueCE = 0, nTrueTrCE = 0;
+    { // the sums of the tally columns of the Events tree (ReconAngleAll.cpp), no cuts
+        const auto tally = ColumnsUnordered(EventsTree(), {"nPureTrueEv", "nTrueEv", "nPureCEEv", "nTrueCEEv"});
+        for (size_t i = 0; i < tally[0].size(); i++){nPureTrue += tally[0][i]; nTrueTr += tally[1][i]; nPureTrueCE += tally[2][i]; nTrueTrCE += tally[3][i];}
+    }
     const bool haveTrk = nTrueTrCE > 0;
     const double Dtrk = haveTrk ? nPureTrueCE / nTrueTrCE : 0.0, sigTrk = haveTrk ? std::sqrt(Dtrk * (1 - Dtrk) / nTrueTrCE) : 0.0; // binomial error
     // sigma_phi: statistics of the actual phi dilution. delta_phi: the est n frame phi dilution really present, counted once here (D_actual) and not again as Ddelta_nphi

@@ -13,6 +13,7 @@
 #include <map>
 #include <set>
 #include <tuple>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -226,7 +227,7 @@ static void ReconAngleAllFit(){
     TTree::SetMaxTreeSize(4000000000000LL);
     ROOT::TBufferMerger merger("cuts/cut_angles_all.root", "RECREATE", 106); // zlib level 6 like the sim output (7run.cc), ROOT default is level 1
     // Events: one row per event (fEvent), every event level value and the tracker purity tally (the F8_TrackerFits.cpp logic, run here on the same hits and finder). A file of its own, cut_angles_all.root is dropped after the chain (Full.pbs).
-    // ReconAngleAll() indexes it on fEvent once the merger is closed, and OpenCut (CutFiles.h) attaches it to every tree with fEvent as a friend.
+    // It has no index and no friend: AnglesRaw repeats the event columns the macros cut on (see the write below), the macros that need the rest read Events directly (EventsTree(), CutFiles.h).
     ROOT::TBufferMerger evMerger("cuts/cut_events.root", "RECREATE", 106);
 
     // A group of raw files at a time (ANA_FILES_PER_PASS, default 8): an event, and so every track, lives in a single output0_t<thread>.root, so the tracks of a group are complete
@@ -272,7 +273,7 @@ static void ReconAngleAllFit(){
         }, {"fEvent", "TrackID", "pdg", "fX", "fY", "fZ", "fDx", "fDy", "fDz", "ParentID", "entryNo"});
         // The fits run on every thread: each shard builds its events, fits them and keeps the results as rows. Only the TTree fills below are serial.
         struct Row {
-            int eventID, isFromCE, nHits; // the event level values (inCE, zdcKEAll, nChargedPlane<i>, ...) are in the Events tree, not on the rows
+            int eventID, isFromCE, nHits; // the event level values (inCE, zdcKEAll, nChargedPlane<i>, ...) are not stored on the rows: the write below takes them from the EvRow of the event
             double theta, phi, dTheta, dPhi, x0D, y0D, bxD, byD;
             double xVertex, yVertex, zVertex, zBxRecon;
             double resRms, resDRms, impact, impactD, r2, r2D, firstXD, firstYD, lastX, lastY, lastXD, lastYD, resHalfRatioD;
@@ -706,13 +707,46 @@ static void ReconAngleAllFit(){
             tree->Branch("nPionUsed", &cur.nPionUsed);
             tree->Branch("nKaonUsed", &cur.nKaonUsed);
             tree->Branch("nNucleusUsed", &cur.nNucleusUsed);
+            // The event level values every macro cuts on, repeated on each track row of the event (the columns of the Events tree below, same names). The old way, Events as a friend of AnglesRaw indexed
+            // on fEvent, broke above about 44.7M events (the index is 24 bytes per event and ROOT writes at most 1 GB per object) and cost 0.9 GB of RAM per RDataFrame slot, so nothing is joined any more.
+            // Not here (Events only): nHitPlane<i> and the purity tally, which F8_TrackerFits.cpp and PErrorBudget.cpp read from Events directly.
+            struct EvCols {
+                int inCE = 0, nChargedParticle = 0, nZdcCharged = -1, nTrackerHitsEv = -1, nTrackerTracksEv = -1, nMaxChargedPerPlaneEv = 0, nPlanesHitEv = 0;
+                int nChargedPlane[kMaxPlanes] = {};
+                double zdcKEAll = -1.0, zdcKEAllD = NAN;
+                int nCEPartEv = 0, nOtherPartEv = 0, nCERecoEv = 0, nOtherRecoEv = 0, nRecoEv = 0;
+            } evc;
+            tree->Branch("inCE", &evc.inCE); // the event has a carbon CE (truth)
+            tree->Branch("nChargedParticle", &evc.nChargedParticle);
+            tree->Branch("nZdcCharged", &evc.nZdcCharged);
+            tree->Branch("nTrackerHitsEv", &evc.nTrackerHitsEv);
+            tree->Branch("nTrackerTracksEv", &evc.nTrackerTracksEv);
+            tree->Branch("nMaxChargedPerPlaneEv", &evc.nMaxChargedPerPlaneEv);
+            tree->Branch("nPlanesHitEv", &evc.nPlanesHitEv);
+            for (std::size_t i = 0; i < planeZ.size(); i++) tree->Branch(Form("nChargedPlane%d", (int)i), &evc.nChargedPlane[i]);
+            tree->Branch("zdcKEAll", &evc.zdcKEAll);
+            tree->Branch("zdcKEAllD", &evc.zdcKEAllD);
+            tree->Branch("nCEPartEv", &evc.nCEPartEv);
+            tree->Branch("nOtherPartEv", &evc.nOtherPartEv);
+            tree->Branch("nCERecoEv", &evc.nCERecoEv);
+            tree->Branch("nOtherRecoEv", &evc.nOtherRecoEv);
+            tree->Branch("nRecoEv", &evc.nRecoEv);
+            std::unordered_map<int, std::size_t> evIndex; // event number to its EvRow of this shard (a shard holds every track of its events)
+            evIndex.reserve(shardEv[shard].size() * 2);
+            for (std::size_t i = 0; i < shardEv[shard].size(); i++) evIndex[shardEv[shard][i].eventID] = i;
             for (const Row &r : shardRows[shard]) {
                 cur = r;
+                const EvRow &e = shardEv[shard][evIndex.at(r.eventID)];
+                evc.inCE = e.inCE; evc.nChargedParticle = e.nChargedParticle; evc.nZdcCharged = e.nZdcCharged; evc.nTrackerHitsEv = e.nTrackerHitsEv; evc.nTrackerTracksEv = e.nTrackerTracksEv;
+                evc.nMaxChargedPerPlaneEv = e.nMaxChargedPerPlaneEv; evc.nPlanesHitEv = e.nPlanesHitEv;
+                for (std::size_t i = 0; i < planeZ.size(); i++) evc.nChargedPlane[i] = e.nChargedPlane[i];
+                evc.zdcKEAll = e.zdcKEAll; evc.zdcKEAllD = e.zdcKEAllD;
+                evc.nCEPartEv = e.nCEPartEv; evc.nOtherPartEv = e.nOtherPartEv; evc.nCERecoEv = e.nCERecoEv; evc.nOtherRecoEv = e.nOtherRecoEv; evc.nRecoEv = e.nRecoEv;
                 tree->Fill();
             }
             outFile->Write();
             shardRows[shard].clear(); shardRows[shard].shrink_to_fit();
-            // the Events tree: a row per event, every event level value (the columns the rows of AnglesRaw used to repeat) and the tally; OpenCut (CutFiles.h) attaches it to a tree with fEvent as a friend
+            // the Events tree: a row per event, every event level value (the columns the rows of AnglesRaw used to repeat) and the tally
             auto evFile = evMerger.GetFile();
             TTree *evTree = new TTree("Events", "One row per event: event level values and the tracker purity tally");
             EvRow ec;
@@ -763,11 +797,9 @@ static void ReconAngleAllFit(){
 
 void ReconAngleAll(){
     ReconAngleAllFit(); // the mergers are closed when it returns
-    // Events is indexed on fEvent so a tree with fEvent can have it as a friend (AttachEvents, CutFiles.h) and cut on its columns by name
-    TFile f("cuts/cut_events.root", "UPDATE");
+    // Events has no index: AnglesRaw carries the event columns the macros cut on itself (see the write above), and the macros that need the tally read Events directly
+    TFile f("cuts/cut_events.root", "READ");
     TTree* ev = f.IsZombie() ? nullptr : (TTree*)f.Get("Events");
     if (!ev){Error("ReconAngleAll", "no Events tree in cuts/cut_events.root"); return;}
-    ev->BuildIndex("fEvent");
-    ev->Write("", TObject::kOverwrite);
-    printf(">>> ReconAngleAll Events: %lld events, indexed on fEvent\n", (long long)ev->GetEntries());
+    printf(">>> ReconAngleAll Events: %lld events\n", (long long)ev->GetEntries());
 }

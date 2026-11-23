@@ -1,7 +1,7 @@
 #pragma once
-// The Plot3D values of F1_2_Plot3D.cpp, by name, from the columns of AnglesRaw and its Events friend (cut_events.root, CutFiles.h): no file and no map of their own.
+// The Plot3D values of F1_2_Plot3D.cpp, by name, from the columns of AnglesRaw (the event level ones are repeated on each track row, ReconAngleAll.cpp): no file and no map of their own.
 // The cut strings and expressions of F1_2_Plot3D.cpp say isReco(fEvent), rawVal(fEvent, k) and rawOk(fEvent, k); P3() rewrites them into the formula of slot k.
-// A row of AnglesRaw is a track of an event, so every slot is a value of the row's own track (event level ones come from the Events friend, the same on every track of the event).
+// A row of AnglesRaw is a track of an event, so every slot is a value of the row's own track (event level ones are repeated on every track of the event).
 // Every row is a reconstructed fit, so isReco is 1.
 // Slots: 0 resRms, 1 resDRms, 2 impact, 3 impactD, 4 r2, 5 r2D, 6 nChargedParticle, 7 nZdcCharged (NaN without it), 8 resHalfRatioD, 9 thetaRelN (deg), 10 nHits, 11 thetaRelND (deg), 12 firstXD, 13 firstYD,
 // 14 and 15 RECONPHI_ESTNEU and RECONPHIBL_ESTNEU (phiRelN, phiRelND in degrees, 0 to 360), 16 recon vertex z (mm, from the block position line fit), 17 nTrackerHitsEv and 18 nTrackerTracksEv (NaN without them),

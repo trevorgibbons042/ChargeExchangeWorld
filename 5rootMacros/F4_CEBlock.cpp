@@ -50,7 +50,7 @@ void PlotDiffPhiCuts(double absLo = 50, double absHi = 180, std::string energy =
     auto cDiff = plan.C(diff, {"fEvent"}, Form("fabs(phiReD) >= %g && fabs(phiReD) <= %g", absLo, absHi));
     // Every recon event (the rows of AnglesRaw in cut_angles_all.root): fEvent for the positions,
     // the KE of the energy (zdcKEAll / zdcKEAllD), isFromCE and the block line fit quality (ReconAngleAll.cpp)
-    TTree* ang = OpenCut("cuts/cut_angles_all.root", kAngleTree); // with the Events tree as a friend: zdcKEAll, zdcKEAllD, inCE, nChargedParticle by name
+    TTree* ang = OpenCut("cuts/cut_angles_all.root", kAngleTree); // zdcKEAll, zdcKEAllD, inCE, nChargedParticle are columns of its rows
     if (!ang){Error("PlotDiffPhiCuts", "no AnglesRaw in cuts/cut_angles_all.root (rerun ReconAngleAll.cpp)"); return;}
     const std::string angSel = AngleSelection("Angles"); // the same rows for both column sets, so they line up
     auto cAng = plan.C(ang, {"fEvent", KeVar(suffix), "isFromCE", "resDRms", "phiRelN", "phiRelND"}, angSel);
@@ -400,8 +400,8 @@ void GraphBlocks(){
     // then only those that also reached the ZDC.
     std::set<int> reconKeys; // the recon events (fEvent) with a carbon CE
     {
-        TTree *a = OpenCut("cuts/cut_angles_all.root", kAngleTree); // opening it attaches the Events tree (EventsTree())
-        if (!a || !EventsTree() || !EventsTree()->GetBranch("inCE")){Error("GraphBlocks", "AnglesRaw or the Events tree with inCE missing in cuts/ (rerun ReconAngleAll.cpp)"); return;}
+        TTree *a = OpenCut("cuts/cut_angles_all.root", kAngleTree);
+        if (!a || !a->GetBranch("inCE") || !EventsTree() || !EventsTree()->GetBranch("inCE")){Error("GraphBlocks", "AnglesRaw or the Events tree with inCE missing in cuts/ (rerun ReconAngleAll.cpp)"); return;}
         // the AnglesCE view is the events with inCE set that have a recon fit (nRecoEv > 0, the events of AnglesRaw): read from the Events tree, one row per event, not from every AnglesRaw row
         const auto keys = ColumnsUnordered(EventsTree(), {"fEvent"}, "inCE != 0 && nRecoEv > 0"); // multithreaded read in any order (TreeColumns.h), the keys go into a set
         for (size_t i = 0; i < keys[0].size(); i++) reconKeys.insert((int)keys[0][i]);

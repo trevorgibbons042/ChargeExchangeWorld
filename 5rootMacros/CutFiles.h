@@ -25,7 +25,8 @@ static std::string KeVar(const std::string& sfx){return sfx.empty() ? "zdcKEAll"
 //   cut_ParentTracker.root ParticleInfo: the children of a carbon CE track that are protons at the first tracker (boundaryType == 0)
 //   (there are no cut_Plot3D*.root files: F1_2_Plot3D.cpp reads AnglesRaw with a row filter per evClass set, Plot3DCols.h)
 //   cut_events.root        Events (ReconAngleAll.cpp): one row per event, every event level value (zdcKEAll, zdcKEAllD, inCE, nChargedPlane<i>, nRecoEv, ...) and the tracker purity tally (trkClassEv, nPureCEEv, nTrueCEEv, ...), indexed on fEvent.
-//                          OpenCut attaches it to every tree with an fEvent branch as a friend, so a cut string or a column list names its columns directly (AngleSelection "inCE == 1", KeVar "zdcKEAllD").
+//                          Not indexed and not a friend. AnglesRaw repeats the columns the macros cut on (inCE, zdcKEAll, zdcKEAllD, nChargedParticle, nRecoEv, nChargedPlane<i>, ...) on each track row, so a cut string names them directly
+//                          (AngleSelection "inCE == 1", KeVar "zdcKEAllD"); the purity tally and nHitPlane<i> are read from Events itself (EventsTree()).
 
 // The Events tree (cuts/cut_events.root), opened once and kept open (READ); nullptr when the file is missing (a run made before the Events tree).
 inline TTree* EventsTree(){
@@ -33,19 +34,13 @@ inline TTree* EventsTree(){
     return f && !f->IsZombie() ? (TTree*)f->Get("Events") : nullptr;
 }
 
-// Makes the columns of Events readable on t by name. A tree without fEvent, Events itself and a run without cut_events.root are left as they are.
-inline void AttachEvents(TTree* t){
-    if (!t || std::string(t->GetName()) == "Events" || !t->GetBranch("fEvent")) return;
-    if (TTree* ev = EventsTree()) t->AddFriend(ev);
-}
-
-// The tree of a cut file, opened once and kept open (READ), with Events attached as a friend; nullptr with an Error if the file or tree is missing.
+// The tree of a cut file, opened once and kept open (READ); nullptr with an Error if the file or tree is missing. AnglesRaw carries the event columns itself (ReconAngleAll.cpp), there is no friend:
+// the old Events friend indexed on fEvent broke above about 44.7M events (ROOT writes at most 1 GB per object) and cost 0.9 GB of RAM per RDataFrame slot.
 inline TTree* OpenCut(const std::string& file, const std::string& tree){
     static std::map<std::string, TFile*> files;
     TFile*& f = files[file];
     if (!f) f = TFile::Open(file.c_str(), "READ");
     TTree* t = f && !f->IsZombie() ? (TTree*)f->Get(tree.c_str()) : nullptr;
     if (!t) Error("OpenCut", "tree %s missing in %s (run CutPlots.cpp (events) / ReconAngleAll.cpp / CutPlots.cpp)", tree.c_str(), file.c_str());
-    else if (!t->GetFriend("Events")) AttachEvents(t); // OpenCut of the same tree twice attaches it once
     return t;
 }

@@ -43,10 +43,10 @@ double DegDiffPhi(double a, double b){return std::remainder(a - b, 2.0 * M_PI) *
 }
 
 void F9_PlotReconNew(){
-    TTree* t = OpenCut("cuts/cut_angles_all.root", "AnglesRaw"); // with the Events tree as a friend
+    TTree* t = OpenCut("cuts/cut_angles_all.root", "AnglesRaw"); // the event columns (zdcKEAllD, nRecoEv, ...) are on its rows
     if (!t){Error("F9_PlotReconNew", "no cuts/cut_angles_all.root (run ReconAngleAll.cpp)"); return;}
     if (!t->GetBranch("nNucleusUsed")){Error("F9_PlotReconNew", "cut_angles_all.root has no nNucleusUsed (rerun ReconAngleAll.cpp)"); return;}
-    if (!EventsTree() || !EventsTree()->GetBranch("zdcKEAllD")){Error("F9_PlotReconNew", "cuts/cut_events.root has no zdcKEAllD, the smeared total ZDC KE of the KE cut (rerun ReconAngleAll.cpp)"); return;}
+    if (!t->GetBranch("zdcKEAllD")){Error("F9_PlotReconNew", "cut_angles_all.root has no zdcKEAllD, the smeared total ZDC KE of the KE cut (rerun ReconAngleAll.cpp)"); return;}
 
     const double rad = 180.0 / M_PI;
     const double keAxisMax = 1.2 * ReadSettings().at("BeamKE"); // the KE axes run to 120% of the beam KE (settings.csv), so the plots follow the sim energy

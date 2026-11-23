@@ -39,7 +39,6 @@ void TmvaSplit(const char* input = "cuts/cut_angles_all.root", int prescale = 2)
     TFile* fin = TFile::Open(input, "READ");
     TTree* rawTree = fin ? (TTree*)fin->Get("AnglesRaw") : nullptr;
     if (!rawTree){Error("TmvaSplit", "no AnglesRaw in %s", input); return;}
-    AttachEvents(rawTree); // zdcKEAllD and nChargedParticle are columns of the Events tree (cuts/cut_events.root), a friend of AnglesRaw
     ROOT::RDataFrame df(*rawTree);
     ROOT::RDF::RNode kept = df.Filter(Form("fEvent %% %d == 0", prescale));
     for (const auto& x : vars) if (x.type == 'D') kept = kept.Redefine(x.name, Form("TMath::Finite(%s) ? %s : %g", x.name.c_str(), x.name.c_str(), kTmvaMissing)); // NaN becomes kTmvaMissing, no row is dropped

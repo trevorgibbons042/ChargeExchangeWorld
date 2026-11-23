@@ -40,12 +40,11 @@ void F1_2_Plot3D(){
     // The three sets are rows of AnglesRaw (one recon fit per track the finder finds) split by evClass, with the Plot3D columns (Plot3DCols.h):
     // events2 CE recon protons (evClass 0), eventsAllEv CE + CE mix recon (evClass 0 or 1), eventsAllPart all recon.
     // The position of a row is the last tracker hit (lastX, lastY, lastXD, lastYD), its KE the ZDC sum of the event (zdcKEAll, zdcKEAllD); every Draw cut goes through P3() so isReco(fEvent) etc. read the columns
-    // There is no file of its own: each set is cuts/cut_angles_all.root opened again (a tree object per set, so the three differ) with Events as a friend and a row filter (SetRowFilter, TreeColumns.h) that every count, histogram and column of the tree ANDs into its cut.
+    // There is no file of its own: each set is cuts/cut_angles_all.root opened again (a tree object per set, so the three differ) with a row filter (SetRowFilter, TreeColumns.h) that every count, histogram and column of the tree ANDs into its cut.
     const auto openRows = [](const char* rows) -> TTree* {
         TFile* f = TFile::Open("cuts/cut_angles_all.root", "READ");
         TTree* t = f && !f->IsZombie() ? (TTree*)f->Get(kAngleTree) : nullptr;
-        if (!t || !EventsTree()) return nullptr; // ReconAngleAll.cpp makes both
-        AttachEvents(t);
+        if (!t || !t->GetBranch("nRecoEv")) return nullptr; // ReconAngleAll.cpp of this version: the event columns are on the rows
         SetRowFilter(t, rows);
         return t;
     };

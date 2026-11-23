@@ -34,7 +34,6 @@ void TmvaApply(const char* input = "cuts/cut_angles_all.root", const char* outpu
         TFile in(input);
         TTree* raw = (TTree*)in.Get("AnglesRaw");
         if (!raw){Error("TmvaApply", "no AnglesRaw in %s", input); return;}
-        AttachEvents(raw); // zdcKEAllD and nChargedParticle are columns of the Events tree (cuts/cut_events.root), a friend of AnglesRaw
         for (const auto& x : vars) if (!raw->GetBranch(x.name.c_str())){Error("TmvaApply", "AnglesRaw has no %s", x.name.c_str()); return;}
         n = raw->GetEntries();
     }
@@ -67,8 +66,6 @@ void TmvaApply(const char* input = "cuts/cut_angles_all.root", const char* outpu
             Slice& s = slices[k];
             TFile in(input);
             TTree* raw = (TTree*)in.Get("AnglesRaw");
-            TFile evFile("cuts/cut_events.root"); // a file handle of this thread: the shared one of EventsTree() is not used across threads
-            if (TTree* ev = (TTree*)evFile.Get("Events")) raw->AddFriend(ev); // the Events columns of the variables (zdcKEAllD, nChargedParticle), indexed on fEvent
             // the branches keep their own type, the reader takes floats
             std::vector<Double_t> asDouble(vars.size(), 0.0);
             std::vector<Int_t> asInt(vars.size(), 0);

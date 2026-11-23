@@ -31,35 +31,15 @@ struct Track {std::vector<Angles> points;};
 // Writes cut_APandT.root: the detector-KE trees (suffix _DE) CE_DE, CalcValsRe_DE, CalcValsReD_DE, CalcValsReDIFF_DE and CalcValsReDDIFF_DE (the inputs are read and the tracks built once).
 static void CalcAPandTBoth(){
     const double apScale = ReadSettings().at("APScale"); // settings.csv from the sim
-    // AnglesRaw is opened without the Events friend: every slot of an RDataFrame opens its own copy of the tree, and the friend's index on fEvent (38M events at 100M) costs about 0.9 GB per copy,
-    // so the RAM grew with the threads (70 GB at 32, killed at 64 and 128). The one event column used here, zdcKEAllD, is read once into a sorted vector that every slot shares.
-    TFile* anglesFile = TFile::Open("cuts/cut_angles_all.root", "READ");
-    TTree* anglesRaw = anglesFile && !anglesFile->IsZombie() ? (TTree*)anglesFile->Get(kAngleTree) : nullptr;
-    if (!anglesRaw){Error("CalcAPandT", "no AnglesRaw in cuts/cut_angles_all.root (run ReconAngleAll.cpp)"); return;}
-    std::vector<std::pair<int, double>> zdcKEOfEvent; // (fEvent, zdcKEAllD), sorted by fEvent
-    {
-        TFile evFile("cuts/cut_events.root", "READ");
-        TTree* ev = evFile.IsZombie() ? nullptr : (TTree*)evFile.Get("Events");
-        if (!ev){Error("CalcAPandT", "no Events in cuts/cut_events.root (run ReconAngleAll.cpp)"); return;}
-        Int_t evNo = 0; Double_t ke = 0;
-        ev->SetBranchStatus("*", 0); ev->SetBranchStatus("fEvent", 1); ev->SetBranchStatus(KeVar("_DE").c_str(), 1);
-        ev->SetBranchAddress("fEvent", &evNo); ev->SetBranchAddress(KeVar("_DE").c_str(), &ke);
-        const Long64_t nEv = ev->GetEntries();
-        zdcKEOfEvent.reserve(nEv);
-        for (Long64_t i = 0; i < nEv; i++){ev->GetEntry(i); zdcKEOfEvent.emplace_back(evNo, ke);}
-        std::sort(zdcKEOfEvent.begin(), zdcKEOfEvent.end(), [](const std::pair<int, double>& a, const std::pair<int, double>& b){return a.first < b.first;});
-    }
-    // Implicit MT comes after the serial read above: with it on, every TTree::GetEntry of the 38M events farms its decompression out to the pool and the loop did not finish in 13 minutes at 128 threads.
     ROOT::EnableImplicitMT(NThreads());
+    
     // entryNo: the true entry number of each row (rdfentry_ is wrong under MT on a tree with several clusters), taken before the Filter below
     ROOT::RDataFrame dfCEV0("ChargeExchange_values", "cuts/cut_CE.root");
     auto dfCEV = WithEntryNumber(dfCEV0, dfCEV0.GetNSlots());
+    TTree* anglesRaw = OpenCut("cuts/cut_angles_all.root", kAngleTree); // with the Events tree as a friend: zdcKEAllD and the other event columns by name
+    if (!anglesRaw){Error("CalcAPandT", "no AnglesRaw in cuts/cut_angles_all.root (run ReconAngleAll.cpp)"); return;}
     ROOT::RDataFrame dfAnglesAll0(*anglesRaw);
-    auto dfAnglesAll = WithEntryNumber(dfAnglesAll0, dfAnglesAll0.GetNSlots())
-        .Define(KeVar("_DE"), [&zdcKEOfEvent](int fEvent){
-            auto it = std::lower_bound(zdcKEOfEvent.begin(), zdcKEOfEvent.end(), fEvent, [](const std::pair<int, double>& p, int e){return p.first < e;});
-            return it != zdcKEOfEvent.end() && it->first == fEvent ? it->second : (double)NAN;
-        }, {"fEvent"});
+    auto dfAnglesAll = WithEntryNumber(dfAnglesAll0, dfAnglesAll0.GetNSlots());
     auto dfAngles = dfAnglesAll.Filter("isFromCE==1"); // the recon tracks whose fit used a CE child hit (evClass 0 or 1), ReconAngleAll.cpp fits every track the finder finds
     
     using Key3 = std::tuple<int, int, int>;
