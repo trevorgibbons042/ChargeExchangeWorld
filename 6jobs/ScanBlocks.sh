@@ -16,6 +16,7 @@ cd "$(dirname "$0")" || exit 1
 grep -q '^/run/reinitializeGeometry' "../build/$TEMPLATE" || { echo "$TEMPLATE has no /run/reinitializeGeometry line"; exit 1; }
 grep -q '^/output/folder ' "../build/$TEMPLATE" || { echo "$TEMPLATE has no /output/folder line"; exit 1; }
 
+# ADDTRK (n:A list) sets /detector/nAdditionalTrackers per block count and EFF /detector/trackerEfficiency, both replace the template lines.
 COUNTS=${COUNTS:-1 3 5 7 9} # block counts; override from the environment, e.g. COUNTS="1 2 3 4 5 6 7 8 9 10 11"
 ENERGIES=${ENERGIES:-25:0.92 50:1.8 137.5:5} # beam kinetic energy:Gaussian sigma, both in GeV; override from the environment, e.g. ENERGIES="25:0.92"
 TRACKER_HALF=0.00025 # tracker planes are 500 um thick (2construction.cc)
@@ -39,12 +40,13 @@ for es in $ENERGIES; do
     esd=${es##*:}
     for n in $COUNTS; do
         t=$(block_t "$n")
+        add=$(printf "%s\n" $ADDTRK | awk -F: -v n="$n" '$1==n{print $2}') # ADDTRK="1:10 2:4 ..." nAdditionalTrackers per block count, empty keeps the template value
         tag="${e}GeV_${n}block_${UNIT}"
         mac="${BASE}_${tag}.mac"
-        awk -v n="$n" -v t="$t" -v dz="$DZ" -v e="$e" -v esd="$esd" -v suffix="_${UNIT}/${e}GeV/${n}block" '
-            /^#?\/detector\/(nBlocks|CarbonThickness|TotalCarbonThickness|dz) / { next }
+        awk -v n="$n" -v t="$t" -v dz="$DZ" -v add="$add" -v eff="$EFF" -v e="$e" -v esd="$esd" -v suffix="_${UNIT}/${e}GeV/${n}block" '
+            /^#?\/detector\/(nBlocks|CarbonThickness|TotalCarbonThickness|dz|nAdditionalTrackers|trackerEfficiency) / { next }
             /^#?\/randGun\/(Energy|EnergySD) / { next }
-            /^\/run\/reinitializeGeometry/ { print "/detector/nBlocks " n; print "/detector/TotalCarbonThickness 0"; print "/detector/CarbonThickness " t; print "/detector/dz " dz; print "/randGun/Energy " e; print "/randGun/EnergySD " esd }
+            /^\/run\/reinitializeGeometry/ { print "/detector/nBlocks " n; print "/detector/TotalCarbonThickness 0"; print "/detector/CarbonThickness " t; print "/detector/dz " dz; if (add != "") print "/detector/nAdditionalTrackers " add; if (eff != "") print "/detector/trackerEfficiency " eff; print "/randGun/Energy " e; print "/randGun/EnergySD " esd }
             /^\/output\/folder / { print $0 suffix; next }
             { print }
         ' "../build/$TEMPLATE" > "../build/$mac"
@@ -52,7 +54,7 @@ for es in $ENERGIES; do
         if [ -n "$FULL" ]; then
             # FULL=1: one job per run does the sim and then the whole analysis chain (Full.pbs)
             folder=$(awk '/^\/output\/folder /{print $2}' "../build/$TEMPLATE")
-            qsub -N "Full_${e}GeV_${n}block" -v MAC="$mac",RUN="${folder}_${UNIT}/${e}GeV/${n}block" Full.pbs
+            qsub -N "Full_${e}GeV_${n}block" $QSUBOPTS -v MAC="$mac",RUN="${folder}_${UNIT}/${e}GeV/${n}block" ${FULLPBS:-Full.pbs}
         else
             bash Run.sh "$mac"
         fi
