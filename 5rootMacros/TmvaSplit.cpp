@@ -46,7 +46,7 @@ void TmvaSplit(const char* input = "cuts/cut_angles_all.root", int prescale = 2)
     auto signal = kept.Filter("isFromCE == 1");
     auto background = kept.Filter("isFromCE == 0");
     // both Snapshots are lazy and RunGraphs runs them in one pass over AnglesRaw (an eager Snapshot runs when it is booked, one pass each); the row counts are booked in the same pass
-    ROOT::RDF::RSnapshotOptions lazy; lazy.fLazy = true; lazy.fCompressionAlgorithm = ROOT::RCompressionSetting::EAlgorithm::kZLIB; lazy.fCompressionLevel = 6; // zlib level 6 like the sim output (7run.cc)
+    ROOT::RDF::RSnapshotOptions lazy; lazy.fLazy = true; SetZlib6(lazy); // zlib level 6 like the sim output (7run.cc)
     auto signalFile = signal.Snapshot("TmvaSignal", "cuts/cut_tmva_signal.root", columns, lazy);
     auto backgroundFile = background.Snapshot("TmvaBackground", "cuts/cut_tmva_background.root", columns, lazy);
     auto nSigRes = signal.Count(), nBkgRes = background.Count(); // booked with the Snapshots: the same pass counts the rows, no read of the files just written

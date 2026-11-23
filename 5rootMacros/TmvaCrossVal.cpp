@@ -34,7 +34,7 @@ namespace {
 // zlib level 6 like the sim output (7run.cc), for every Snapshot of this macro
 ROOT::RDF::RSnapshotOptions ZlibOpts(){
     ROOT::RDF::RSnapshotOptions o;
-    o.fCompressionAlgorithm = ROOT::RCompressionSetting::EAlgorithm::kZLIB; o.fCompressionLevel = 6;
+    SetZlib6(o);
     return o;
 }
 // a copy of the rows of `tree` with fEvent % every == 0 (every one for every <= 1), single threaded: it is a pass over two columns

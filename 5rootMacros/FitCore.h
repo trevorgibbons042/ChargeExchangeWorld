@@ -189,6 +189,8 @@ inline bool ReadCutRow(const std::string& file, CutRow& r){
 }
 
 
+// zlib level 6 like the sim output (7run.cc) on a Snapshot's RSnapshotOptions; the algorithm member is ROOT::ECompressionAlgorithm on ROOT 6.32 (LCRC) and an int on 6.38 (Mac), so the value is cast to whatever the member is.
+template <class Options> void SetZlib6(Options& o){o.fCompressionAlgorithm = static_cast<decltype(o.fCompressionAlgorithm)>(ROOT::RCompressionSetting::EAlgorithm::kZLIB); o.fCompressionLevel = 6;}
 // EvenHits: an even tracker hit count from 2 up to maxHits. MaxTrackerHits (defined after StackZ) is the number of tracker planes of the run, nBlocks * (2 + nAdditionalTrackers).
 // MaxTrackerHits reads settings.csv, so call it once outside an event loop and pass the value to EvenHits.
 inline bool EvenHits(int n, int maxHits){return n >= 2 && n <= maxHits && n % 2 == 0;}

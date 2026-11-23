@@ -46,7 +46,7 @@ void CutEvents(){
     // cut_CEall (every CE of the sim) is a Snapshot of the same tree: booked lazily here so one RunGraphs pass over ChargeExchange_values makes the keys and the file (the file is closed again before stage 3 reads it)
     const std::string ceTreeName = ChargeExchange->GetName();
     {
-        ROOT::RDF::RSnapshotOptions lazyAll; lazyAll.fCompressionAlgorithm = ROOT::RCompressionSetting::EAlgorithm::kZLIB; lazyAll.fCompressionLevel = 6; lazyAll.fLazy = true; // zlib level 6 like the sim output (7run.cc)
+        ROOT::RDF::RSnapshotOptions lazyAll; SetZlib6(lazyAll); lazyAll.fLazy = true; // zlib level 6 like the sim output (7run.cc)
         auto ceAllSnap = ROOT::RDataFrame(*ChargeExchange).Snapshot(ceTreeName, "cuts/cut_CEall.root", "", lazyAll);
         std::vector<ROOT::RDF::RResultHandle> handles0{keys, ceAllSnap};
         ROOT::RDF::RunGraphs(handles0);
@@ -75,7 +75,7 @@ void CutEvents(){
     //   stage 3 (cut_CEall):   the carbon CE rows, added as the second tree (UPDATE) of cut_CE
     // Each stage is lazy: all the cuts of a stage are written in one pass over their input. The result handles own the open output files, so they are cleared (files closed)
     // before the next stage reads those files; left open, cut_CE.root came out without ChargeExchange_values.
-    ROOT::RDF::RSnapshotOptions lazy; lazy.fCompressionAlgorithm = ROOT::RCompressionSetting::EAlgorithm::kZLIB; lazy.fCompressionLevel = 6; // zlib level 6 like the sim output (7run.cc), ROOT default is level 1
+    ROOT::RDF::RSnapshotOptions lazy; SetZlib6(lazy); // zlib level 6 like the sim output (7run.cc), ROOT default is level 1
     lazy.fLazy = true;
     const std::string pInfo = events->GetName(), ceTree = ChargeExchange->GetName();
 
@@ -91,7 +91,7 @@ void CutEvents(){
         handles.emplace_back(children.Filter("boundaryType == 0 && pdg == 2212").Snapshot(pInfo, "cuts/cut_ParentTracker.root", "", lazy));
         ROOT::RDF::RunGraphs(handles);
     }
-    ROOT::RDF::RSnapshotOptions update; update.fCompressionAlgorithm = ROOT::RCompressionSetting::EAlgorithm::kZLIB; update.fCompressionLevel = 6; // zlib level 6 like the sim output (7run.cc), ROOT default is level 1
+    ROOT::RDF::RSnapshotOptions update; SetZlib6(update); // zlib level 6 like the sim output (7run.cc), ROOT default is level 1
     update.fMode = "UPDATE";
     ROOT::RDataFrame dfCEallRows(ceTree, "cuts/cut_CEall.root");
     dfCEallRows.Filter(CarbonCeCut()).Snapshot(ceTree, "cuts/cut_CE.root", "", update); // the carbon-block CE rows, beside ParticleInfo
@@ -202,7 +202,7 @@ void CountCE(){
         addCol("trackerX", 1); addCol("trackerY", 2); addCol("trackerDX", 3); addCol("trackerDY", 4);
         addCol("detectorDX", 8); addCol("detectorDY", 9); addCol("detectorX", 6); addCol("detectorY", 7);
         cols.push_back("reachedDetector");
-        ROOT::RDF::RSnapshotOptions opts; opts.fCompressionAlgorithm = ROOT::RCompressionSetting::EAlgorithm::kZLIB; opts.fCompressionLevel = 6; // zlib level 6 like the sim output (7run.cc), ROOT default is level 1
+        ROOT::RDF::RSnapshotOptions opts; SetZlib6(opts); // zlib level 6 like the sim output (7run.cc), ROOT default is level 1
         opts.fMode = b == 0 ? "RECREATE" : "UPDATE";
         df.Snapshot(Form("Block%zu", b + 1), outname.Data(), cols, opts);
         {
