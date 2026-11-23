@@ -32,7 +32,7 @@ case $STEP in
     analysis) macros=('CutPlots.cpp("events")' 'ReconAngleAll.cpp' 'CalcAPandT.cpp' 'CutPlots.cpp("count")') ;; # SubmitEvents.sh: the four analysis steps in one job, one after the other, all the cores each (F1_2_Plot3D.cpp reads AnglesRaw itself, CutPlots zdc writes nothing)
     recon)    macros=('ReconAngleAll.cpp') ;; # the event recon (cuts/cut_angles_all.root, needs TrackerHitsAll from the sim)
     reconnew) macros=('CutPlots.cpp("events")' 'ReconAngleAll.cpp' 'F9_PlotReconNew.cpp') ;; # only plots/6_ReconNew_1: CutPlots events first (cut_CE.root, which PlotReconNew opens), then the event recon (cuts/cut_angles_all.root), then its plots; nothing else of the chain
-    plotnew)  macros=('F9_PlotReconNew.cpp' 'F10_BDTCuts.cpp') ;; # only the plots of plots/6_ReconNew_1, cuts/cut_angles_all.root is there from reconnew
+    plotnew)  macros=('F9_PlotReconNew.cpp' ${USE_BDT:+'F10_BDTCuts.cpp'}) ;; # F10 only with -v USE_BDT=1. Only the plots of plots/6_ReconNew_1, cuts/cut_angles_all.root is there from reconnew
     calc)     macros=('CalcAPandT.cpp') ;; # the detector KE trees of cut_APandT.root
     countce)  macros=('CutPlots.cpp("count")') ;;
     plot3d)   macros=('F1_2_Plot3D.cpp') ;; # 1_position, 2_energy; Plot3D runs its three groups as three processes (below)
