@@ -17,3 +17,5 @@ run 'CutPlots.cpp("count")'
 run 'CalcAPandT.cpp' # the detector KE trees of cut_APandT.root
 unset ANA_NTHREADS
 zsh plot.sh
+# the all-recon-particles cut file is only read by the 3D plots (plot.sh just drew them), the biggest file of the run after cut_angles_all.root: dropped by default
+rm -f cuts/cut_Plot3DAllPart.root
