@@ -1,0 +1,14 @@
+#!/bin/bash -l
+#PBS -q backfill
+#PBS -A eic
+#PBS -N CmpTest
+#PBS -l select=1:ncpus=8
+#PBS -l walltime=00:30:00
+#PBS -j oe
+#PBS -o /lcrc/project/eic/tgibbons/cmptest.log
+module load root
+export LD_LIBRARY_PATH=/lcrc/project/eic/tgibbons/xxhash-install/lib:/lcrc/project/eic/tgibbons/gif-lib:$LD_LIBRARY_PATH
+cd /lcrc/project/eic/tgibbons/cmptest
+for m in CutPlots ReconAngleAll CalcAPandT; do
+  echo "== $m"; root -l -b -q -e ".L $m.cpp+O" 2>&1 | grep -a "rror\|warning: unused" | head -5; ls ${m}_cpp.so 2>&1 | tail -1
+done

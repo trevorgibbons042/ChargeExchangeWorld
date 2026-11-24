@@ -1,0 +1,13 @@
+#!/bin/bash -l
+#PBS -q backfill
+#PBS -A eic
+#PBS -N Split2
+#PBS -l select=1:ncpus=32
+#PBS -l walltime=01:00:00
+#PBS -j oe
+#PBS -o /lcrc/project/eic/tgibbons/split2.log
+module load root
+export LD_LIBRARY_PATH=/lcrc/project/eic/tgibbons/xxhash-install/lib:/lcrc/project/eic/tgibbons/gif-lib:$LD_LIBRARY_PATH
+cd /lcrc/project/eic/tgibbons/G4ChargeExchange/build/root/newPhysics_801_100m_0.1m/50GeV/3block
+cp /lcrc/project/eic/tgibbons/Split2.cpp .
+root -l -b -q Split2.cpp+O 2>&1 | grep -av TCanvas

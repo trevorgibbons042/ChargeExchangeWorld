@@ -1,0 +1,24 @@
+#!/bin/bash -l
+#PBS -q backfill
+#PBS -A eic
+#PBS -N F9All
+#PBS -l select=1:ncpus=128
+#PBS -l walltime=06:00:00
+#PBS -j oe
+# F9_PlotReconNew (plots/6_ReconNew_1, no BDT) again for every finished 50 GeV run (cuts/cut_angles_all.root, no sim output left). SHARD (0..NSHARD-1) takes every NSHARD-th run so several jobs split the list.
+module load root
+export LD_LIBRARY_PATH=/lcrc/project/eic/tgibbons/xxhash-install/lib:/lcrc/project/eic/tgibbons/gif-lib:$LD_LIBRARY_PATH
+export NCPUS=128 ANA_NTHREADS=128 ACLIC=+O PLOT_PIPELINE=1
+BASE=/lcrc/project/eic/tgibbons/G4ChargeExchange
+i=0
+for d in $BASE/build/root/newPhysics_801_100m_*m/50GeV/*block; do
+  [ -s $d/cuts/cut_angles_all.root ] || continue
+  ls $d/output*_t*.root >/dev/null 2>&1 && continue
+  [ $((i % NSHARD)) -eq $SHARD ] || { i=$((i+1)); continue; }; i=$((i+1))
+  echo "=== $d"; cd $d || continue
+  rm -rf plots/6_ReconNew_1
+  rsync -a --exclude __pycache__ --exclude '*_cpp.*' --exclude .DS_Store --exclude CLAUDE.md --exclude debug $BASE/5rootMacros/ $d/
+  rsync -a $BASE/6jobs/run_lib.sh $d/
+  zsh -c 'source ./run_lib.sh; run F9_PlotReconNew.cpp' 2>&1 | grep -a "F9_PlotReconNew:\|rror" | cut -c1-160
+done
+echo ALLDONE

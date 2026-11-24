@@ -1,0 +1,18 @@
+#!/bin/bash -l
+#PBS -q backfill
+#PBS -A eic
+#PBS -N MvDone
+#PBS -l select=1:ncpus=4
+#PBS -l walltime=12:00:00
+#PBS -j oe
+
+# move the finished run folders listed in /tmp/donelist.txt to the NPol data area, leave a symlink at the old path
+BASE=/lcrc/project/eic/tgibbons/G4ChargeExchange
+NPOL=/lcrc/group/eic/data/NPol/0.00000_Trevor
+cd $BASE/build/root || exit 1
+for RUN in $(cat /lcrc/project/eic/tgibbons/donelist.txt); do
+    [ -L $RUN ] && { echo "skip $RUN (already a symlink)"; continue; }
+    mkdir -p $NPOL/$(dirname $RUN) && rsync -a --remove-source-files $RUN/ $NPOL/$RUN/ \
+        && find $RUN -depth -type d -empty -delete && ln -s $NPOL/$RUN $BASE/build/root/$RUN \
+        && echo "$(date +%H:%M) moved $RUN" || echo "$(date +%H:%M) FAILED $RUN"
+done

@@ -1,0 +1,2 @@
+#!/bin/bash -l
+bash /lcrc/project/eic/tgibbons/G4ChargeExchange/6jobs/ResimFeeder.sh

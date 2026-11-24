@@ -1,0 +1,14 @@
+#!/bin/bash -l
+#PBS -q backfill
+#PBS -A eic
+#PBS -N TubeDebug
+#PBS -l select=1:ncpus=32
+#PBS -l walltime=02:00:00
+#PBS -j oe
+BASE=/lcrc/project/eic/tgibbons/G4ChargeExchange
+cd $BASE/build/root/newPhysics_801_100m_0.4m/25GeV/7block || exit 1
+module load root
+export LD_LIBRARY_PATH=/lcrc/project/eic/tgibbons/xxhash-install/lib:$LD_LIBRARY_PATH
+export LD_LIBRARY_PATH=/lcrc/project/eic/tgibbons/gif-lib:$LD_LIBRARY_PATH
+export ANA_NTHREADS=32
+root -l -b -q 'PlotTubeDebug.cpp(-1, -1, 4)'

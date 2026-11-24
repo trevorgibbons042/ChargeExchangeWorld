@@ -49,7 +49,7 @@ status=$?
 
 # the big cut files are only inputs of the plots, drop them when the chain is done (the sim output stays, run_all.sh makes them again)
 if [ $status -eq 0 ]; then
-    rm -f cuts/cut_angles_all.root cuts/cut_angles_all_1.root cuts/cut_Plot3DAllPart.root # cut_Plot3DAllPart.root only exists in runs made before the Plot3D copies were dropped; cuts/cut_events.root stays (it is small and the error budget reads it)
+    rm -f cuts/cut_Plot3DAllPart.root # cut_Plot3DAllPart.root only exists in runs made before the Plot3D copies were dropped; cuts/cut_events.root stays (it is small and the error budget reads it)
 fi
 
 # DEST (-v DEST=<dir>, ScanThickness.sh): the run is finished, so the sim output goes and the run folder moves to $DEST/$RUN. A copy, then the delete: build/root and the data area are different filesystems,

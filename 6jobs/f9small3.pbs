@@ -1,0 +1,16 @@
+#!/bin/bash -l
+#PBS -q backfill
+#PBS -A eic
+#PBS -N F9Small3
+#PBS -l select=1:ncpus=32
+#PBS -l walltime=00:30:00
+#PBS -j oe
+#PBS -o /lcrc/project/eic/tgibbons/f9small3.log
+module load root
+export LD_LIBRARY_PATH=/lcrc/project/eic/tgibbons/xxhash-install/lib:/lcrc/project/eic/tgibbons/gif-lib:$LD_LIBRARY_PATH
+export NCPUS=32 ANA_NTHREADS=32 ACLIC=+O PLOT_PIPELINE=1
+cd /lcrc/project/eic/tgibbons; rm -rf f9old; mkdir -p f9old/cuts; cd f9old
+cp ../f9small/settings.csv .; cp ../f9small/cuts/cut_angles_all.root cuts/
+rsync -a --exclude __pycache__ --exclude "*_cpp.*" --exclude "T1*" ../f9small/ ./ --exclude cuts --exclude plots
+cp /lcrc/project/eic/tgibbons/F9old.cpp F9_PlotReconNew.cpp
+zsh -c "source ./run_lib.sh; run F9_PlotReconNew.cpp" 2>&1 | grep -av TCanvas | tail -15

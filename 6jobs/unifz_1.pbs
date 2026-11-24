@@ -1,0 +1,20 @@
+#!/bin/bash -l
+#PBS -N unifz1
+#PBS -q backfill
+#PBS -A eic
+#PBS -l select=1:ncpus=64
+#PBS -l walltime=06:00:00
+#PBS -j oe
+#PBS -o /lcrc/project/eic/tgibbons/G4ChargeExchange/6jobs/unifz1.log
+module load root
+export LD_LIBRARY_PATH=/lcrc/project/eic/tgibbons/xxhash-install/lib:/lcrc/project/eic/tgibbons/gif-lib:$LD_LIBRARY_PATH
+export NCPUS=64 ANA_NTHREADS=64 ACLIC=+O PLOT_PIPELINE=1
+B=/lcrc/project/eic/tgibbons/G4ChargeExchange
+for D in $(cat $B/6jobs/unifz_1.txt); do
+    echo "=== $D"
+    cd $D || continue
+    rsync -a $B/5rootMacros/F9_PlotReconNew.cpp $B/6jobs/run_lib.sh $D/
+    zsh -c "source ./run_lib.sh; run F9_PlotReconNew.cpp" 2>&1 | grep -aE ">>> F9|rror|bgrej" | head -5
+    ls plots/6_ReconNew_1/6_megaCut/2_phi_cosfit/ | grep -c bgrej_trials
+done
+echo ALLDONE

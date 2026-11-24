@@ -1,0 +1,17 @@
+#!/bin/bash -l
+#PBS -q backfill
+#PBS -A eic
+#PBS -N F9Dbg2
+#PBS -l select=1:ncpus=128
+#PBS -l walltime=02:00:00
+#PBS -j oe
+#PBS -o /lcrc/project/eic/tgibbons/f9dbg2.log
+module load root
+export LD_LIBRARY_PATH=/lcrc/project/eic/tgibbons/xxhash-install/lib:/lcrc/project/eic/tgibbons/gif-lib:$LD_LIBRARY_PATH
+export NCPUS=128 ANA_NTHREADS=128 ACLIC=+O PLOT_PIPELINE=1
+ulimit -c 0
+cd /lcrc/project/eic/tgibbons/G4ChargeExchange/build/root/newPhysics_801_100m_0.3m/50GeV/1block
+/usr/bin/time -v root -l -b -q F9_PlotReconNew.cpp+O > f9raw.out 2> f9raw.err
+echo ROOTEXIT $?
+grep -av TCanvas f9raw.out | tail -20
+grep -av TCanvas f9raw.err | tail -40

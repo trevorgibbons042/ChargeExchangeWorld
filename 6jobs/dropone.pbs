@@ -1,0 +1,21 @@
+#!/bin/bash -l
+#PBS -q backfill
+#PBS -A eic
+#PBS -N DropOne
+#PBS -l select=1:ncpus=128
+#PBS -l walltime=04:00:00
+#PBS -j oe
+#PBS -o /lcrc/project/eic/tgibbons/G4ChargeExchange/build/root/newPhysics2_801_100m_0.4m/25GeV/5block/dropone.log
+# drop-one test: TmvaCrossVal.cpp (5 folds) once with every input and once per input left out, all side by side (25 runs x 5 fold processes)
+module load root
+module load openblas/0.3.26-gcc-12.3.0
+export LD_LIBRARY_PATH=/lcrc/project/eic/tgibbons/xxhash-install/lib:/lcrc/project/eic/tgibbons/gif-lib:$LD_LIBRARY_PATH
+export ANA_NTHREADS=1
+cd /lcrc/project/eic/tgibbons/G4ChargeExchange/build/root/newPhysics2_801_100m_0.4m/25GeV/5block || exit 1
+rm -rf crossval_drop; mkdir -p crossval_drop
+root -l -b -q -e '.L TmvaCrossVal.cpp+' > dropone_compile.log 2>&1 # built once, the runs below load it
+for v in none zdcKEAllD outDTheta outDPhi resDRms impactD firstXD firstYD lastXD lastYD nChargedParticle r2D resHalfRatioD nPlanesUsed nHits nChargedPlane0 nChargedPlane1 nChargedPlane2 nChargedPlane3 nChargedPlane4 nChargedPlane5 nChargedPlane6 nChargedPlane7 nChargedPlane8 nChargedPlane9; do
+    root -l -b -q "TmvaCrossVal.cpp+(5, 200000, 20000, \"resultTMVAtraining_SigBkg.root\", \"$v\")" > crossval_drop/$v.log 2>&1 &
+done
+wait
+echo === results; grep -h "mean\|dropped" crossval_drop/*.txt | paste - - | sort | head -30

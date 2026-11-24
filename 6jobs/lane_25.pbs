@@ -1,0 +1,2 @@
+#!/bin/bash -l
+PREV=0.1 ENERGIES="25:0.92" COUNTS="1 2 3 4 5 6" ADDTRK="1:10 2:4 3:2 4:1 5:0 6:0" TEMPLATE=run_100m.mac DEST=/lcrc/group/eic/data/NPol/0.00000_Trevor bash /lcrc/project/eic/tgibbons/G4ChargeExchange/6jobs/ScanThickness.sh 0.2 0.3 0.4 0.5 0.6 0.7 0.8 0.9 1.0 1.1

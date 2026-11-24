@@ -1,0 +1,12 @@
+#!/bin/bash -l
+#PBS -q backfill
+#PBS -A eic
+#PBS -N EvCheck
+#PBS -l select=1:ncpus=4
+#PBS -l walltime=01:00:00
+#PBS -j oe
+
+# rows of AnglesRaw in cut_angles_all.root and in the continuation cut_angles_all_1.root of every run that has one
+module load root
+export LD_LIBRARY_PATH=/lcrc/project/eic/tgibbons/xxhash-install/lib:/lcrc/project/eic/tgibbons/gif-lib:$LD_LIBRARY_PATH
+bash /lcrc/project/eic/tgibbons/ev.sh > /lcrc/project/eic/tgibbons/evcheck.txt 2> /lcrc/project/eic/tgibbons/evcheck.err

@@ -1,0 +1,13 @@
+#!/bin/bash -l
+#PBS -q backfill
+#PBS -A eic
+#PBS -N ReconPart
+#PBS -l select=1:ncpus=128
+#PBS -l walltime=04:00:00
+#PBS -j oe
+module load root
+export LD_LIBRARY_PATH=/lcrc/project/eic/tgibbons/xxhash-install/lib:/lcrc/project/eic/tgibbons/gif-lib:$LD_LIBRARY_PATH
+export NCPUS=128 ANA_NTHREADS=128 ACLIC=+O PLOT_PIPELINE=1 NO_BDT=1
+cd /lcrc/project/eic/tgibbons/G4ChargeExchange/build/root/$RUN || exit 1
+zsh -c "source ./run_lib.sh; run ReconAngleAll.cpp; run F9_PlotReconNew.cpp"
+echo === files; ls plots/6_ReconNew_1/4_Theta0_1/1_additionalinfo

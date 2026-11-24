@@ -447,7 +447,7 @@ void F9_PlotReconNew(){
             // sAll, bAll count every recon event with no cut, nS, nB the ones that pass the cuts of this folder (passes); meanA is the mean A_eff at the recon block theta of the signal events in the cuts;
             // nCETrue is the number of CE events in the carbon blocks (cut_CE.root); fit 1 and fit 2 are the P fits of the CE + CE mix and the total recon samples, exactly as the plots of 2_phi_cosfit.
             // the counts and the three fit samples below are built on all the threads (MapRows): each row range returns its own partial result, the partials are merged in range order
-            struct CountPart {double sAll = 0, bAll = 0, nS = 0, nB = 0, sumA = 0, nA = 0, s0All = 0, n0 = 0, sumA0 = 0, nA0 = 0;}; // s0All, n0, sumA0, nA0: the CE only tracks (evClass 0), the signal of F10_BDTCuts.cpp
+            struct CountPart {double sAll = 0, bAll = 0, nS = 0, nB = 0, sumA = 0, nA = 0, s0All = 0, n0 = 0, sumA0 = 0, nA0 = 0, sD = 0, sD2 = 0, nD = 0;}; // sD, sD2, nD: sum, sum of squares and count of recon phi minus true CE phi (degrees, wrapped to 180) of the CE only tracks in the cuts; s0All, n0, sumA0, nA0: the CE only tracks (evClass 0), the signal of F10_BDTCuts.cpp
             const auto countParts = MapRows(n, [&](Long64_t a, Long64_t z){
                 CountPart p;
                 for (Long64_t i = a; i < z; i++){
@@ -463,13 +463,18 @@ void F9_PlotReconNew(){
                     } else p.nB++;
                     if (x.evClass == 0){
                         p.n0++;
+                        const auto itD = byEvent.find((long long)x.eventID);
+                        if (itD != byEvent.end() && std::isfinite(x.phiRelND)){
+                            double dd = x.phiRelND * rad - ce[1][itD->second]; dd -= 360.0 * std::round(dd / 360.0);
+                            p.sD += dd; p.sD2 += dd * dd; p.nD++;
+                        }
                         if (std::isfinite(x.thetaRelND)){p.sumA0 += AEffOfTheta(x.thetaRelND * rad, apScale); p.nA0++;}
                     }
                 }
                 return p;
             });
-            double sAll = 0, bAll = 0, nS = 0, nB = 0, sumA = 0, nA = 0, s0All = 0, n0 = 0, sumA0 = 0, nA0 = 0;
-            for (const auto& p : countParts){sAll += p.sAll; bAll += p.bAll; nS += p.nS; nB += p.nB; sumA += p.sumA; nA += p.nA; s0All += p.s0All; n0 += p.n0; sumA0 += p.sumA0; nA0 += p.nA0;}
+            double sAll = 0, bAll = 0, nS = 0, nB = 0, sumA = 0, nA = 0, s0All = 0, n0 = 0, sumA0 = 0, nA0 = 0, sD = 0, sD2 = 0, nD = 0;
+            for (const auto& p : countParts){sAll += p.sAll; bAll += p.bAll; nS += p.nS; nB += p.nB; sumA += p.sumA; nA += p.nA; s0All += p.s0All; n0 += p.n0; sumA0 += p.sumA0; nA0 += p.nA0; sD += p.sD; sD2 += p.sD2; nD += p.nD;}
             for (int s = 0; s < 3; s++){ // 0 the CE sample, at the true CE angle and its LastAP like 1_phiBlock_cosfit_CE.pdf; 1 CE + CE mix and 2 total recon, at the recon block angle
                 struct FitPart {std::vector<double> ph; AMean a; PhiRange q1, q2;};
                 auto fitParts = MapRows(n, [&](Long64_t lo, Long64_t hi){
@@ -507,9 +512,9 @@ void F9_PlotReconNew(){
             }
             std::ofstream scan(statDir + "/scan_stats.csv");
             scan.precision(10); // counts of millions and 250M neutrons stay whole numbers
-            scan << "nBlocks,TotalNeutrons,PPValue,nCETrue,sAll,bAll,nS,nB,meanA,nFitCEMix,pCEMix,errCEMix,nFitAll,pAll,errAll,nFitCE,pCE,errCE,sCEOnly,nCEOnly,meanACEOnly,pRawAll,pRawCE,statAll,systAll,statCE,systCE\n"; // statAll, systAll, statCE, systCE (the last four columns): errAll and errCE split into the statistics and the systematic part as printed on the phi fit pages; pRawAll, pRawCE are the P of the total recon and CE fits before the bias correction (pAll, pCE are corrected); // sCEOnly, nCEOnly, meanACEOnly (CE only tracks, evClass 0) are after the CE fit columns; the CE columns are last so older readers (PlotBlockScan.cpp reads the first 15, columns 16 to 18 only if present) still work
+            scan << "nBlocks,TotalNeutrons,PPValue,nCETrue,sAll,bAll,nS,nB,meanA,nFitCEMix,pCEMix,errCEMix,nFitAll,pAll,errAll,nFitCE,pCE,errCE,sCEOnly,nCEOnly,meanACEOnly,pRawAll,pRawCE,statAll,systAll,statCE,systCE,sigmaDPhi,nDPhi\n"; // sigmaDPhi, nDPhi (the last two columns): std dev in degrees of recon phi minus true CE phi of the CE only tracks in the cuts, and their number; // statAll, systAll, statCE, systCE (the last four columns): errAll and errCE split into the statistics and the systematic part as printed on the phi fit pages; pRawAll, pRawCE are the P of the total recon and CE fits before the bias correction (pAll, pCE are corrected); // sCEOnly, nCEOnly, meanACEOnly (CE only tracks, evClass 0) are after the CE fit columns; the CE columns are last so older readers (PlotBlockScan.cpp reads the first 15, columns 16 to 18 only if present) still work
             scan << settings.at("nBlocks") << "," << settings.at("TotalNeutrons") << "," << settings.at("PPValue") << "," << byEvent.size() << "," << sAll << "," << bAll << "," << nS << "," << nB << "," << (nA > 0 ? sumA / nA : 0.0) << ","
-                 << nFit[1] << "," << pFitV[1] << "," << eFitV[1] << "," << nFit[2] << "," << pFitV[2] << "," << eFitV[2] << "," << nFit[0] << "," << pFitV[0] << "," << eFitV[0] << "," << s0All << "," << n0 << "," << (nA0 > 0 ? sumA0 / nA0 : 0.0) << "," << pRawV[2] << "," << pRawV[0] << "," << statV[2] << "," << systV[2] << "," << statV[0] << "," << systV[0] << "\n";
+                 << nFit[1] << "," << pFitV[1] << "," << eFitV[1] << "," << nFit[2] << "," << pFitV[2] << "," << eFitV[2] << "," << nFit[0] << "," << pFitV[0] << "," << eFitV[0] << "," << s0All << "," << n0 << "," << (nA0 > 0 ? sumA0 / nA0 : 0.0) << "," << pRawV[2] << "," << pRawV[0] << "," << statV[2] << "," << systV[2] << "," << statV[0] << "," << systV[0] << "," << (nD > 1 ? std::sqrt(std::max(0.0, sD2 / nD - (sD / nD) * (sD / nD))) : 0.0) << "," << nD << "\n";
         }
         if (bdtMode && mode == 41 && !scanOnly){ // every BDT cut is scanned: the cut with the total recon P (pAll) closest to the true P gets its fit pdfs
             int best = -1; double bestDiff = 1e300;
@@ -615,7 +620,8 @@ void F9_PlotReconNew(){
                 subCsv.precision(10);
                 subCsv << "subsample,nAll,nCE,purity,P,err\n";
                 const double purFull = all.empty() ? 0.0 : (double)ceAll / all.size();
-                if (all.size() >= 10){
+                const bool kSubsamples = false; // the 100 random 50% subsample fits (4_phiBlock_cosfit_all_50pct_subsamples.pdf and subsamples.csv) are skipped: they cost most of the F9 time and the BG rejection trials below replace them. Set true to make them again
+                if (kSubsamples && all.size() >= 10){
                     pFull = pFitV[2]; eFull = eFitV[2]; // the fit of the full sample, already done for scan_stats.csv (same rows, same A_eff and ranges)
                     for (int s = 0; s < nSub; s++){
                         std::vector<size_t> idx(all.size());
@@ -692,6 +698,114 @@ void F9_PlotReconNew(){
                     c.Print((path + ")").c_str());
                     c.Clear(); c.SetLeftMargin(0.13); c.SetRightMargin(0.30); c.SetTopMargin(0.1); c.SetBottomMargin(0.13);
                     made += nShow + 2;
+                }
+                if (all.size() >= 10){ // BG rejection test, nSub trials on the whole sample (no subsample): the purity p is "known" to kBgPurErr around the real purity of the whole sample, (1 - p) N random phi tracks (phi uniform in 0 to 360, each removes the nearest track in phi) are removed, then the unbinned fit. Only the assumed purity and the removed tracks change from trial to trial
+                    const double kBgPurErr = 0.05; // relative uniform error on the real purity of the sample (CE recon / all recon tracks): the assumed purity is uniform in real * (1 +- kBgPurErr), so 0.90 is known to 0.855 to 0.945 and 0.80 to 0.76 to 0.84
+                    const std::string pathB = dir + "/2_phi_cosfit/5_phiBlock_cosfit_all_bgrej_trials.pdf";
+                    std::ofstream bgCsv(dir + "/2_phi_cosfit/bgrej_trials.csv"); bgCsv.precision(10);
+                    bgCsv << "trial,nAll,nCE,purity_real,purity_assumed,nRemoved,nKept,purity_after,P_plain,P_bgrej,err_bgrej\n";
+                    std::vector<double> pBg, eBg, purAfter, purAss;
+                    for (int s = 0; s < nSub; s++){
+                        const size_t m = all.size(); // the whole sample in every trial
+                        TRandom3 rb(98765 + s);
+                        const double pReal = purFull;
+                        const double pAss = std::min(1.0, std::max(0.05, pReal * (1 + rb.Uniform(-kBgPurErr, kBgPurErr))));
+                        const size_t nRem = std::min(m - 1, (size_t)std::lround((1 - pAss) * m));
+                        std::multiset<std::pair<double, size_t>> alive;
+                        size_t ceS = 0;
+                        for (size_t q = 0; q < m; q++){alive.insert({all[q].ph, q}); ceS += all[q].ce;}
+                        for (size_t j = 0; j < nRem; j++){
+                            const double u = 360.0 * rb.Rndm();
+                            const auto it = alive.lower_bound({u, 0});
+                            const auto upIt = it == alive.end() ? alive.begin() : it;
+                            const auto dnIt = it == alive.begin() ? std::prev(alive.end()) : std::prev(it);
+                            auto circ = [&](double a){const double d = std::fabs(a - u); return std::min(d, 360.0 - d);};
+                            alive.erase(circ(upIt->first) < circ(dnIt->first) ? upIt : dnIt);
+                        }
+                        std::vector<double> phB; AMean aB; PhiRange b1, b2; size_t ceB = 0;
+                        TH1D hB(Form("hPhiBgNew_%d", s), "", nb, 0, 360);
+                        for (const auto& pr : alive){
+                            const SubIn& e = all[pr.second];
+                            phB.push_back(e.ph); hB.Fill(e.ph); ceB += e.ce;
+                            aB.Add(e.a, e.a1lo, e.a1hi, e.a2lo, e.a2hi);
+                            if (std::isfinite(e.h1)) b1.Add(e.h1);
+                            if (std::isfinite(e.h2)) b2.Add(e.h2);
+                        }
+                        aB.smearBias = smearBias;
+                        const PFit ub = UnbinnedP(phB, aB, kBlockPhiLo, kBlockPhiHi, nullptr, true, &b1, &b2);
+                        pBg.push_back(ub.p); eBg.push_back(ub.err); purAss.push_back(pAss); purAfter.push_back(alive.empty() ? 0.0 : (double)ceB / alive.size());
+                        bgCsv << s + 1 << "," << m << "," << ceS << "," << pReal << "," << pAss << "," << nRem << "," << alive.size() << "," << purAfter.back() << "," << pFull << "," << ub.p << "," << ub.err << "\n";
+                        if (s >= nShow) continue;
+                        c.Clear(); c.cd();
+                        c.SetLeftMargin(0.16); c.SetRightMargin(0.04); c.SetTopMargin(0.17); c.SetBottomMargin(0.13);
+                        hB.SetStats(0); hB.SetLineColor(ClassColor(2)); hB.SetLineWidth(2); hB.SetMinimum(0);
+                        hB.SetTitle(Form("BG rejection, trial %d of %d (first %d shown, whole sample, no subsample), %s, RECONPHIBL_ESTNEU Distribution, %d phi bins of %.1f deg%s;RECONPHIBL_ESTNEU (degrees);Count", s + 1, nSub, nShow, sampleName[2], nb, 360.0 / nb, cutText.c_str()));
+                        const double deltaPhiRelB = b1.RelErr(); AddPhiBinErrors(&hB, deltaPhiRelB);
+                        {double yTop = 0; for (int b = 1; b <= hB.GetNbinsX(); b++) yTop = std::max(yTop, hB.GetBinContent(b) + hB.GetBinError(b)); hB.SetMaximum(1.1 * yTop);}
+                        hB.Draw("hist E");
+                        TF1 fb("fSubBgDrawNew", "[0] * (1 + [1] * [2] * [3] * cos(x * TMath::Pi() / 180))", 0, 360);
+                        fb.SetParameters(hB.GetEntries() / nb, ub.p, aB.Corrected(), ub.dil); fb.SetLineColor(kBlack); fb.SetLineStyle(2); fb.SetLineWidth(3); fb.Draw("same");
+                        TLine meanBinB(0, hB.GetEntries() / nb, 360, hB.GetEntries() / nb); meanBinB.SetLineStyle(3); meanBinB.SetLineWidth(2); meanBinB.Draw();
+                        TLatex tb; tb.SetNDC(); tb.SetTextSize(0.026);
+                        tb.DrawLatex(0.18, 0.93, Form("BG rejection, %zu random phi tracks removed of %zu (assumed purity %.3f, real purity %.3f, %.3f after the removal)", nRem, m, pAss, pReal, purAfter.back()));
+                        tb.DrawLatex(0.18, 0.895, Form("%.0f entries kept, %s = %.4f #pm %.4f,  P = %.3g #pm %.2g (without the rejection P = %.3g)", hB.GetEntries(), AEffEq(), aB.Corrected(), aB.Err(), ub.p, ub.err, pFull));
+                        c.Modified(); c.Update();
+                        c.Print((pathB + (s == 0 ? "(" : "")).c_str());
+                    }
+                    c.Clear(); c.cd();
+                    c.SetLeftMargin(0.12); c.SetRightMargin(0.04); c.SetTopMargin(0.17); c.SetBottomMargin(0.12);
+                    double blo = pBg[0], bhi = pBg[0], bmean = 0, brms = 0;
+                    for (size_t i = 0; i < pBg.size(); i++){blo = std::min(blo, pBg[i]); bhi = std::max(bhi, pBg[i]); bmean += pBg[i] / pBg.size();}
+                    for (const double p : pBg) brms += (p - bmean) * (p - bmean);
+                    brms = pBg.size() > 1 ? std::sqrt(brms / (pBg.size() - 1)) : 0;
+                    blo = std::min(blo, std::min(pFull, pTrue)); bhi = std::max(bhi, std::max(pFull, pTrue));
+                    const double bpad = 0.1 * (bhi - blo > 0 ? bhi - blo : 0.1);
+                    TH1D hPB("hSubPBgNew", Form("P after the BG rejection, %d trials on the whole sample, %s%s;Polarization fit P;Trials", nSub, sampleName[2], cutText.c_str()), 50, blo - bpad, bhi + bpad);
+                    for (const double p : pBg) hPB.Fill(p);
+                    hPB.SetStats(0); hPB.SetLineColor(ClassColor(2)); hPB.SetLineWidth(2); hPB.SetFillColorAlpha(ClassColor(2), 0.35); hPB.SetMinimum(0); hPB.SetMaximum(1.3 * hPB.GetMaximum());
+                    hPB.Draw("hist");
+                    TLine lfb(pFull, 0, pFull, hPB.GetMaximum()); lfb.SetLineColor(ClassColor(2)); lfb.SetLineWidth(3); lfb.Draw();
+                    TLine ltb(pTrue, 0, pTrue, hPB.GetMaximum()); ltb.SetLineStyle(3); ltb.SetLineWidth(3); ltb.Draw();
+                    TLatex tpb; tpb.SetNDC(); tpb.SetTextSize(0.026);
+                    tpb.DrawLatex(0.14, 0.93, "solid line = P of the whole sample without the rejection, dotted black = true P (PPValue)");
+                    tpb.DrawLatex(0.14, 0.89, Form("with BG rejection mean %.3g, RMS %.2g; without it %.3g; purity known to +-%.0f%% of itself (uniform)", bmean, brms, pFull, 100 * kBgPurErr));
+                    c.Modified(); c.Update();
+                    c.Print(pathB.c_str());
+                    // page after the P histogram: the assumed purity of the trials (filled), the purity after the BG rejection removed its tracks (dashed) and the real purity of the whole sample (line)
+                    c.Clear(); c.cd();
+                    double qlo = purFull, qhi = purFull; for (const double v : purAss){qlo = std::min(qlo, v); qhi = std::max(qhi, v);}
+                    for (const double v : purAfter){qlo = std::min(qlo, v); qhi = std::max(qhi, v);}
+                    const double qpad = 0.1 * (qhi - qlo > 0 ? qhi - qlo : 0.01);
+                    {
+                        double qmean = 0, qrms = 0, amean = 0, arms = 0;
+                        for (size_t i = 0; i < purAss.size(); i++){qmean += purAss[i] / purAss.size(); amean += purAfter[i] / purAfter.size();}
+                        for (size_t i = 0; i < purAss.size(); i++){qrms += (purAss[i] - qmean) * (purAss[i] - qmean); arms += (purAfter[i] - amean) * (purAfter[i] - amean);}
+                        qrms = purAss.size() > 1 ? std::sqrt(qrms / (purAss.size() - 1)) : 0; arms = purAfter.size() > 1 ? std::sqrt(arms / (purAfter.size() - 1)) : 0;
+                        TH1D hQB("hSubPurBgNew", Form("assumed purity of %d trials on the whole sample, %s%s;purity (CE recon / all recon tracks);Trials", nSub, sampleName[2], cutText.c_str()), 50, qlo - qpad, qhi + qpad);
+                        TH1D hQA("hSubPurAfterNew", "", 50, qlo - qpad, qhi + qpad);
+                        for (const double v : purAss) hQB.Fill(v);
+                        for (const double v : purAfter) hQA.Fill(v);
+                        hQB.SetStats(0); hQB.SetLineColor(ClassColor(2)); hQB.SetLineWidth(2); hQB.SetFillColorAlpha(ClassColor(2), 0.35); hQB.SetMinimum(0); hQB.SetMaximum(1.3 * std::max(hQB.GetMaximum(), hQA.GetMaximum()));
+                        hQA.SetStats(0); hQA.SetLineColor(kBlack); hQA.SetLineWidth(2); hQA.SetLineStyle(2);
+                        hQB.Draw("hist"); hQA.Draw("hist same");
+                        TLine lrp(purFull, 0, purFull, hQB.GetMaximum()); lrp.SetLineColor(ClassColor(2)); lrp.SetLineWidth(3); lrp.Draw();
+                        TLatex tqb; tqb.SetNDC(); tqb.SetTextSize(0.026);
+                        tqb.DrawLatex(0.14, 0.93, "filled = assumed purity of the trial, dashed = purity after the random phi tracks are removed, solid line = real purity of the whole sample");
+                        tqb.DrawLatex(0.14, 0.89, Form("real purity %.3f; assumed mean %.3f, RMS %.3f; after the rejection mean %.3f, RMS %.3f", purFull, qmean, qrms, amean, arms));
+                        c.Modified(); c.Update();
+                        c.Print(pathB.c_str());
+                        c.Clear(); c.cd();
+                    }
+                    // last page: P with the BG rejection against the assumed purity of each trial
+                    TH2D hPQ("hSubPurPNew", Form("P with the BG rejection against the assumed purity, %d trials on the whole sample, %s%s;assumed purity (CE recon / all recon tracks);Polarization fit P", nSub, sampleName[2], cutText.c_str()), 50, qlo - qpad, qhi + qpad, 50, blo - bpad, bhi + bpad);
+                    for (size_t i = 0; i < pBg.size(); i++) hPQ.Fill(purAss[i], pBg[i]);
+                    hPQ.SetStats(0); hPQ.SetMarkerStyle(20); hPQ.SetMarkerColor(ClassColor(2)); hPQ.SetMarkerSize(0.8);
+                    hPQ.Draw("scat");
+                    TLine ltq(qlo - qpad, pTrue, qhi + qpad, pTrue); ltq.SetLineStyle(3); ltq.SetLineWidth(3); ltq.Draw();
+                    c.Modified(); c.Update();
+                    c.Print((pathB + ")").c_str());
+                    c.Clear(); c.SetLeftMargin(0.13); c.SetRightMargin(0.30); c.SetTopMargin(0.1); c.SetBottomMargin(0.13);
+                    made += nShow + 3;
                 }
             }
         }

@@ -1,0 +1,22 @@
+#!/bin/bash -l
+#PBS -q backfill
+#PBS -A eic
+#PBS -N MvRun
+#PBS -l select=1:ncpus=4
+#PBS -l walltime=12:00:00
+#PBS -j oe
+
+# Move one finished run folder to the NPol data area and leave a symlink at the old path.
+# Submit with -v RUN=<run folder in build/root> and -W depend=afterany:<the run's job id>.
+# Skips (and says why) when the run is not finished: sim output still there, no cut_angles_all.root, or no megaCut scan_stats.csv.
+BASE=/lcrc/project/eic/tgibbons/G4ChargeExchange
+NPOL=/lcrc/group/eic/data/NPol/0.00000_Trevor
+cd $BASE/build/root || exit 1
+[ -L $RUN ] && { echo "skip $RUN (already a symlink)"; exit 0; }
+[ -d $RUN ] || { echo "skip $RUN (no folder)"; exit 1; }
+ls $RUN/output*_t*.root > /dev/null 2>&1 && { echo "skip $RUN (sim output still there, run not finished)"; exit 1; }
+[ -s $RUN/cuts/cut_angles_all.root ] || { echo "skip $RUN (no cuts/cut_angles_all.root)"; exit 1; }
+[ -s $RUN/plots/6_ReconNew_1/6_megaCut/scan_stats.csv ] || { echo "skip $RUN (no megaCut scan_stats.csv)"; exit 1; }
+mkdir -p $NPOL/$(dirname $RUN) && rsync -a --remove-source-files $RUN/ $NPOL/$RUN/ \
+    && find $RUN -depth -type d -empty -delete && ln -s $NPOL/$RUN $BASE/build/root/$RUN \
+    && echo "$(date +%H:%M) moved $RUN" || { echo "$(date +%H:%M) FAILED $RUN"; exit 1; }

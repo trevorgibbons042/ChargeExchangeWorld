@@ -1,0 +1,14 @@
+#!/bin/bash -l
+#PBS -q backfill
+#PBS -A eic
+#PBS -N F9Bdt
+#PBS -l select=1:ncpus=128
+#PBS -l walltime=04:00:00
+#PBS -j oe
+module load root
+export LD_LIBRARY_PATH=/lcrc/project/eic/tgibbons/xxhash-install/lib:/lcrc/project/eic/tgibbons/gif-lib:$LD_LIBRARY_PATH
+export USE_BDT=1 NCPUS=128 ANA_NTHREADS=128 ACLIC=+O PLOT_PIPELINE=1
+cd /lcrc/project/eic/tgibbons/G4ChargeExchange/build/root/$RUN || exit 1
+rm -rf plots/10_BDTcuts
+zsh -c 'source ./run_lib.sh; run F9_PlotReconNew.cpp; run F10_BDTCuts.cpp'
+echo === files; find plots/10_BDTcuts -type f | head -40

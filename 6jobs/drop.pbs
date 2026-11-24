@@ -1,0 +1,18 @@
+#!/bin/bash -l
+#PBS -q backfill
+#PBS -A eic
+#PBS -N Drop
+#PBS -l select=1:ncpus=32
+#PBS -l walltime=02:00:00
+#PBS -j oe
+#PBS -o /lcrc/project/eic/tgibbons/drop.log
+module load root
+export LD_LIBRARY_PATH=/lcrc/project/eic/tgibbons/xxhash-install/lib:/lcrc/project/eic/tgibbons/gif-lib:$LD_LIBRARY_PATH
+B=/lcrc/project/eic/tgibbons/G4ChargeExchange/build/root
+for x in "0.3m 2block 12" "0.1m 3block 12"; do
+  set -- $x
+  cd $B/newPhysics_801_100m_$1/50GeV/$2
+  cp /lcrc/project/eic/tgibbons/Drop.cpp .
+  echo "== $1 $2"
+  root -l -b -q "Drop.cpp+O(50000.0, $3)" 2>&1 | grep -a "CE \|rror"
+done

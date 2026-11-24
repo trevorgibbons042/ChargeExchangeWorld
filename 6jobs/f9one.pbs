@@ -1,0 +1,15 @@
+#!/bin/bash -l
+#PBS -q backfill
+#PBS -A eic
+#PBS -l select=1:ncpus=128
+#PBS -l walltime=02:00:00
+#PBS -j oe
+module load root
+export LD_LIBRARY_PATH=/lcrc/project/eic/tgibbons/xxhash-install/lib:/lcrc/project/eic/tgibbons/gif-lib:$LD_LIBRARY_PATH
+export NCPUS=128 ANA_NTHREADS=128 ACLIC=+O PLOT_PIPELINE=1
+B=/lcrc/project/eic/tgibbons/G4ChargeExchange
+cd $D
+rsync -a --exclude __pycache__ --exclude "*_cpp.*" --exclude .DS_Store --exclude CLAUDE.md --exclude debug $B/5rootMacros/ $D/
+rsync -a $B/6jobs/run_lib.sh $D/
+zsh -c "source ./run_lib.sh; run F9_PlotReconNew.cpp" 2>&1 | grep -av TCanvas
+echo ALLDONE

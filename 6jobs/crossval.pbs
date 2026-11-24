@@ -1,0 +1,15 @@
+#!/bin/bash -l
+#PBS -q backfill
+#PBS -A eic
+#PBS -N CrossVal
+#PBS -l select=1:ncpus=128
+#PBS -l walltime=04:00:00
+#PBS -j oe
+#PBS -o /lcrc/project/eic/tgibbons/G4ChargeExchange/build/root/newPhysics2_801_100m_0.4m/25GeV/5block/tmva_crossval.log
+module load root
+module load openblas/0.3.26-gcc-12.3.0
+export LD_LIBRARY_PATH=/lcrc/project/eic/tgibbons/xxhash-install/lib:/lcrc/project/eic/tgibbons/gif-lib:$LD_LIBRARY_PATH
+export NCPUS=128 ANA_NTHREADS=128 ACLIC=+O
+cd /lcrc/project/eic/tgibbons/G4ChargeExchange/build/root/newPhysics2_801_100m_0.4m/25GeV/5block || exit 1
+zsh -c 'source ./run_lib.sh; run TmvaCrossVal.cpp'
+echo === files; ls -l resultTMVACrossValidation.root plots/10_BDTcuts/TMVA/*crossvalidation* 2>&1

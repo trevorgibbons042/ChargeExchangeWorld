@@ -1,0 +1,24 @@
+#!/bin/bash -l
+#PBS -q backfill
+#PBS -A eic
+#PBS -N F9Small2
+#PBS -l select=1:ncpus=32
+#PBS -l walltime=00:30:00
+#PBS -j oe
+#PBS -o /lcrc/project/eic/tgibbons/f9small2.log
+module load root
+export LD_LIBRARY_PATH=/lcrc/project/eic/tgibbons/xxhash-install/lib:/lcrc/project/eic/tgibbons/gif-lib:$LD_LIBRARY_PATH
+export NCPUS=32 ANA_NTHREADS=32
+cd /lcrc/project/eic/tgibbons/f9small
+cat > T1.cpp <<EOT
+#include "FitCore.h"
+void T1(){
+    TFile* f=TFile::Open("cuts/cut_angles_all.root"); TTree* t=(TTree*)f->Get("AnglesRaw");
+    ROOT::EnableImplicitMT(NThreads());
+    printf("n %lld\n",t->GetEntries()); fflush(stdout);
+    auto a=ColumnsUnordered(t,{"outTheta","outDTheta"}); printf("A %zu %zu\n",a.size(),a[0].size()); fflush(stdout);
+    auto b=ColumnsUnordered(t,{"entryNo","outTheta"}); printf("B %zu %zu\n",b.size(),b[0].size()); fflush(stdout);
+    double mx=0; for(double v:b[0]) mx=std::max(mx,v); printf("max entryNo %f\n",mx);
+}
+EOT
+root -l -b -q T1.cpp+O 2>&1 | grep -av TCanvas | tail -20

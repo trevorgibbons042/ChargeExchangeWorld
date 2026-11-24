@@ -1,0 +1,21 @@
+#!/bin/bash -l
+#PBS -q backfill
+#PBS -A eic
+#PBS -N F9Fix4
+#PBS -l select=1:ncpus=128
+#PBS -l walltime=04:00:00
+#PBS -j oe
+#PBS -o /lcrc/project/eic/tgibbons/f9fix4.log
+module load root
+export LD_LIBRARY_PATH=/lcrc/project/eic/tgibbons/xxhash-install/lib:/lcrc/project/eic/tgibbons/gif-lib:$LD_LIBRARY_PATH
+export NCPUS=128 ANA_NTHREADS=128 ACLIC=+O PLOT_PIPELINE=1
+B=/lcrc/project/eic/tgibbons/G4ChargeExchange
+for d in $B/build/root/newPhysics_801_100m_*m/50GeV/*block; do
+  [ -s $d/plots/6_ReconNew_1/6_megaCut/scan_stats.csv ] && continue; rm -rf $d/plots/6_ReconNew_1
+  [ -s $d/cuts/cut_angles_all.root ] || continue
+  echo "=== $d"; cd $d
+  rsync -a --exclude __pycache__ --exclude "*_cpp.*" --exclude .DS_Store --exclude CLAUDE.md --exclude debug $B/5rootMacros/ $d/
+  rsync -a $B/6jobs/run_lib.sh $d/
+  zsh -c "source ./run_lib.sh; run F9_PlotReconNew.cpp" 2>&1 | grep -av TCanvas; echo exit ${pipestatus[1]:-$?}
+done
+echo ALLDONE

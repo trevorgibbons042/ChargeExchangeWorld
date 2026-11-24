@@ -33,6 +33,7 @@ echo ">>> jobs $ids"
 
 if [ $# -gt 0 ]; then
     # the waiting job: starts the next batch when every job of this one has ended
-    printf '#!/bin/bash -l\nPREV=%s bash %s/ScanThickness.sh %s\n' "$T" "$SCAN_DIR" "$*" \
-        | qsub -N "ScanNext_$1" -q backfill -A eic -l select=1:ncpus=1 -l walltime=01:00:00 -j oe -m n -o "$SCAN_DIR/ScanThickness_$1.log" -W "depend=afterany:$ids"
+    # the waiting job does not see this shell's environment, so the settings of this scan (ENERGIES, COUNTS, ADDTRK, TEMPLATE, DEST) are written into its script: a lane of one energy stays a lane of that energy
+    printf '#!/bin/bash -l\nPREV=%s ENERGIES="%s" COUNTS="%s" ADDTRK="%s" TEMPLATE=%s DEST=%s bash %s/ScanThickness.sh %s\n' "$T" "$ENERGIES" "$COUNTS" "$ADDTRK" "$TEMPLATE" "$DEST" "$SCAN_DIR" "$*" \
+        | qsub -N "ScanNext_$1" -q backfill -A eic -l select=1:ncpus=1 -l walltime=01:00:00 -j oe -m n -o "$SCAN_DIR/ScanThickness_$1_${ENERGIES%%:*}.log" -W "depend=afterany:$ids"
 fi
